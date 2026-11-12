@@ -48,6 +48,7 @@ import {
   PanelLeft,
   MoreHorizontal,
   Folder,
+  FolderOpen,
   ExternalLink,
   Check,
   Info,
@@ -55,6 +56,9 @@ import {
   Radio,
   Library,
   Rss,
+  ChevronLeft,
+  ChevronDown,
+  ArrowLeft,
 } from 'lucide-react';
 
 interface HistoryEntry {
@@ -186,15 +190,19 @@ export const App: React.FC = () => {
 
   const addMusicRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
+  const [openSiblingCrumbIndex, setOpenSiblingCrumbIndex] = useState<number | null>(null);
+  const siblingMenuRef = useRef<HTMLDivElement>(null);
 
   const loadTree = async (preferredNodeId?: string) => {
     try {
       const data = await fetchTree();
       setTree(data);
-      if (preferredNodeId && findNodeById(data, preferredNodeId)) {
-        setActiveNodeId(preferredNodeId);
-      } else if (!activeNodeId && data.length > 0 && data[0]) {
-        setActiveNodeId(data[0].id);
+      if (preferredNodeId !== undefined) {
+        if (preferredNodeId === '' || preferredNodeId === 'root') {
+          setActiveNodeId('');
+        } else if (findNodeById(data, preferredNodeId)) {
+          setActiveNodeId(preferredNodeId);
+        }
       }
     } catch (err) {
       console.error('Failed to load library:', err);
@@ -227,18 +235,22 @@ export const App: React.FC = () => {
       if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
         setHistoryOpen(false);
       }
+      if (siblingMenuRef.current && !siblingMenuRef.current.contains(e.target as Node)) {
+        setOpenSiblingCrumbIndex(null);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Keyboard shortcut for Command Palette
+  // Keyboard shortcut for Command Palette and Back navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCommandPaletteOpen(true);
       } else if (e.key === 'Escape') {
+        setOpenSiblingCrumbIndex(null);
         setHistoryOpen(false);
         setContextMenu(prev => ({ ...prev, isOpen: false }));
         setImportModalOpen(false);
@@ -252,21 +264,59 @@ export const App: React.FC = () => {
         setColumnMenuOpen(false);
         setAddMusicMenuOpen(false);
         setActiveTrack(null);
+      } else if (
+        (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowLeft')) &&
+        !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)
+      ) {
+        if (activeNodeId) {
+          e.preventDefault();
+          handleGoBack();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [activeNodeId, activePath]);
 
   const activeNode = useMemo(() => {
-    if (!activeNodeId) return tree[0] || null;
-    return findNodeById(tree, activeNodeId) || tree[0] || null;
+    if (!activeNodeId) return null;
+    return findNodeById(tree, activeNodeId) || null;
   }, [tree, activeNodeId]);
+
+  const allLibraryTracks = useMemo(() => {
+    const list: Track[] = [];
+    for (const n of tree) {
+      list.push(...flattenTracks(n));
+    }
+    return list;
+  }, [tree]);
+
+  const filteredRootNodes = useMemo(() => {
+    if (!filterText) return tree;
+    const q = filterText.toLowerCase();
+    return tree.filter(n => n.name.toLowerCase().includes(q) || n.type.toLowerCase().includes(q));
+  }, [tree, filterText]);
 
   const activePath = useMemo(() => {
     if (!activeNode) return [];
     return findNodePath(tree, activeNode.id) || [];
   }, [tree, activeNode]);
+
+  const getSiblingsForCrumbIndex = (idx: number): LibraryNode[] => {
+    if (idx <= 0) return tree;
+    const parent = activePath[idx - 1];
+    return parent && parent.children ? parent.children : [];
+  };
+
+  const handleGoBack = () => {
+    if (activePath.length > 1) {
+      const parent = activePath[activePath.length - 2];
+      if (parent) selectNode(parent);
+    } else {
+      setActiveNodeId('');
+      setSelectedTrackIds(new Set());
+    }
+  };
 
   const activeFlatTracks = useMemo(() => {
     if (!activeNode) return [];
@@ -1034,127 +1084,251 @@ export const App: React.FC = () => {
 
   return (
     <>
-      {/* Header */}
-      <header>
-        {/* Left: Mobile Toggle & Breadcrumb / History Functions */}
-        <div className="header-left">
-          <button
-            id="mb"
-            aria-label="Toggle library"
-            onClick={() => setSidebarOpenMobile(!sidebarOpenMobile)}
-          >
-            Library
-          </button>
-
-          <nav className="crumbs" aria-label="Breadcrumb">
-            <div
-              className="crumb-history-container"
-              ref={historyRef}
-              onMouseEnter={handleHistoryMouseEnter}
-              onMouseLeave={handleHistoryMouseLeave}
+      {/* Unified Navigation & Command Bar */}
+      <header className="unified-nav-bar">
+        {/* Left: Back Arrow + History (../) + Interactive Fluid Breadcrumbs */}
+        <div className="unified-nav-left">
+          {activeNode && (
+            <button
+              type="button"
+              className="crumb-back-btn"
+              onClick={handleGoBack}
+              title={`Go back up to ${activePath.length > 1 ? activePath[activePath.length - 2]?.name : 'Library'}`}
+              aria-label="Go back up"
             >
+              <ArrowLeft size={14} />
+            </button>
+          )}
+
+          {/* ../ History button & popover */}
+          <div
+            className="crumb-history-container"
+            ref={historyRef}
+            onMouseEnter={handleHistoryMouseEnter}
+            onMouseLeave={handleHistoryMouseLeave}
+          >
+            <button
+              type="button"
+              className={`crumb-history-btn ${historyOpen ? 'active' : ''}`}
+              onClick={handleHistoryClick}
+              title="Navigation history (hover or click)"
+              aria-label="Navigation history"
+            >
+              ../
+            </button>
+
+            {historyOpen && (
+              <div className="crumb-history-dropdown" role="menu">
+                <div className="crumb-history-header">
+                  <div className="crumb-history-title">
+                    <History size={12} />
+                    <span>Navigation History</span>
+                  </div>
+                  {history.length > 0 && (
+                    <button
+                      type="button"
+                      className="crumb-history-clear-btn"
+                      onClick={handleClearHistory}
+                      title="Clear history"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                <div className="crumb-history-list">
+                  {history.length === 0 ? (
+                    <div className="crumb-history-empty">
+                      No pages visited yet
+                    </div>
+                  ) : (
+                    history.map(item => {
+                      if (!item || !item.id) return null;
+                      const isCurrent = activeNode?.id === item.id;
+                      const itemName = item.name || 'Untitled';
+                      const itemType = item.type || 'Folder';
+                      return (
+                        <button
+                          key={`${item.id}-${item.timestamp || 0}`}
+                          type="button"
+                          className={`crumb-history-item ${isCurrent ? 'is-current' : ''}`}
+                          onClick={() => handleSelectHistoryItem(item)}
+                        >
+                          <CoverArt
+                            src={item.cover_url}
+                            alt={itemName}
+                            size={22}
+                            type={itemType === 'Artist' ? 'artist' : itemType === 'Folder' ? 'folder' : 'album'}
+                            seed={itemName}
+                            rounded={itemType === 'Artist' ? 'full' : 4}
+                          />
+                          <div className="crumb-history-item-meta">
+                            <span className="crumb-history-item-name">{itemName}</span>
+                            <div className="crumb-history-item-sub">
+                              <span>{itemType}</span>
+                              <span>·</span>
+                              <span>{fmtTimeAgo(item.timestamp)}</span>
+                              {isCurrent && (
+                                <>
+                                  <span>·</span>
+                                  <span style={{ color: '#4ade80', fontWeight: 600 }}>Active</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Fluid Interactive Breadcrumbs */}
+          <nav className="unified-crumbs" aria-label="Breadcrumb">
+            {/* Root Library Crumb */}
+            <div className="crumb-item-wrap">
+              <span
+                className={`crumb-link root-crumb ${!activeNode ? 'is-active' : ''}`}
+                onClick={() => {
+                  setActiveNodeId('');
+                  setSelectedTrackIds(new Set());
+                }}
+                title="Library Overview"
+              >
+                <Library size={13} style={{ marginRight: 4 }} />
+                <span>Library</span>
+              </span>
+
+              {/* Sibling dropdown trigger for Library */}
               <button
                 type="button"
-                className={`crumb-history-btn ${historyOpen ? 'active' : ''}`}
-                onClick={handleHistoryClick}
-                title="Navigation history (hover or click)"
-                aria-label="Navigation history"
+                className={`crumb-sibling-btn ${openSiblingCrumbIndex === -1 ? 'active' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setOpenSiblingCrumbIndex(openSiblingCrumbIndex === -1 ? null : -1);
+                }}
+                title="Browse top-level crates"
               >
-                ../
+                <ChevronDown size={11} />
               </button>
 
-              {historyOpen && (
-                <div className="crumb-history-dropdown" role="menu">
-                  <div className="crumb-history-header">
-                    <div className="crumb-history-title">
-                      <History size={12} />
-                      <span>Navigation History</span>
-                    </div>
-                    {history.length > 0 && (
+              {openSiblingCrumbIndex === -1 && (
+                <div className="crumb-sibling-dropdown" ref={siblingMenuRef}>
+                  <div className="sibling-dropdown-header">Top-Level Crates &amp; Folders</div>
+                  <div className="sibling-dropdown-list">
+                    {tree.map(n => (
                       <button
+                        key={n.id}
                         type="button"
-                        className="crumb-history-clear-btn"
-                        onClick={handleClearHistory}
-                        title="Clear history"
+                        className={`sibling-dropdown-item ${activeNode?.id === n.id ? 'is-active' : ''}`}
+                        onClick={() => {
+                          selectNode(n);
+                          setOpenSiblingCrumbIndex(null);
+                        }}
                       >
-                        Clear
+                        <CoverArt
+                          src={n.cover_url}
+                          alt={n.name}
+                          size={18}
+                          type={n.type === 'Artist' ? 'artist' : n.type === 'Folder' ? 'folder' : 'album'}
+                          seed={n.name}
+                          rounded={n.type === 'Artist' ? 'full' : 3}
+                        />
+                        <span className="sibling-item-name">{n.name}</span>
+                        <span className="sibling-item-badge">{n.type}</span>
                       </button>
-                    )}
-                  </div>
-
-                  <div className="crumb-history-list">
-                    {history.length === 0 ? (
-                      <div className="crumb-history-empty">
-                        No pages visited yet
-                      </div>
-                    ) : (
-                      history.map(item => {
-                        if (!item || !item.id) return null;
-                        const isCurrent = activeNode?.id === item.id;
-                        const itemName = item.name || 'Untitled';
-                        const itemType = item.type || 'Folder';
-                        return (
-                          <button
-                            key={`${item.id}-${item.timestamp || 0}`}
-                            type="button"
-                            className={`crumb-history-item ${isCurrent ? 'is-current' : ''}`}
-                            onClick={() => handleSelectHistoryItem(item)}
-                          >
-                            <CoverArt
-                              src={item.cover_url}
-                              alt={itemName}
-                              size={22}
-                              type={itemType === 'Artist' ? 'artist' : itemType === 'Folder' ? 'folder' : 'album'}
-                              seed={itemName}
-                              rounded={itemType === 'Artist' ? 'full' : 4}
-                            />
-                            <div className="crumb-history-item-meta">
-                              <span className="crumb-history-item-name">{itemName}</span>
-                              <div className="crumb-history-item-sub">
-                                <span>{itemType}</span>
-                                <span>·</span>
-                                <span>{fmtTimeAgo(item.timestamp)}</span>
-                                {isCurrent && (
-                                  <>
-                                    <span>·</span>
-                                    <span style={{ color: '#4ade80', fontWeight: 600 }}>Active</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })
-                    )}
+                    ))}
+                    <button
+                      type="button"
+                      className="sibling-dropdown-item new-btn"
+                      onClick={() => {
+                        setOpenSiblingCrumbIndex(null);
+                        setNewContainerOpen(true);
+                      }}
+                    >
+                      <Plus size={13} />
+                      <span>Create New Container…</span>
+                    </button>
                   </div>
                 </div>
               )}
             </div>
 
-            <span
-              className="crumb-link"
-              onClick={() => tree[0] && selectNode(tree[0])}
-            >
-              Library
-            </span>
-            {activePath.map((item, idx) => (
-              <React.Fragment key={item.id}>
-                <span>/</span>
-                {idx === activePath.length - 1 ? (
-                  <b>{item.name}</b>
-                ) : (
-                  <span className="crumb-link" onClick={() => selectNode(item)}>
-                    {item.name}
-                  </span>
-                )}
-              </React.Fragment>
-            ))}
+            {/* Path Segments */}
+            {activePath.map((item, idx) => {
+              const isLast = idx === activePath.length - 1;
+              const siblings = getSiblingsForCrumbIndex(idx);
+
+              return (
+                <React.Fragment key={item.id}>
+                  <span className="crumb-sep">/</span>
+                  <div className="crumb-item-wrap">
+                    {isLast ? (
+                      <b className="crumb-current">{item.name}</b>
+                    ) : (
+                      <span className="crumb-link" onClick={() => selectNode(item)}>
+                        {item.name}
+                      </span>
+                    )}
+
+                    {siblings.length > 1 && (
+                      <button
+                        type="button"
+                        className={`crumb-sibling-btn ${openSiblingCrumbIndex === idx ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenSiblingCrumbIndex(openSiblingCrumbIndex === idx ? null : idx);
+                        }}
+                        title={`Switch sibling (inside ${idx === 0 ? 'Library' : activePath[idx - 1]?.name})`}
+                      >
+                        <ChevronDown size={11} />
+                      </button>
+                    )}
+
+                    {openSiblingCrumbIndex === idx && (
+                      <div className="crumb-sibling-dropdown" ref={siblingMenuRef}>
+                        <div className="sibling-dropdown-header">
+                          Siblings in {idx === 0 ? 'Library' : activePath[idx - 1]?.name}
+                        </div>
+                        <div className="sibling-dropdown-list">
+                          {siblings.map(sib => (
+                            <button
+                              key={sib.id}
+                              type="button"
+                              className={`sibling-dropdown-item ${sib.id === item.id ? 'is-active' : ''}`}
+                              onClick={() => {
+                                selectNode(sib);
+                                setOpenSiblingCrumbIndex(null);
+                              }}
+                            >
+                              <CoverArt
+                                src={sib.cover_url}
+                                alt={sib.name}
+                                size={18}
+                                type={sib.type === 'Artist' ? 'artist' : sib.type === 'Folder' ? 'folder' : 'album'}
+                                seed={sib.name}
+                                rounded={sib.type === 'Artist' ? 'full' : 3}
+                              />
+                              <span className="sibling-item-name">{sib.name}</span>
+                              <span className="sibling-item-badge">{sib.type}</span>
+                              {sib.id === item.id && <span className="sibling-active-dot" />}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </React.Fragment>
+              );
+            })}
           </nav>
         </div>
 
         {/* Center: Search Command Bar in the middle */}
-        <div className="header-center">
-          <button className="cmd" onClick={() => setCommandPaletteOpen(true)}>
+        <div className="unified-nav-center">
+          <button className="cmd unified-search-cmd" onClick={() => setCommandPaletteOpen(true)}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <Search size={14} style={{ color: 'var(--mu)' }} />
               <span>Search or jump to…</span>
@@ -1163,15 +1337,82 @@ export const App: React.FC = () => {
           </button>
         </div>
 
-        {/* Right: Empty actions container */}
-        <div className="header-right" />
+        {/* Right: Actions (Container, Add Music, Backup) */}
+        <div className="unified-nav-right">
+          <button
+            type="button"
+            className="unified-action-btn"
+            onClick={() => setNewContainerOpen(true)}
+            title="Create New Container"
+          >
+            <FolderPlus size={13} />
+            <span>Container</span>
+          </button>
+
+          <div style={{ position: 'relative' }} ref={addMusicRef}>
+            <button
+              type="button"
+              className="p unified-action-btn"
+              onClick={() => setAddMusicMenuOpen(!addMusicMenuOpen)}
+              title="Add Music"
+            >
+              <Plus size={13} />
+              <span>Add Music</span>
+            </button>
+
+            {addMusicMenuOpen && (
+              <div className="add-music-dropdown" style={{ right: 0, left: 'auto', top: 'calc(100% + 6px)' }}>
+                <button
+                  type="button"
+                  className="add-music-option"
+                  onClick={() => {
+                    setAddMusicMenuOpen(false);
+                    setImportModalOpen(true);
+                  }}
+                >
+                  <div style={{ padding: 6, borderRadius: 6, background: '#1e3a5f', color: '#60a5fa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Sparkles size={16} />
+                  </div>
+                  <div>
+                    <div className="add-music-title">Search &amp; Import Releases</div>
+                    <div className="add-music-desc">Search artists &amp; albums from Discogs 17.5M+ and Deezer</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  className="add-music-option"
+                  onClick={() => {
+                    setAddMusicMenuOpen(false);
+                    setNewTrackOpen(true);
+                  }}
+                >
+                  <div style={{ padding: 6, borderRadius: 6, background: '#143825', color: '#34d399', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Plus size={16} />
+                  </div>
+                  <div>
+                    <div className="add-music-title">Add Track Manually</div>
+                    <div className="add-music-desc">Enter custom track metadata, duration &amp; catalog tags</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            className="btn-icon"
+            onClick={() => setBackupOpen(true)}
+            title="Backup &amp; Restore Library"
+            style={{ width: 30, height: 30 }}
+          >
+            <Layers size={14} />
+          </button>
+        </div>
       </header>
 
-      {/* Main Workspace with Seamless Page Connection */}
-      <main
-        className={`main-workspace ${currentPage === 'feed' ? 'is-feed' : 'is-library'} page-enter-anim`}
-        key={currentPage}
-      >
+      {/* Main Single-Space Unified Workspace (No panels, no sections) */}
+      <main className="unified-canvas">
         {currentPage === 'feed' ? (
           <SocialFeedPage
             tree={tree}
@@ -1179,402 +1420,426 @@ export const App: React.FC = () => {
             onImportRelease={handleImportFeedRelease}
             showToast={showToast}
           />
-        ) : (
-          <>
-            {/* Sidebar */}
-            <aside
-          id="side"
-          className={sidebarOpenMobile ? 'on' : ''}
-          onContextMenu={handleSidebarContextMenu}
-        >
-          <div className="tree-list">
-            {loading ? (
-              <div style={{ color: 'var(--mu)', padding: 12 }}>Loading library...</div>
-            ) : tree.length === 0 ? (
-              <div className="empty-sidebar-box">
-                <FolderPlus size={22} style={{ color: 'var(--mu)', marginBottom: 8 }} />
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: '#f4f4f5' }}>Blank Library</div>
-                <p style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 12px', lineHeight: 1.4 }}>
-                  Create your first container or import music to organize your library.
+        ) : !activeNode ? (
+          /* =========================================================================
+             Library Root Overview View (Drilldown Top Level)
+             ========================================================================= */
+          <div className="library-root-view" onContextMenu={handleTableContextMenu}>
+            <div className="library-root-header">
+              <div className="library-root-meta">
+                <div className="library-root-badge">AUDIO LIBRARY</div>
+                <h1 className="library-root-title">Music Collection</h1>
+                <p className="library-root-subtitle">
+                  {tree.length} {tree.length === 1 ? 'container' : 'containers'} · {allLibraryTracks.length} tracks · {fmtTotalRuntime(allLibraryTracks)}
                 </p>
+              </div>
+
+              <div className="library-root-actions">
+                <input
+                  type="search"
+                  placeholder="Filter crates &amp; artists…"
+                  value={filterText}
+                  onChange={e => setFilterText(e.target.value)}
+                  className="library-root-filter"
+                />
                 <button
                   className="p"
-                  style={{ fontSize: 11, width: '100%', justifyContent: 'center' }}
                   onClick={() => setNewContainerOpen(true)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
                 >
-                  <Plus size={13} />
+                  <FolderPlus size={14} />
                   <span>New Container</span>
                 </button>
               </div>
-            ) : (
-              tree.map(n => renderTreeNode(n, 0))
-            )}
-          </div>
+            </div>
 
-          <div className="tree-actions">
-            <button
-              style={{ flex: 1, fontSize: 12 }}
-              onClick={() => setNewContainerOpen(true)}
-            >
-              <FolderPlus size={13} />
-              <span>Container</span>
-            </button>
-            <button
-              style={{ fontSize: 12 }}
-              title="Backup / Restore"
-              onClick={() => setBackupOpen(true)}
-            >
-              <Layers size={13} />
-              <span>Backup</span>
-            </button>
-          </div>
-        </aside>
-
-        {/* Section / Table */}
-        <section onContextMenu={handleTableContextMenu}>
-          {/* Active Container Hero Banner with Discogs / Ambient Background Artwork */}
-          {activeNode && (activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist' || activeNode.type === 'Folder') && (
-            <div className="active-hero-banner">
-              {/* Bigger Art Backdrop from Discogs or Child Artwork */}
-              {heroBackdrop && (
-                <div className="hero-backdrop" aria-hidden="true">
-                  <div
-                    className="hero-backdrop-glow"
-                    style={{ backgroundImage: `url(${heroBackdrop})` }}
-                  />
-                  <div
-                    className="hero-backdrop-artwork"
-                    style={{ backgroundImage: `url(${heroBackdrop})` }}
-                  />
-                  <div className="hero-backdrop-scrim" />
+            {tree.length === 0 ? (
+              <div className="empty-library-hero">
+                <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#1c1c24', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, border: '1px solid #272732' }}>
+                  <Disc size={28} style={{ color: '#60a5fa' }} />
                 </div>
-              )}
+                <h2 style={{ fontSize: 20, margin: '0 0 8px', fontWeight: 600 }}>Your Music Collection Starts Here</h2>
+                <p style={{ color: 'var(--mu)', fontSize: 13, maxWidth: 440, margin: '0 auto 20px', lineHeight: 1.5 }}>
+                  Create custom folders, artists, labels, and playlists, or search across Discogs&rsquo; 17.5M+ physical releases and Deezer streaming.
+                </p>
+                <div className="hero-actions">
+                  <button className="p" style={{ padding: '8px 16px', fontSize: 13 }} onClick={() => setImportModalOpen(true)}>
+                    <Sparkles size={15} />
+                    <span>Import Releases &amp; Artists</span>
+                  </button>
+                  <button style={{ padding: '8px 16px', fontSize: 13 }} onClick={() => setNewContainerOpen(true)}>
+                    <FolderPlus size={15} />
+                    <span>Create Container</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="library-root-grid">
+                {filteredRootNodes.map(node => {
+                  const nodeTracks = flattenTracks(node);
+                  const childCount = node.children?.length || 0;
+                  const backdrop = node.cover_url || node.tracks?.[0]?.cover_url || (node.children?.[0]?.cover_url) || null;
 
-              {/* Foreground Type Art / Title / Info Section */}
-              <div className="active-hero-content">
-                <CoverArt
-                  src={activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || heroBackdrop}
-                  alt={activeNode.name}
-                  size={92}
-                  type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : activeNode.type === 'Folder' ? 'folder' : 'album'}
-                  seed={activeNode.name}
-                  rounded={activeNode.type === 'Artist' ? 'full' : 8}
-                />
-                <div className="active-hero-meta">
-                  <div className="active-hero-badge-row">
-                    <span className="active-hero-badge">{activeNode.type.toUpperCase()}</span>
-                    {activeNode.type === 'Album' && activeNode.tracks?.[0]?.f && (
-                      <span className="active-hero-tag">{activeNode.tracks[0].f}</span>
-                    )}
-                    {activeNode.type === 'Folder' && (
-                      <span className="active-hero-tag">{activeNode.children?.length || 0} CONTAINERS</span>
-                    )}
-                  </div>
-                  <h2 className="active-hero-title">{activeNode.name}</h2>
-                  <div className="active-hero-sub">
-                    {activeNode.type === 'Album' && activeNode.tracks?.[0]?.a && (
-                      <span style={{ color: '#fafafa', fontWeight: 500 }}>{activeNode.tracks[0].a} · </span>
-                    )}
-                    {activeNode.type === 'Album' && activeNode.tracks?.[0]?.y ? (
-                      <span>{activeNode.tracks[0].y} · </span>
-                    ) : null}
-                    {activeNode.type === 'Artist' ? (
-                      activeFlatTracks.length > 0 ? (
-                        <>
-                          <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
-                          <span> · {fmtTotalRuntime(activeFlatTracks)}</span>
-                        </>
-                      ) : activeNode.children && activeNode.children.length > 0 ? (
-                        <span>{activeNode.children.length} {activeNode.children.length === 1 ? 'release' : 'releases'}</span>
-                      ) : null
-                    ) : (
-                      <>
-                        <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
-                        {activeFlatTracks.length > 0 && <span> · {fmtTotalRuntime(activeFlatTracks)}</span>}
-                      </>
-                    )}
-                    {activeFlatTracks.some(t => !t.isrc || t.isrc === '—') && (
-                      <>
-                        <span> · </span>
-                        <button
-                          type="button"
-                          onClick={handleEnrichActiveTracksIsrc}
-                          disabled={enrichingIsrc}
-                          title="Search digital music catalog to find verified ISRC codes for these tracks"
-                          style={{
-                            background: 'rgba(255, 255, 255, 0.08)',
-                            border: '1px solid rgba(255, 255, 255, 0.15)',
-                            borderRadius: 4,
-                            padding: '1px 8px',
-                            color: '#e4e4e7',
-                            fontSize: 11,
-                            cursor: enrichingIsrc ? 'wait' : 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                          }}
-                        >
-                          <Sparkles size={11} />
-                          <span>{enrichingIsrc ? 'Resolving ISRCs...' : 'Resolve ISRCs'}</span>
-                        </button>
-                      </>
-                    )}
+                  return (
+                    <div
+                      key={node.id}
+                      className="library-root-card"
+                      onClick={() => selectNode(node)}
+                      onContextMenu={e => handleNodeContextMenu(e, node)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') selectNode(node);
+                      }}
+                    >
+                      {backdrop && (
+                        <div className="card-backdrop-glow" style={{ backgroundImage: `url(${backdrop})` }} />
+                      )}
+
+                      <div className="card-content">
+                        <div className="card-cover-wrap">
+                          <CoverArt
+                            src={backdrop}
+                            alt={node.name}
+                            size={52}
+                            type={node.type === 'Artist' ? 'artist' : node.type === 'Playlist' ? 'playlist' : node.type === 'Folder' ? 'folder' : 'album'}
+                            seed={node.name}
+                            rounded={node.type === 'Artist' ? 'full' : 8}
+                          />
+                          <span className="card-type-badge">{node.type}</span>
+                        </div>
+
+                        <div className="card-info">
+                          <h3 className="card-title">{node.name}</h3>
+                          <div className="card-stats">
+                            {childCount > 0 && <span>{childCount} {childCount === 1 ? 'item' : 'items'}</span>}
+                            {childCount > 0 && nodeTracks.length > 0 && <span>·</span>}
+                            {nodeTracks.length > 0 && (
+                              <span>{nodeTracks.length} {nodeTracks.length === 1 ? 'track' : 'tracks'}</span>
+                            )}
+                            {nodeTracks.length > 0 && <span>· {fmtTotalRuntime(nodeTracks)}</span>}
+                            {childCount === 0 && nodeTracks.length === 0 && (
+                              <span style={{ color: '#71717a' }}>Empty container</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="card-actions" onClick={e => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            className="card-more-btn"
+                            title={`Manage ${node.name}`}
+                            onClick={() => {
+                              setNodeToEdit(node);
+                              setNodeEditOpen(true);
+                            }}
+                          >
+                            <MoreHorizontal size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Create New Container Card */}
+                <div
+                  className="library-root-card new-card"
+                  onClick={() => setNewContainerOpen(true)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') setNewContainerOpen(true);
+                  }}
+                >
+                  <div className="new-card-inner">
+                    <div className="new-card-icon-wrap">
+                      <FolderPlus size={22} />
+                    </div>
+                    <div className="new-card-label">Create New Container</div>
+                    <div className="new-card-desc">Add a folder, artist, or album crate</div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
-
-          {/* Toolbar */}
-          <div className="tb">
-            <h1>
-              <span>{activeNode ? activeNode.name : 'Library'}</span>
-              {activeNode && <span className="ty">{activeNode.type}</span>}
-            </h1>
-
-            <span className="sel">
-              {selectedTrackIds.size > 0 && `${selectedTrackIds.size} selected · `}
-              {activeFlatTracks.length} tracks {activeFlatTracks.length > 0 && `· ${fmtTotalRuntime(activeFlatTracks)}`}
-            </span>
-
-            <input
-              type="search"
-              placeholder="Filter tracks..."
-              value={filterText}
-              onChange={e => setFilterText(e.target.value)}
-              style={{ padding: '4px 9px', fontSize: 12, width: 140 }}
-            />
-
-            {/* Merged unified Add Music Button */}
-            <div style={{ position: 'relative' }} ref={addMusicRef}>
-              <button
-                className="p"
-                onClick={() => setAddMusicMenuOpen(!addMusicMenuOpen)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-              >
-                <Plus size={14} />
-                <span>Add Music</span>
-              </button>
-
-              {addMusicMenuOpen && (
-                <div className="add-music-dropdown">
-                  <button
-                    type="button"
-                    className="add-music-option"
-                    onClick={() => {
-                      setAddMusicMenuOpen(false);
-                      setImportModalOpen(true);
-                    }}
-                  >
-                    <div style={{ padding: 6, borderRadius: 6, background: '#1e3a5f', color: '#60a5fa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Sparkles size={16} />
-                    </div>
-                    <div>
-                      <div className="add-music-title">Search &amp; Import Releases</div>
-                      <div className="add-music-desc">Search artists &amp; albums from Discogs 17.5M+ and Deezer</div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="add-music-option"
-                    onClick={() => {
-                      setAddMusicMenuOpen(false);
-                      setNewTrackOpen(true);
-                    }}
-                  >
-                    <div style={{ padding: 6, borderRadius: 6, background: '#143825', color: '#34d399', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Plus size={16} />
-                    </div>
-                    <div>
-                      <div className="add-music-title">Add Track Manually</div>
-                      <div className="add-music-desc">Enter custom track metadata, duration &amp; catalog tags</div>
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
+            )}
           </div>
-
-          {/* Batch Actions Toolbar */}
-          {selectedTrackIds.size > 0 && (
-            <div className="batch-bar">
-              <span>
-                <b>{selectedTrackIds.size}</b> track{selectedTrackIds.size > 1 ? 's' : ''} selected
-              </span>
-              <button
-                className="p"
-                style={{ fontSize: 11, padding: '2px 8px' }}
-                onClick={() => setMoveTracksOpen(true)}
-              >
-                Move Selected…
-              </button>
-              <button
-                className="danger"
-                style={{ fontSize: 11, padding: '2px 8px' }}
-                onClick={handleBatchDelete}
-              >
-                Delete Selected
-              </button>
-              <button
-                style={{ fontSize: 11, padding: '2px 8px' }}
-                onClick={() => setSelectedTrackIds(new Set())}
-              >
-                Deselect All
-              </button>
-            </div>
-          )}
-
-          {/* Table or Artist Projects Suggestions for Artists without Subitems */}
-          {isArtistWithoutSubitems && activeNode ? (
-            <ArtistProjectsSuggestions
-              artistNode={activeNode}
-              onImportProject={handleImportSuggestedProject}
-              onFinishImport={() => loadTree(activeNode.id)}
-              onOpenSearchModal={() => setImportModalOpen(true)}
-              onNewTrack={() => setNewTrackOpen(true)}
-            />
-          ) : (
-            <div className="tw">
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: 30 }}>
-                    <input
-                      type="checkbox"
-                      checked={
-                        selectedTrackIds.size > 0 &&
-                        selectedTrackIds.size === activeFlatTracks.length
-                      }
-                      onChange={toggleSelectAllCurrent}
-                      aria-label="Select all tracks"
+        ) : (
+          /* =========================================================================
+             Container Detail View (Drilled Down View)
+             ========================================================================= */
+          <div className="container-detail-view" onContextMenu={handleTableContextMenu}>
+            {/* Active Container Hero Banner with Discogs / Ambient Background Artwork */}
+            {(activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist' || activeNode.type === 'Folder') && (
+              <div className="active-hero-banner">
+                {heroBackdrop && (
+                  <div className="hero-backdrop" aria-hidden="true">
+                    <div
+                      className="hero-backdrop-glow"
+                      style={{ backgroundImage: `url(${heroBackdrop})` }}
                     />
-                  </th>
-                  {COLUMNS.filter(c => visibleColumns[c.key]).map(col => {
-                    const isSorted = sortConfig && sortConfig.key === col.key;
-                    return (
-                      <th
-                        key={col.key}
-                        onClick={() => handleSort(col.key)}
-                      >
-                        {col.label}
-                        {isSorted && (sortConfig.direction === 'asc' ? ' ↑' : ' ↓')}
-                      </th>
-                    );
-                  })}
-                  {/* Columns dropdown button in the actual column label row */}
-                  <th
-                    style={{ width: 36, textAlign: 'center', position: 'relative', cursor: 'default' }}
-                    ref={columnMenuRef}
-                  >
-                    <button
-                      type="button"
-                      className="btn-icon"
-                      style={{ width: 22, height: 22, border: 'none', color: columnMenuOpen ? 'var(--fg)' : 'var(--mu)', margin: '0 auto' }}
-                      title="Customize Columns"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setColumnMenuOpen(!columnMenuOpen);
-                      }}
-                    >
-                      <SlidersHorizontal size={12} />
-                    </button>
-
-                    {columnMenuOpen && (
-                      <div className="menu on" style={{ right: 0, top: '100%', minWidth: 160 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--mu)', padding: '2px 4px 6px', borderBottom: '1px solid var(--bd)', marginBottom: 4 }}>
-                          Toggle Columns
-                        </div>
-                        {COLUMNS.filter(c => c.key !== 'title').map(col => (
-                          <label key={col.key}>
-                            <input
-                              type="checkbox"
-                              checked={visibleColumns[col.key]}
-                              onChange={e =>
-                                setVisibleColumns(prev => ({
-                                  ...prev,
-                                  [col.key]: e.target.checked,
-                                }))
-                              }
-                            />
-                            <span>{col.label} {col.isOptional ? '(optional)' : ''}</span>
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeNode ? (
-                  (() => {
-                    const rows = renderSections(activeNode, 0);
-                    if (rows.length === 0) {
-                      return (
-                        <tr>
-                          <td
-                            colSpan={COLUMNS.filter(c => visibleColumns[c.key]).length + 1}
-                            style={{ padding: '60px 20px', color: 'var(--mu)', textAlign: 'center' }}
-                          >
-                            <div style={{ maxWidth: 400, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                              <Disc size={36} style={{ color: '#52525b', marginBottom: 12 }} />
-                              <div style={{ fontWeight: 600, fontSize: 14, color: '#f4f4f5', marginBottom: 4 }}>
-                                [{activeNode.type}] {activeNode.name} is empty
-                              </div>
-                              <p style={{ fontSize: 12, margin: '0 0 16px', lineHeight: 1.4 }}>
-                                Populate this container by searching Discogs &amp; Deezer or adding manual tracks.
-                              </p>
-                              <div style={{ display: 'flex', gap: 8 }}>
-                                <button className="p" onClick={() => setImportModalOpen(true)}>
-                                  <Sparkles size={13} />
-                                  <span>Import Releases</span>
-                                </button>
-                                <button onClick={() => setNewTrackOpen(true)}>
-                                  <Plus size={13} />
-                                  <span>Add Track</span>
-                                </button>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    }
-                    return rows;
-                  })()
-                ) : (
-                  <tr>
-                    <td
-                      colSpan={COLUMNS.filter(c => visibleColumns[c.key]).length + 1}
-                      style={{ padding: 0, borderBottom: 'none' }}
-                    >
-                      <div className="empty-library-hero">
-                        <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#1c1c24', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, border: '1px solid #272732' }}>
-                          <Disc size={28} style={{ color: '#60a5fa' }} />
-                        </div>
-                        <h2 style={{ fontSize: 20, margin: '0 0 8px', fontWeight: 600 }}>Your Music Collection Starts Here</h2>
-                        <p style={{ color: 'var(--mu)', fontSize: 13, maxWidth: 440, margin: '0 auto 20px', lineHeight: 1.5 }}>
-                          Create custom folders, labels, and playlists, or search across Discogs&rsquo; 17.5M+ physical releases and Deezer streaming.
-                        </p>
-                        <div className="hero-actions">
-                          <button className="p" style={{ padding: '8px 16px', fontSize: 13 }} onClick={() => setImportModalOpen(true)}>
-                            <Sparkles size={15} />
-                            <span>Import Releases &amp; Artists</span>
-                          </button>
-                          <button style={{ padding: '8px 16px', fontSize: 13 }} onClick={() => setNewContainerOpen(true)}>
-                            <FolderPlus size={15} />
-                            <span>Create Container</span>
-                          </button>
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
+                    <div
+                      className="hero-backdrop-artwork"
+                      style={{ backgroundImage: `url(${heroBackdrop})` }}
+                    />
+                    <div className="hero-backdrop-scrim" />
+                  </div>
                 )}
-              </tbody>
-            </table>
+
+                <div className="active-hero-content">
+                  <CoverArt
+                    src={activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || heroBackdrop}
+                    alt={activeNode.name}
+                    size={92}
+                    type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : activeNode.type === 'Folder' ? 'folder' : 'album'}
+                    seed={activeNode.name}
+                    rounded={activeNode.type === 'Artist' ? 'full' : 8}
+                  />
+                  <div className="active-hero-meta">
+                    <div className="active-hero-badge-row">
+                      <span className="active-hero-badge">{activeNode.type.toUpperCase()}</span>
+                      {activeNode.type === 'Album' && activeNode.tracks?.[0]?.f && (
+                        <span className="active-hero-tag">{activeNode.tracks[0].f}</span>
+                      )}
+                      {activeNode.type === 'Folder' && (
+                        <span className="active-hero-tag">{activeNode.children?.length || 0} CONTAINERS</span>
+                      )}
+                    </div>
+                    <h2 className="active-hero-title">{activeNode.name}</h2>
+                    <div className="active-hero-sub">
+                      {activeNode.type === 'Album' && activeNode.tracks?.[0]?.a && (
+                        <span style={{ color: '#fafafa', fontWeight: 500 }}>{activeNode.tracks[0].a} · </span>
+                      )}
+                      {activeNode.type === 'Album' && activeNode.tracks?.[0]?.y ? (
+                        <span>{activeNode.tracks[0].y} · </span>
+                      ) : null}
+                      {activeNode.type === 'Artist' ? (
+                        activeFlatTracks.length > 0 ? (
+                          <>
+                            <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
+                            <span> · {fmtTotalRuntime(activeFlatTracks)}</span>
+                          </>
+                        ) : activeNode.children && activeNode.children.length > 0 ? (
+                          <span>{activeNode.children.length} {activeNode.children.length === 1 ? 'release' : 'releases'}</span>
+                        ) : null
+                      ) : (
+                        <>
+                          <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
+                          {activeFlatTracks.length > 0 && <span> · {fmtTotalRuntime(activeFlatTracks)}</span>}
+                        </>
+                      )}
+                      {activeFlatTracks.some(t => !t.isrc || t.isrc === '—') && (
+                        <>
+                          <span> · </span>
+                          <button
+                            type="button"
+                            onClick={handleEnrichActiveTracksIsrc}
+                            disabled={enrichingIsrc}
+                            title="Search digital music catalog to find verified ISRC codes for these tracks"
+                            style={{
+                              background: 'rgba(255, 255, 255, 0.08)',
+                              border: '1px solid rgba(255, 255, 255, 0.15)',
+                              borderRadius: 4,
+                              padding: '1px 8px',
+                              color: '#e4e4e7',
+                              fontSize: 11,
+                              cursor: enrichingIsrc ? 'wait' : 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4,
+                            }}
+                          >
+                            <Sparkles size={11} />
+                            <span>{enrichingIsrc ? 'Resolving ISRCs...' : 'Resolve ISRCs'}</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Toolbar */}
+            <div className="tb">
+              <h1>
+                <span>{activeNode.name}</span>
+                <span className="ty">{activeNode.type}</span>
+              </h1>
+
+              <span className="sel">
+                {selectedTrackIds.size > 0 && `${selectedTrackIds.size} selected · `}
+                {activeFlatTracks.length} tracks {activeFlatTracks.length > 0 && `· ${fmtTotalRuntime(activeFlatTracks)}`}
+              </span>
+
+              <input
+                type="search"
+                placeholder="Filter tracks..."
+                value={filterText}
+                onChange={e => setFilterText(e.target.value)}
+                style={{ padding: '4px 9px', fontSize: 12, width: 140 }}
+              />
+
+              {/* Add Music Button inside container */}
+              <div style={{ position: 'relative' }}>
+                <button
+                  className="p"
+                  onClick={() => setAddMusicMenuOpen(!addMusicMenuOpen)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                >
+                  <Plus size={14} />
+                  <span>Add Music</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Batch Actions Toolbar */}
+            {selectedTrackIds.size > 0 && (
+              <div className="batch-bar">
+                <span>
+                  <b>{selectedTrackIds.size}</b> track{selectedTrackIds.size > 1 ? 's' : ''} selected
+                </span>
+                <button
+                  className="p"
+                  style={{ fontSize: 11, padding: '2px 8px' }}
+                  onClick={() => setMoveTracksOpen(true)}
+                >
+                  Move Selected…
+                </button>
+                <button
+                  className="danger"
+                  style={{ fontSize: 11, padding: '2px 8px' }}
+                  onClick={handleBatchDelete}
+                >
+                  Delete Selected
+                </button>
+                <button
+                  style={{ fontSize: 11, padding: '2px 8px' }}
+                  onClick={() => setSelectedTrackIds(new Set())}
+                >
+                  Deselect All
+                </button>
+              </div>
+            )}
+
+            {/* Table or Artist Projects Suggestions for Artists without Subitems */}
+            {isArtistWithoutSubitems ? (
+              <ArtistProjectsSuggestions
+                artistNode={activeNode}
+                onImportProject={handleImportSuggestedProject}
+                onFinishImport={() => loadTree(activeNode.id)}
+                onOpenSearchModal={() => setImportModalOpen(true)}
+                onNewTrack={() => setNewTrackOpen(true)}
+              />
+            ) : (
+              <div className="tw">
+                <table>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 30 }}>
+                        <input
+                          type="checkbox"
+                          checked={
+                            selectedTrackIds.size > 0 &&
+                            selectedTrackIds.size === activeFlatTracks.length
+                          }
+                          onChange={toggleSelectAllCurrent}
+                          aria-label="Select all tracks"
+                        />
+                      </th>
+                      {COLUMNS.filter(c => visibleColumns[c.key]).map(col => {
+                        const isSorted = sortConfig && sortConfig.key === col.key;
+                        return (
+                          <th
+                            key={col.key}
+                            onClick={() => handleSort(col.key)}
+                          >
+                            {col.label}
+                            {isSorted && (sortConfig.direction === 'asc' ? ' ↑' : ' ↓')}
+                          </th>
+                        );
+                      })}
+                      <th
+                        style={{ width: 36, textAlign: 'center', position: 'relative', cursor: 'default' }}
+                        ref={columnMenuRef}
+                      >
+                        <button
+                          type="button"
+                          className="btn-icon"
+                          style={{ width: 22, height: 22, border: 'none', color: columnMenuOpen ? 'var(--fg)' : 'var(--mu)', margin: '0 auto' }}
+                          title="Customize Columns"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setColumnMenuOpen(!columnMenuOpen);
+                          }}
+                        >
+                          <SlidersHorizontal size={12} />
+                        </button>
+
+                        {columnMenuOpen && (
+                          <div className="menu on" style={{ right: 0, top: '100%', minWidth: 160 }}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--mu)', padding: '2px 4px 6px', borderBottom: '1px solid var(--bd)', marginBottom: 4 }}>
+                              Toggle Columns
+                            </div>
+                            {COLUMNS.filter(c => c.key !== 'title').map(col => (
+                              <label key={col.key}>
+                                <input
+                                  type="checkbox"
+                                  checked={visibleColumns[col.key]}
+                                  onChange={e =>
+                                    setVisibleColumns(prev => ({
+                                      ...prev,
+                                      [col.key]: e.target.checked,
+                                    }))
+                                  }
+                                />
+                                <span>{col.label} {col.isOptional ? '(optional)' : ''}</span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const rows = renderSections(activeNode, 0);
+                      if (rows.length === 0) {
+                        return (
+                          <tr>
+                            <td
+                              colSpan={COLUMNS.filter(c => visibleColumns[c.key]).length + 1}
+                              style={{ padding: '60px 20px', color: 'var(--mu)', textAlign: 'center' }}
+                            >
+                              <div style={{ maxWidth: 400, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                <Disc size={36} style={{ color: '#52525b', marginBottom: 12 }} />
+                                <div style={{ fontWeight: 600, fontSize: 14, color: '#f4f4f5', marginBottom: 4 }}>
+                                  [{activeNode.type}] {activeNode.name} is empty
+                                </div>
+                                <p style={{ fontSize: 12, margin: '0 0 16px', lineHeight: 1.4 }}>
+                                  Populate this container by searching Discogs &amp; Deezer or adding manual tracks.
+                                </p>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                  <button className="p" onClick={() => setImportModalOpen(true)}>
+                                    <Sparkles size={13} />
+                                    <span>Import Releases</span>
+                                  </button>
+                                  <button onClick={() => setNewTrackOpen(true)}>
+                                    <Plus size={13} />
+                                    <span>Add Track</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }
+                      return rows;
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-          )}
-        </section>
-          </>
         )}
       </main>
 
