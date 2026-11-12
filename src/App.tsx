@@ -17,6 +17,17 @@ import { NewTrackModal } from './components/NewTrackModal';
 import { MoveTracksModal } from './components/MoveTracksModal';
 import { NodeEditModal } from './components/NodeEditModal';
 import { BackupModal } from './components/BackupModal';
+import { SocialWidgets } from './components/SocialWidgets';
+import {
+  Search,
+  FolderPlus,
+  Plus,
+  SlidersHorizontal,
+  Layers,
+  Settings,
+  Sparkles,
+  Disc,
+} from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
   { key: 'title', label: 'Title' },
@@ -417,38 +428,51 @@ export const App: React.FC = () => {
     <>
       {/* Header */}
       <header>
-        <button
-          id="mb"
-          aria-label="Toggle library"
-          onClick={() => setSidebarOpenMobile(!sidebarOpenMobile)}
-        >
-          Library
-        </button>
-        <span className="logo">FMSort</span>
-        <button className="cmd" onClick={() => setCommandPaletteOpen(true)}>
-          <span>Search or jump to…</span>
-          <span className="mono">⌘K</span>
-        </button>
-        <nav className="crumbs" aria-label="Breadcrumb">
-          <span
-            className="crumb-link"
-            onClick={() => tree[0] && selectNode(tree[0])}
+        {/* Left: Mobile Toggle & Breadcrumbs at the very left */}
+        <div className="header-left">
+          <button
+            id="mb"
+            aria-label="Toggle library"
+            onClick={() => setSidebarOpenMobile(!sidebarOpenMobile)}
           >
             Library
-          </span>
-          {activePath.map((item, idx) => (
-            <React.Fragment key={item.id}>
-              <span>/</span>
-              {idx === activePath.length - 1 ? (
-                <b>{item.name}</b>
-              ) : (
-                <span className="crumb-link" onClick={() => selectNode(item)}>
-                  {item.name}
-                </span>
-              )}
-            </React.Fragment>
-          ))}
-        </nav>
+          </button>
+
+          <nav className="crumbs" aria-label="Breadcrumb">
+            <span
+              className="crumb-link"
+              onClick={() => tree[0] && selectNode(tree[0])}
+            >
+              Library
+            </span>
+            {activePath.map((item, idx) => (
+              <React.Fragment key={item.id}>
+                <span>/</span>
+                {idx === activePath.length - 1 ? (
+                  <b>{item.name}</b>
+                ) : (
+                  <span className="crumb-link" onClick={() => selectNode(item)}>
+                    {item.name}
+                  </span>
+                )}
+              </React.Fragment>
+            ))}
+          </nav>
+        </div>
+
+        {/* Center: Search Command Bar in the middle */}
+        <div className="header-center">
+          <button className="cmd" onClick={() => setCommandPaletteOpen(true)}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <Search size={14} style={{ color: 'var(--mu)' }} />
+              <span>Search or jump to…</span>
+            </span>
+            <span className="mono">⌘K</span>
+          </button>
+        </div>
+
+        {/* Right: Social & Profile Actions */}
+        <SocialWidgets tree={tree} activeNode={activeNode} />
       </header>
 
       {/* Main Workspace */}
@@ -458,6 +482,22 @@ export const App: React.FC = () => {
           <div className="tree-list">
             {loading ? (
               <div style={{ color: 'var(--mu)', padding: 12 }}>Loading library...</div>
+            ) : tree.length === 0 ? (
+              <div className="empty-sidebar-box">
+                <FolderPlus size={22} style={{ color: 'var(--mu)', marginBottom: 8 }} />
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: '#f4f4f5' }}>Blank Library</div>
+                <p style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 12px', lineHeight: 1.4 }}>
+                  Create your first container or import music to organize your library.
+                </p>
+                <button
+                  className="p"
+                  style={{ fontSize: 11, width: '100%', justifyContent: 'center' }}
+                  onClick={() => setNewContainerOpen(true)}
+                >
+                  <Plus size={13} />
+                  <span>New Container</span>
+                </button>
+              </div>
             ) : (
               tree.map(n => renderTreeNode(n, 0))
             )}
@@ -468,14 +508,16 @@ export const App: React.FC = () => {
               style={{ flex: 1, fontSize: 12 }}
               onClick={() => setNewContainerOpen(true)}
             >
-              + New Container
+              <FolderPlus size={13} />
+              <span>Container</span>
             </button>
             <button
               style={{ fontSize: 12 }}
               title="Backup / Restore"
               onClick={() => setBackupOpen(true)}
             >
-              Backup
+              <Layers size={13} />
+              <span>Backup</span>
             </button>
           </div>
         </aside>
@@ -491,35 +533,39 @@ export const App: React.FC = () => {
 
             <span className="sel">
               {selectedTrackIds.size > 0 && `${selectedTrackIds.size} selected · `}
-              {activeFlatTracks.length} tracks · {fmtTotalRuntime(activeFlatTracks)}
+              {activeFlatTracks.length} tracks {activeFlatTracks.length > 0 && `· ${fmtTotalRuntime(activeFlatTracks)}`}
             </span>
 
             <input
               type="search"
-              placeholder="Filter current view..."
+              placeholder="Filter tracks..."
               value={filterText}
               onChange={e => setFilterText(e.target.value)}
-              style={{ padding: '3px 8px', fontSize: 12, width: 160 }}
+              style={{ padding: '4px 9px', fontSize: 12, width: 140 }}
             />
 
             <button onClick={() => setColumnMenuOpen(!columnMenuOpen)}>
-              Columns
+              <SlidersHorizontal size={13} />
+              <span>Columns</span>
             </button>
 
             <button
               className="p"
               onClick={() => setImportModalOpen(true)}
             >
-              Import Releases
+              <Sparkles size={13} />
+              <span>Import Releases</span>
             </button>
 
             <button onClick={() => setNewTrackOpen(true)}>
-              + Add Track
+              <Plus size={13} />
+              <span>Add Track</span>
             </button>
 
             {activeNode && (
               <button onClick={() => setNodeEditOpen(true)} title="Container settings">
-                ⚙ Container
+                <Settings size={13} />
+                <span>Container</span>
               </button>
             )}
 
@@ -613,9 +659,27 @@ export const App: React.FC = () => {
                         <tr>
                           <td
                             colSpan={COLUMNS.filter(c => visibleColumns[c.key]).length + 1}
-                            style={{ padding: 36, color: 'var(--mu)', textAlign: 'center' }}
+                            style={{ padding: '60px 20px', color: 'var(--mu)', textAlign: 'center' }}
                           >
-                            This container is empty. Click &ldquo;Import Releases&rdquo; or &ldquo;+ Add Track&rdquo; to populate it.
+                            <div style={{ maxWidth: 400, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                              <Disc size={36} style={{ color: '#52525b', marginBottom: 12 }} />
+                              <div style={{ fontWeight: 600, fontSize: 14, color: '#f4f4f5', marginBottom: 4 }}>
+                                [{activeNode.type}] {activeNode.name} is empty
+                              </div>
+                              <p style={{ fontSize: 12, margin: '0 0 16px', lineHeight: 1.4 }}>
+                                Populate this container by searching Discogs &amp; Deezer or adding manual tracks.
+                              </p>
+                              <div style={{ display: 'flex', gap: 8 }}>
+                                <button className="p" onClick={() => setImportModalOpen(true)}>
+                                  <Sparkles size={13} />
+                                  <span>Import Releases</span>
+                                </button>
+                                <button onClick={() => setNewTrackOpen(true)}>
+                                  <Plus size={13} />
+                                  <span>Add Track</span>
+                                </button>
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -624,8 +688,29 @@ export const App: React.FC = () => {
                   })()
                 ) : (
                   <tr>
-                    <td colSpan={10} style={{ padding: 36, color: 'var(--mu)', textAlign: 'center' }}>
-                      No container selected.
+                    <td
+                      colSpan={COLUMNS.filter(c => visibleColumns[c.key]).length + 1}
+                      style={{ padding: 0, borderBottom: 'none' }}
+                    >
+                      <div className="empty-library-hero">
+                        <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#1c1c24', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, border: '1px solid #272732' }}>
+                          <Disc size={28} style={{ color: '#60a5fa' }} />
+                        </div>
+                        <h2 style={{ fontSize: 20, margin: '0 0 8px', fontWeight: 600 }}>Your Music Collection Starts Here</h2>
+                        <p style={{ color: 'var(--mu)', fontSize: 13, maxWidth: 440, margin: '0 auto 20px', lineHeight: 1.5 }}>
+                          Create custom folders, labels, and playlists, or search across Discogs&rsquo; 17.5M+ physical releases and Deezer streaming.
+                        </p>
+                        <div className="hero-actions">
+                          <button className="p" style={{ padding: '8px 16px', fontSize: 13 }} onClick={() => setImportModalOpen(true)}>
+                            <Sparkles size={15} />
+                            <span>Import Releases &amp; Artists</span>
+                          </button>
+                          <button style={{ padding: '8px 16px', fontSize: 13 }} onClick={() => setNewContainerOpen(true)}>
+                            <FolderPlus size={15} />
+                            <span>Create Container</span>
+                          </button>
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 )}

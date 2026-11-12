@@ -75,11 +75,6 @@ export function initDb() {
       value TEXT
     );
   `);
-
-  const nodeCount = db.query('SELECT COUNT(*) as count FROM nodes').get() as { count: number };
-  if (nodeCount.count === 0) {
-    seedDefaultData();
-  }
 }
 
 function seedDefaultData() {
