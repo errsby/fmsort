@@ -120,25 +120,28 @@ textarea:focus {
 }
 
 /* =========================================================================
-   Unified Navigation Bar (Single-Space Web App)
+   Unified In-Page Navigation Strip (Single-Space Canvas App)
    ========================================================================= */
 
-header,
+.inpage-nav-strip,
 .unified-nav-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 16px;
-  height: 52px;
-  border-bottom: 1px solid var(--bd);
-  background: rgba(18, 18, 21, 0.95);
-  backdrop-filter: blur(14px);
+  padding: 10px 24px;
+  width: 100%;
   position: sticky;
   top: 0;
   z-index: 40;
+  background: rgba(9, 9, 11, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.2s ease, border-color 0.2s ease;
 }
 
+.inpage-nav-left,
 .unified-nav-left {
   display: flex;
   align-items: center;
@@ -337,6 +340,7 @@ header,
   padding-top: 8px;
 }
 
+.inpage-nav-center,
 .unified-nav-center {
   display: flex;
   align-items: center;
@@ -346,12 +350,31 @@ header,
   max-width: 380px;
 }
 
+.inpage-search-cmd,
 .unified-search-cmd {
   width: 100%;
   height: 32px;
-  padding: 0 10px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #a1a1aa;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
+.inpage-search-cmd:hover,
+.unified-search-cmd:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.inpage-nav-right,
 .unified-nav-right {
   display: flex;
   align-items: center;
@@ -360,15 +383,42 @@ header,
   flex: 1;
 }
 
+.inpage-action-btn,
 .unified-action-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 30px;
-  padding: 0 10px;
+  padding: 0 11px;
   font-size: 12px;
   font-weight: 500;
   border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e4e4e7;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.inpage-action-btn:hover,
+.unified-action-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.inpage-action-btn.p,
+.unified-action-btn.p {
+  background: #2563eb;
+  border-color: #3b82f6;
+  color: #ffffff;
+}
+
+.inpage-action-btn.p:hover,
+.unified-action-btn.p:hover {
+  background: #1d4ed8;
+  border-color: #60a5fa;
 }
 
 .header-left {
@@ -939,7 +989,7 @@ header,
 main,
 .unified-canvas {
   width: 100%;
-  min-height: calc(100vh - 52px);
+  min-height: 100vh;
   background: #09090b;
   display: flex;
   flex-direction: column;
