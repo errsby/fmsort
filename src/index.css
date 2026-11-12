@@ -1086,42 +1086,77 @@ tr.t:hover .cover-art-wrapper {
   }
 }
 
-/* Folder Items Backdrop Design (Albums & Artists within folders) */
+/* Folder Items Backdrop Design (Albums & Artists within folders) - Compact List Sizing */
 .folder-item-hero-row {
   cursor: pointer;
+  position: relative;
 }
 
 .folder-item-hero-row td {
   padding: 0 !important;
   border-bottom: 1px solid var(--bd) !important;
   background: transparent !important;
+  position: relative;
+  overflow: hidden;
 }
 
 .folder-item-hero {
   position: relative;
   overflow: hidden;
-  min-height: 82px;
-  background: #0d0d10;
+  height: 35px;
+  min-height: 35px;
+  background: var(--pn);
   display: flex;
   align-items: center;
   transition: background 0.15s ease;
 }
 
 .folder-item-hero:hover {
-  background: #111116;
+  background: #141419;
 }
 
-.folder-item-hero:hover .folder-backdrop-artwork {
-  opacity: 0.48;
+/* Smooth backdrop fade when toggling collapsed / uncollapsed states */
+.folder-item-hero .hero-backdrop {
+  transition: opacity 0.25s ease;
+}
+
+/* When uncollapsed (expanded), fade out the backdrop so it feels clean and not redundant with tracks */
+.folder-item-hero.is-uncollapsed .hero-backdrop {
+  opacity: 0;
+}
+
+.folder-item-hero.is-uncollapsed:hover .hero-backdrop {
+  opacity: 0.18;
+}
+
+/* When collapsed (summary row), show the full backdrop artwork */
+.folder-item-hero.is-collapsed .hero-backdrop {
+  opacity: 1;
+}
+
+.folder-item-hero.is-collapsed:hover .folder-backdrop-artwork {
+  opacity: 0.44;
 }
 
 .folder-backdrop-artwork {
-  width: 380px !important;
-  opacity: 0.35 !important;
+  position: absolute;
+  top: -10px;
+  bottom: -10px;
+  right: -5px;
+  width: 260px !important;
+  background-size: cover;
+  background-position: center 30%;
+  opacity: 0.28 !important;
+  filter: contrast(1.08) saturate(1.15);
+  mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.4) 35%, rgba(0,0,0,1) 100%) !important;
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.4) 35%, rgba(0,0,0,1) 100%) !important;
+  transition: opacity 0.2s ease;
 }
 
 .folder-backdrop-scrim {
-  background: linear-gradient(90deg, #09090b 0%, rgba(9, 9, 11, 0.92) 48%, rgba(9, 9, 11, 0.5) 80%, rgba(9, 9, 11, 0.25) 100%) !important;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #09090b 0%, rgba(9, 9, 11, 0.9) 45%, rgba(9, 9, 11, 0.5) 80%, rgba(9, 9, 11, 0.2) 100%) !important;
 }
 
 .folder-item-content {
@@ -1129,84 +1164,64 @@ tr.t:hover .cover-art-wrapper {
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 12px 20px;
-  width: 100%;
-}
-
-.folder-item-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-  flex: 1;
-}
-
-.folder-item-badge-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.folder-item-title-row {
-  display: flex;
-  align-items: baseline;
   gap: 8px;
-  overflow: hidden;
-  white-space: nowrap;
+  padding: 0 10px;
+  width: 100%;
+  height: 100%;
 }
 
-.folder-item-title {
-  font-size: 15px;
+.folder-item-type-plain {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #a1a1aa;
+  text-transform: uppercase;
+}
+
+.folder-item-name {
+  font-size: 13px;
   font-weight: 600;
-  color: #ffffff;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: #f4f4f5;
   white-space: nowrap;
-  letter-spacing: -0.015em;
 }
 
 .folder-item-artist {
   font-size: 12px;
-  color: #a1a1aa;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--mu);
+  font-weight: 400;
   white-space: nowrap;
-}
-
-.folder-item-sub {
-  font-size: 11px;
-  color: #71717a;
-  display: flex;
-  align-items: center;
-  gap: 3px;
 }
 
 .folder-item-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   margin-left: auto;
+  opacity: 0.7;
+  transition: opacity 0.15s ease;
+}
+
+.folder-item-hero:hover .folder-item-actions {
+  opacity: 1;
 }
 
 .folder-item-nav-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   font-size: 11px;
   font-weight: 500;
   color: #a1a1aa;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 4px;
-  padding: 3px 8px;
+  padding: 2px 7px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .folder-item-nav-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.2);
 }

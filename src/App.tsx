@@ -738,8 +738,8 @@ export const App: React.FC = () => {
             >
               <td colSpan={colSpan}>
                 <div
-                  className="folder-item-hero"
-                  style={{ paddingLeft: `${14 + depth * 16}px` }}
+                  className={`folder-item-hero ${isCollapsed ? 'is-collapsed' : 'is-uncollapsed'}`}
+                  style={{ paddingLeft: `${10 + depth * 16}px` }}
                 >
                   {/* Backdrop Layer */}
                   {backdropImg && (
@@ -756,48 +756,35 @@ export const App: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Foreground Content */}
+                  {/* Foreground Content - Compact Inlined Row */}
                   <div className="folder-item-content">
-                    <span
-                      className={`ar ${isCollapsed ? '' : 'o'}`}
-                      style={{ fontSize: 18, color: '#a1a1aa', width: 16, display: 'inline-flex', alignItems: 'center' }}
-                    >
-                      ›
-                    </span>
+                    <span className={`ar ${isCollapsed ? '' : 'o'}`}>›</span>
 
                     <CoverArt
                       src={backdropImg}
                       alt={child.name}
-                      size={48}
+                      size={24}
                       type={child.type === 'Artist' ? 'artist' : child.type === 'Playlist' ? 'playlist' : 'album'}
                       seed={child.name}
-                      rounded={child.type === 'Artist' ? 'full' : 6}
+                      rounded={child.type === 'Artist' ? 'full' : 4}
                     />
 
-                    <div className="folder-item-meta">
-                      <div className="folder-item-badge-row">
-                        <span className="active-hero-badge">{child.type.toUpperCase()}</span>
-                        {child.type === 'Artist' && (
-                          <span className="active-hero-tag">ARTIST</span>
-                        )}
-                        {child.type === 'Album' && child.tracks?.[0]?.f && (
-                          <span className="active-hero-tag">{child.tracks[0].f}</span>
-                        )}
-                      </div>
-                      <div className="folder-item-title-row">
-                        <span className="folder-item-title">{child.name}</span>
-                        {child.type === 'Album' && child.tracks?.[0]?.a && (
-                          <span className="folder-item-artist">by {child.tracks[0].a}</span>
-                        )}
-                      </div>
-                      <div className="folder-item-sub">
-                        {child.type === 'Album' && child.tracks?.[0]?.y ? (
-                          <span>{child.tracks[0].y} · </span>
-                        ) : null}
-                        <span>{childTracks.length} {childTracks.length === 1 ? 'track' : 'tracks'}</span>
-                        {childTracks.length > 0 && <span> · {fmtTotalRuntime(childTracks)}</span>}
-                      </div>
-                    </div>
+                    <span className="folder-item-type-plain">{child.type}</span>
+                    <span className="folder-item-name">{child.name}</span>
+                    {child.type === 'Album' && child.tracks?.[0]?.a && (
+                      <span className="folder-item-artist">· {child.tracks[0].a}</span>
+                    )}
+                    {child.type === 'Artist' ? (
+                      childTracks.length > 0 ? (
+                        <span className="m">
+                          {childTracks.length} {childTracks.length === 1 ? 'track' : 'tracks'} · {fmtTotalRuntime(childTracks)}
+                        </span>
+                      ) : null
+                    ) : (
+                      <span className="m">
+                        {childTracks.length} {childTracks.length === 1 ? 'track' : 'tracks'} · {fmtTotalRuntime(childTracks)}
+                      </span>
+                    )}
 
                     {/* Actions on right */}
                     <div className="folder-item-actions" onClick={e => e.stopPropagation()}>
@@ -808,7 +795,7 @@ export const App: React.FC = () => {
                         onClick={() => selectNode(child)}
                       >
                         <span>Open</span>
-                        <ExternalLink size={12} />
+                        <ExternalLink size={11} />
                       </button>
                       <button
                         type="button"
@@ -819,7 +806,7 @@ export const App: React.FC = () => {
                           setNodeEditOpen(true);
                         }}
                       >
-                        <MoreHorizontal size={14} />
+                        <MoreHorizontal size={13} />
                       </button>
                     </div>
                   </div>
@@ -1005,9 +992,6 @@ export const App: React.FC = () => {
                 <div className="active-hero-meta">
                   <div className="active-hero-badge-row">
                     <span className="active-hero-badge">{activeNode.type.toUpperCase()}</span>
-                    {activeNode.type === 'Artist' && (
-                      <span className="active-hero-tag">DISCOGS ARTIST</span>
-                    )}
                     {activeNode.type === 'Album' && activeNode.tracks?.[0]?.f && (
                       <span className="active-hero-tag">{activeNode.tracks[0].f}</span>
                     )}
@@ -1023,8 +1007,21 @@ export const App: React.FC = () => {
                     {activeNode.type === 'Album' && activeNode.tracks?.[0]?.y ? (
                       <span>{activeNode.tracks[0].y} · </span>
                     ) : null}
-                    <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
-                    {activeFlatTracks.length > 0 && <span> · {fmtTotalRuntime(activeFlatTracks)}</span>}
+                    {activeNode.type === 'Artist' ? (
+                      activeFlatTracks.length > 0 ? (
+                        <>
+                          <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
+                          <span> · {fmtTotalRuntime(activeFlatTracks)}</span>
+                        </>
+                      ) : activeNode.children && activeNode.children.length > 0 ? (
+                        <span>{activeNode.children.length} {activeNode.children.length === 1 ? 'release' : 'releases'}</span>
+                      ) : null
+                    ) : (
+                      <>
+                        <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
+                        {activeFlatTracks.length > 0 && <span> · {fmtTotalRuntime(activeFlatTracks)}</span>}
+                      </>
+                    )}
                     {activeFlatTracks.some(t => !t.isrc || t.isrc === '—') && (
                       <>
                         <span> · </span>
