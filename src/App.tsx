@@ -34,6 +34,7 @@ import { CoverArt } from './components/CoverArt';
 import { ContextMenu } from './components/ContextMenu';
 import type { ContextMenuState } from './components/ContextMenu';
 import { ArtistProjectsSuggestions } from './components/ArtistProjectsSuggestions';
+import { SocialFeedPage } from './components/SocialFeedPage';
 import {
   Search,
   FolderPlus,
@@ -99,6 +100,7 @@ const DEFAULT_VISIBILITY: Record<ColumnKey, boolean> = {
 };
 
 export const App: React.FC = () => {
+  const [currentPage, setCurrentPage] = useState<'library' | 'feed'>('library');
   const [tree, setTree] = useState<LibraryNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeNodeId, setActiveNodeId] = useState<string>('');
@@ -291,6 +293,35 @@ export const App: React.FC = () => {
       console.error('Failed to import project:', err);
       showToast(err.message || 'Failed to import project');
       throw err;
+    }
+  };
+
+  const handleImportFeedRelease = async (title: string, artist: string, cover?: string) => {
+    try {
+      showToast(`Searching release "${title}"...`);
+      const res = await fetch(`/api/deezer/search?q=${encodeURIComponent(`${artist} ${title}`)}`);
+      const results = await res.json();
+      const targetParent = activeNode || tree[0];
+      const targetId = targetParent ? targetParent.id : 'root';
+
+      if (Array.isArray(results) && results.length > 0) {
+        const top = results[0];
+        await importUniversalRelease('deezer', top.id, targetId, true, cover || top.thumb);
+        showToast(`Imported "${title}" into your library!`);
+        await loadTree(targetId);
+      } else {
+        await createNode({
+          parent_id: targetId === 'root' ? null : targetId,
+          type: 'Album',
+          name: title,
+          cover_url: cover || '',
+        });
+        showToast(`Created "${title}" in your library!`);
+        await loadTree();
+      }
+    } catch (err: any) {
+      console.warn('Feed import error:', err);
+      showToast('Could not import release');
     }
   };
 
@@ -584,6 +615,7 @@ export const App: React.FC = () => {
 
   const handleSelectHistoryItem = (entry: HistoryEntry) => {
     setHistoryOpen(false);
+    setCurrentPage('library');
     const targetNode = findNodeById(tree, entry.id);
     if (targetNode) {
       selectNode(targetNode);
@@ -1094,24 +1126,39 @@ export const App: React.FC = () => {
               )}
             </div>
 
-            <span
-              className="crumb-link"
-              onClick={() => tree[0] && selectNode(tree[0])}
-            >
-              Library
-            </span>
-            {activePath.map((item, idx) => (
-              <React.Fragment key={item.id}>
+            {currentPage === 'feed' ? (
+              <>
+                <span
+                  className="crumb-link"
+                  onClick={() => setCurrentPage('library')}
+                >
+                  Library
+                </span>
                 <span>/</span>
-                {idx === activePath.length - 1 ? (
-                  <b>{item.name}</b>
-                ) : (
-                  <span className="crumb-link" onClick={() => selectNode(item)}>
-                    {item.name}
-                  </span>
-                )}
-              </React.Fragment>
-            ))}
+                <b>Feed</b>
+              </>
+            ) : (
+              <>
+                <span
+                  className="crumb-link"
+                  onClick={() => tree[0] && selectNode(tree[0])}
+                >
+                  Library
+                </span>
+                {activePath.map((item, idx) => (
+                  <React.Fragment key={item.id}>
+                    <span>/</span>
+                    {idx === activePath.length - 1 ? (
+                      <b>{item.name}</b>
+                    ) : (
+                      <span className="crumb-link" onClick={() => selectNode(item)}>
+                        {item.name}
+                      </span>
+                    )}
+                  </React.Fragment>
+                ))}
+              </>
+            )}
           </nav>
         </div>
 
@@ -1126,14 +1173,31 @@ export const App: React.FC = () => {
           </button>
         </div>
 
-        {/* Right: Social & Profile Actions */}
-        <SocialWidgets tree={tree} activeNode={activeNode} />
+        {/* Right: Social & Profile Actions with Primary Nav (Library / Feed) */}
+        <SocialWidgets
+          tree={tree}
+          activeNode={activeNode}
+          currentPage={currentPage}
+          onPageChange={setCurrentPage}
+        />
       </header>
 
-      {/* Main Workspace */}
-      <main>
-        {/* Sidebar */}
-        <aside
+      {/* Main Workspace with Seamless Page Connection */}
+      <main
+        className={`main-workspace ${currentPage === 'feed' ? 'is-feed' : 'is-library'} page-enter-anim`}
+        key={currentPage}
+      >
+        {currentPage === 'feed' ? (
+          <SocialFeedPage
+            tree={tree}
+            onSwitchToLibrary={() => setCurrentPage('library')}
+            onImportRelease={handleImportFeedRelease}
+            showToast={showToast}
+          />
+        ) : (
+          <>
+            {/* Sidebar */}
+            <aside
           id="side"
           className={sidebarOpenMobile ? 'on' : ''}
           onContextMenu={handleSidebarContextMenu}
@@ -1525,6 +1589,8 @@ export const App: React.FC = () => {
           </div>
           )}
         </section>
+          </>
+        )}
       </main>
 
       {/* Metadata Edit Drawer */}

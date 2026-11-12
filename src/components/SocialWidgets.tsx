@@ -1,15 +1,32 @@
 import React, { useRef, useEffect } from 'react';
-import { Newspaper, Bell, User, Check, ExternalLink, Sparkles, Database, ShieldCheck, Disc } from 'lucide-react';
+import {
+  Bell,
+  User,
+  Check,
+  ExternalLink,
+  Sparkles,
+  Database,
+  ShieldCheck,
+  Disc,
+  Library,
+  Rss,
+} from 'lucide-react';
 import type { LibraryNode } from '../types';
 import { flattenTracks } from '../utils';
 
 interface SocialProps {
   tree: LibraryNode[];
   activeNode: LibraryNode | null;
+  currentPage: 'library' | 'feed';
+  onPageChange: (page: 'library' | 'feed') => void;
 }
 
-export const SocialWidgets: React.FC<SocialProps> = ({ tree }) => {
-  const [activeMenu, setActiveMenu] = React.useState<'news' | 'notifications' | 'profile' | null>(null);
+export const SocialWidgets: React.FC<SocialProps> = ({
+  tree,
+  currentPage,
+  onPageChange,
+}) => {
+  const [activeMenu, setActiveMenu] = React.useState<'notifications' | 'profile' | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close popover when clicking outside
@@ -49,18 +66,50 @@ export const SocialWidgets: React.FC<SocialProps> = ({ tree }) => {
 
   return (
     <div className="header-right" ref={menuRef} style={{ position: 'relative' }}>
-      {/* 1. News Button */}
-      <button
-        type="button"
-        className={`btn-icon ${activeMenu === 'news' ? 'active' : ''}`}
-        title="Music News & Trends"
-        aria-label="Music News & Trends"
-        onClick={() => setActiveMenu(activeMenu === 'news' ? null : 'news')}
-      >
-        <Newspaper size={16} />
-      </button>
+      {/* Primary Page Navigation Tabs: Library & Feed */}
+      <div className="header-primary-nav" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={currentPage === 'library'}
+          className={`nav-tab-btn ${currentPage === 'library' ? 'active' : ''}`}
+          onClick={() => onPageChange('library')}
+          title="Switch to Library Workspace"
+        >
+          <Library size={14} className="nav-tab-icon" />
+          <span className="nav-tab-text">Library</span>
+          {currentPage === 'library' && (
+            <>
+              <span className="nav-tab-top-accent" />
+              <span className="nav-tab-seamless-bridge" />
+            </>
+          )}
+        </button>
 
-      {/* 2. Notifications Button */}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={currentPage === 'feed'}
+          className={`nav-tab-btn ${currentPage === 'feed' ? 'active' : ''}`}
+          onClick={() => onPageChange('feed')}
+          title="Switch to Community Feed"
+        >
+          <Rss size={14} className="nav-tab-icon" />
+          <span className="nav-tab-text">Feed</span>
+          <span className="feed-live-beacon" title="Live stream active">
+            <span className="beacon-ping" />
+            <span className="beacon-dot" />
+          </span>
+          {currentPage === 'feed' && (
+            <>
+              <span className="nav-tab-top-accent" />
+              <span className="nav-tab-seamless-bridge" />
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Notifications Button */}
       <button
         type="button"
         className={`btn-icon ${activeMenu === 'notifications' ? 'active' : ''}`}
@@ -72,7 +121,7 @@ export const SocialWidgets: React.FC<SocialProps> = ({ tree }) => {
         <span className="unread-dot" />
       </button>
 
-      {/* 3. User Profile Avatar */}
+      {/* User Profile Avatar */}
       <button
         type="button"
         className="avatar-btn"
@@ -82,66 +131,6 @@ export const SocialWidgets: React.FC<SocialProps> = ({ tree }) => {
       >
         <span>MC</span>
       </button>
-
-      {/* News Popover */}
-      {activeMenu === 'news' && (
-        <div className="popover-menu news-popover">
-          <div className="popover-header">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 13 }}>
-              <Newspaper size={15} style={{ color: '#60a5fa' }} />
-              <span>Music & Collector Feed</span>
-            </div>
-            <span className="badge-pill">Live</span>
-          </div>
-
-          <div className="popover-body">
-            <div className="feed-item">
-              <div className="feed-title">
-                <Sparkles size={13} style={{ color: '#fbbf24', flexShrink: 0 }} />
-                <span>Record Store Day 2026 Pressings</span>
-              </div>
-              <p className="feed-desc">
-                Over 400 exclusive vinyl editions, colored variants, and limited lacquer masterings announced for independent shops.
-              </p>
-              <div className="feed-meta">2 hours ago · Vinyl Culture</div>
-            </div>
-
-            <div className="feed-item">
-              <div className="feed-title">
-                <Disc size={13} style={{ color: '#a78bfa', flexShrink: 0 }} />
-                <span>Discogs Database Surpasses 17.8M Releases</span>
-              </div>
-              <p className="feed-desc">
-                The global catalog now tracks over 17.8 million physical and digital sound recordings across 350+ countries.
-              </p>
-              <div className="feed-meta">Yesterday · Catalog News</div>
-            </div>
-
-            <div className="feed-item">
-              <div className="feed-title">
-                <Database size={13} style={{ color: '#34d399', flexShrink: 0 }} />
-                <span>Lossless FLAC Masterings on the Rise</span>
-              </div>
-              <p className="feed-desc">
-                Independent labels report 40% growth in direct hi-res 24-bit/96kHz digital download distribution.
-              </p>
-              <div className="feed-meta">3 days ago · Audio Tech</div>
-            </div>
-          </div>
-
-          <div className="popover-footer">
-            <a
-              href="https://www.discogs.com/digs/"
-              target="_blank"
-              rel="noreferrer"
-              style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#93c5fd', textDecoration: 'none', fontSize: 11 }}
-            >
-              <span>Explore Discogs Community News</span>
-              <ExternalLink size={12} />
-            </a>
-          </div>
-        </div>
-      )}
 
       {/* Notifications Popover */}
       {activeMenu === 'notifications' && (
