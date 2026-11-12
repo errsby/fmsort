@@ -10,6 +10,8 @@ import {
   enrichTrackIsrc,
   fetchDiscogsArtwork,
   enrichAllIsrcs,
+  importUniversalRelease,
+  type SuggestedProject,
 } from './api';
 import {
   fmtDuration,
@@ -31,6 +33,7 @@ import { SocialWidgets } from './components/SocialWidgets';
 import { CoverArt } from './components/CoverArt';
 import { ContextMenu } from './components/ContextMenu';
 import type { ContextMenuState } from './components/ContextMenu';
+import { ArtistProjectsSuggestions } from './components/ArtistProjectsSuggestions';
 import {
   Search,
   FolderPlus,
@@ -262,6 +265,34 @@ export const App: React.FC = () => {
     if (!activeNode) return [];
     return flattenTracks(activeNode);
   }, [activeNode]);
+
+  const isArtistWithoutSubitems = useMemo(() => {
+    return Boolean(
+      activeNode &&
+      activeNode.type === 'Artist' &&
+      (!activeNode.children || activeNode.children.length === 0) &&
+      activeFlatTracks.length === 0
+    );
+  }, [activeNode, activeFlatTracks]);
+
+  const handleImportSuggestedProject = async (project: SuggestedProject) => {
+    if (!activeNode) return;
+    try {
+      showToast(`Importing "${project.title}"...`);
+      await importUniversalRelease(
+        project.source,
+        project.id,
+        activeNode.id,
+        true,
+        project.cover_url
+      );
+      showToast(`Added "${project.title}" to ${activeNode.name}`);
+    } catch (err: any) {
+      console.error('Failed to import project:', err);
+      showToast(err.message || 'Failed to import project');
+      throw err;
+    }
+  };
 
   const handleEnrichActiveTracksIsrc = async () => {
     if (!activeFlatTracks.length) return;
@@ -1345,8 +1376,17 @@ export const App: React.FC = () => {
             </div>
           )}
 
-          {/* Table */}
-          <div className="tw">
+          {/* Table or Artist Projects Suggestions for Artists without Subitems */}
+          {isArtistWithoutSubitems && activeNode ? (
+            <ArtistProjectsSuggestions
+              artistNode={activeNode}
+              onImportProject={handleImportSuggestedProject}
+              onFinishImport={() => loadTree(activeNode.id)}
+              onOpenSearchModal={() => setImportModalOpen(true)}
+              onNewTrack={() => setNewTrackOpen(true)}
+            />
+          ) : (
+            <div className="tw">
             <table>
               <thead>
                 <tr>
@@ -1483,6 +1523,7 @@ export const App: React.FC = () => {
               </tbody>
             </table>
           </div>
+          )}
         </section>
       </main>
 

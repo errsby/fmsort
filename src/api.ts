@@ -254,6 +254,26 @@ export async function importArtistContainer(
   return res.json();
 }
 
+export interface SuggestedProject {
+  id: number | string;
+  source: 'deezer' | 'discogs' | 'musicbrainz';
+  title: string;
+  artist: string;
+  year: number;
+  release_date?: string;
+  record_type: string;
+  cover_url: string;
+  thumb: string;
+  track_count?: number;
+}
+
+export async function fetchArtistSuggestedProjects(artistName: string): Promise<SuggestedProject[]> {
+  const res = await fetch(`${API_BASE}/artists/suggestions?name=${encodeURIComponent(artistName)}`);
+  if (!res.ok) return [];
+  const data = await res.json().catch(() => ({ projects: [] }));
+  return data.projects || [];
+}
+
 export async function fetchDiscogsStatus(): Promise<DiscogsStatus> {
   const res = await fetch(`${API_BASE}/discogs/status`);
   if (!res.ok) throw new Error('Failed to fetch Discogs status');

@@ -1556,3 +1556,418 @@ tr.t:hover .cover-art-wrapper {
     transform: translateY(0);
   }
 }
+
+/* Artist Projects Suggestions on Empty Artist Pages */
+.artist-suggestions-container {
+  padding: 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.artist-suggestions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.artist-suggestions-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.artist-suggestions-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  color: #818cf8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.artist-suggestions-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f4f4f5;
+  letter-spacing: -0.01em;
+}
+
+.artist-suggestions-title span {
+  color: #ffffff;
+}
+
+.artist-suggestions-subtitle {
+  font-size: 12px;
+  color: #a1a1aa;
+  margin-top: 2px;
+}
+
+.artist-suggestions-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.artist-suggestions-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.artist-suggestions-btn.primary {
+  background: var(--accent, #3b82f6);
+  border: 1px solid #2563eb;
+  color: #ffffff;
+}
+
+.artist-suggestions-btn.primary:hover {
+  background: #2563eb;
+}
+
+.artist-suggestions-btn.secondary {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e4e4e7;
+}
+
+.artist-suggestions-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.artist-suggestions-imported-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  border-radius: 8px;
+  padding: 10px 14px;
+  animation: toastSlideUp 0.18s ease-out;
+}
+
+.imported-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: #f4f4f5;
+}
+
+.imported-banner-icon {
+  color: #4ade80;
+  flex-shrink: 0;
+}
+
+.artist-suggestions-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #22c55e;
+  border: 1px solid #16a34a;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.artist-suggestions-view-btn:hover {
+  background: #16a34a;
+  transform: translateY(-1px);
+}
+
+.artist-suggestions-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.artist-suggestions-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 3px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.artist-suggestions-tab {
+  background: transparent;
+  border: none;
+  color: #a1a1aa;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.artist-suggestions-tab:hover {
+  color: #f4f4f5;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.artist-suggestions-tab.active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.tab-count {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #d4d4d8;
+}
+
+.artist-suggestions-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.artist-suggestions-search-wrap .search-icon {
+  position: absolute;
+  left: 10px;
+  color: #71717a;
+  pointer-events: none;
+}
+
+.artist-suggestions-search-input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 6px 12px 6px 30px;
+  font-size: 12px;
+  color: #fafafa;
+  width: 190px;
+  transition: all 0.15s ease;
+}
+
+.artist-suggestions-search-input:focus {
+  outline: none;
+  border-color: rgba(99, 102, 241, 0.5);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.artist-suggestions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.artist-project-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+}
+
+.artist-project-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.18);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+.artist-project-card.imported {
+  border-color: rgba(34, 197, 94, 0.25);
+  background: rgba(34, 197, 94, 0.03);
+}
+
+.artist-project-art-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.artist-project-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.25s ease;
+}
+
+.artist-project-card:hover .artist-project-art {
+  transform: scale(1.03);
+}
+
+.artist-project-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.artist-project-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.artist-project-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fafafa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height: 1.3;
+  min-height: 34px;
+}
+
+.artist-project-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.artist-project-year,
+.artist-project-tracks {
+  display: inline-flex;
+  align-items: center;
+}
+
+.artist-project-actions {
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.artist-project-import-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #f4f4f5;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 6px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.artist-project-import-btn:hover:not(:disabled) {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #ffffff;
+}
+
+.artist-project-import-btn.done {
+  background: rgba(34, 197, 94, 0.14);
+  border-color: rgba(34, 197, 94, 0.3);
+  color: #4ade80;
+  cursor: default;
+}
+
+.artist-project-import-btn:disabled:not(.done) {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+/* Skeleton Loading */
+.artist-project-card.skeleton {
+  pointer-events: none;
+}
+
+.skeleton-art {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.skeleton-line {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 3px;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.artist-suggestions-empty {
+  padding: 48px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.artist-suggestions-empty .empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #f4f4f5;
+  margin-bottom: 6px;
+}
+
+.artist-suggestions-empty .empty-desc {
+  font-size: 12px;
+  color: #a1a1aa;
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+
+.artist-suggestions-empty .empty-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}

@@ -32,6 +32,7 @@ import {
   searchDeezerArtists,
   getDeezerReleaseDetails,
   lookupIsrc,
+  getArtistSuggestedProjects,
 } from './deezer';
 
 initDb();
@@ -556,6 +557,14 @@ const server = Bun.serve({
         const id = parseInt(deezerAlbumMatch[1], 10);
         const details = await getDeezerReleaseDetails(id);
         return json(details);
+      }
+
+      // 12b. Artist Suggested Projects: GET /api/artists/suggestions?name=...
+      if (path === '/api/artists/suggestions' && method === 'GET') {
+        const name = (url.searchParams.get('name') || '').trim();
+        if (!name) return json({ artist: '', projects: [] });
+        const projects = await getArtistSuggestedProjects(name);
+        return json({ artist: name, projects });
       }
 
       // 13. Unified Universal Import: POST /api/releases/import

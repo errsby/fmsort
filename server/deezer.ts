@@ -282,3 +282,150 @@ export async function lookupIsrc(artist: string, title: string): Promise<string>
     return '—';
   }
 }
+
+export interface SuggestedProject {
+  id: number | string;
+  source: 'deezer' | 'discogs' | 'musicbrainz';
+  title: string;
+  artist: string;
+  year: number;
+  release_date?: string;
+  record_type: string;
+  cover_url: string;
+  thumb: string;
+  track_count?: number;
+}
+
+export async function getArtistSuggestedProjects(artistName: string): Promise<SuggestedProject[]> {
+  const cleanQ = (artistName || '').trim();
+  if (!cleanQ) return [];
+
+  const cacheKey = `artist_projects_${cleanQ.toLowerCase()}`;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  const projects: SuggestedProject[] = [];
+  const seenTitles = new Set<string>();
+  const normKey = (str: string) => str.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  try {
+    let artistId: number | null = null;
+    let canonicalArtistName = cleanQ;
+
+    // Search Deezer for artist
+    let aRes = await fetch(`https://api.deezer.com/search/artist?q="${encodeURIComponent(cleanQ)}"&limit=5`, {
+      headers: {
+        'User-Agent': 'FMSort/1.0.0 ( https://github.com/err/fmsort )',
+        'Accept': 'application/json',
+      },
+    });
+
+    if (aRes.ok) {
+      const aJson: any = await aRes.json();
+      if (Array.isArray(aJson.data) && aJson.data.length > 0) {
+        const match = aJson.data.find((a: any) => a.name.toLowerCase() === cleanQ.toLowerCase()) || aJson.data[0];
+        if (match) {
+          artistId = match.id;
+          canonicalArtistName = match.name;
+        }
+      }
+    }
+
+    if (!artistId) {
+      aRes = await fetch(`https://api.deezer.com/search/artist?q=${encodeURIComponent(cleanQ)}&limit=5`, {
+        headers: {
+          'User-Agent': 'FMSort/1.0.0 ( https://github.com/err/fmsort )',
+          'Accept': 'application/json',
+        },
+      });
+      if (aRes.ok) {
+        const aJson: any = await aRes.json();
+        if (Array.isArray(aJson.data) && aJson.data.length > 0) {
+          const match = aJson.data.find((a: any) => a.name.toLowerCase() === cleanQ.toLowerCase()) || aJson.data[0];
+          if (match) {
+            artistId = match.id;
+            canonicalArtistName = match.name;
+          }
+        }
+      }
+    }
+
+    if (artistId) {
+      const albRes = await fetch(`https://api.deezer.com/artist/${artistId}/albums?limit=50`, {
+        headers: {
+          'User-Agent': 'FMSort/1.0.0 ( https://github.com/err/fmsort )',
+          'Accept': 'application/json',
+        },
+      });
+
+      if (albRes.ok) {
+        const albJson: any = await albRes.json();
+        if (Array.isArray(albJson.data)) {
+          for (const item of albJson.data) {
+            const rawTitle = (item.title || '').trim();
+            if (!rawTitle) continue;
+            const nKey = normKey(rawTitle);
+            if (seenTitles.has(nKey)) continue;
+            seenTitles.add(nKey);
+
+            const year = item.release_date ? parseInt(item.release_date.slice(0, 4), 10) || 0 : 0;
+            projects.push({
+              id: item.id,
+              source: 'deezer',
+              title: rawTitle,
+              artist: canonicalArtistName,
+              year,
+              release_date: item.release_date || '',
+              record_type: (item.record_type || 'album').toLowerCase(),
+              cover_url: item.cover_xl || item.cover_big || item.cover_medium || item.cover_small || '',
+              thumb: item.cover_medium || item.cover_small || '',
+              track_count: item.nb_tracks || 0,
+            });
+          }
+        }
+      }
+    }
+
+    if (projects.length === 0) {
+      const rels = await searchDeezerReleases(cleanQ).catch(() => []);
+      for (const r of rels) {
+        const nKey = normKey(r.title);
+        if (seenTitles.has(nKey)) continue;
+        seenTitles.add(nKey);
+        projects.push({
+          id: r.id,
+          source: 'deezer',
+          title: r.title,
+          artist: r.artist || canonicalArtistName,
+          year: r.year || 0,
+          record_type: 'album',
+          cover_url: r.thumb || '',
+          thumb: r.thumb || '',
+          track_count: r.track_count || 0,
+        });
+      }
+    }
+
+    const typePriority: Record<string, number> = {
+      album: 1,
+      ep: 2,
+      single: 3,
+      compile: 4,
+    };
+
+    projects.sort((a, b) => {
+      const prioA = typePriority[a.record_type] ?? 5;
+      const prioB = typePriority[b.record_type] ?? 5;
+      if (prioA !== prioB) return prioA - prioB;
+      return (b.year || 0) - (a.year || 0);
+    });
+
+    cache.set(cacheKey, { data: projects, timestamp: Date.now() });
+    return projects;
+  } catch (err: any) {
+    console.warn('[getArtistSuggestedProjects error]', err.message);
+    return [];
+  }
+}
