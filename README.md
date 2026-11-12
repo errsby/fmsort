@@ -4,7 +4,10 @@ A high-density, dark-themed music library organizer and metadata manager powered
 
 ## Highlights
 
-- **Live MusicBrainz API Integration**: Search releases live across the MusicBrainz database by artist, title, catalog number, or barcode. Includes an in-memory rate-limiter respecting MusicBrainz's 1 req/sec policy and a custom `User-Agent`.
+- **⚡ Hybrid Multi-Source Search Engine**:
+  - **Discogs Integration**: Access to the world's largest physical discography (17.5M+ releases), including out-of-print albums, vinyl variants, catalog numbers, labels, and barcodes.
+  - **Deezer Instant Search**: Zero-wait, key-less search (<80ms) for commercial and digital releases with exact tracklists, durations, UPC barcodes, and ISRCs.
+  - **MusicBrainz**: Available as an encyclopedic cross-reference source.
 - **Local SQLite Database**: Zero-dependency persistence powered by `bun:sqlite` with WAL mode enabled.
 - **Maximum User Control**:
   - Create and manage hierarchical containers (`Folder`, `Label`, `Artist`, `Album`, `Playlist`, `Genre`, `Section`, `Era`, or custom types).
