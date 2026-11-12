@@ -9,6 +9,7 @@ import {
   fetchDiscogsStatus,
   saveDiscogsToken,
   searchHybrid,
+  streamHybridSearch,
   searchDiscogs,
   searchMusicBrainz,
   importUniversalRelease,
@@ -43,6 +44,7 @@ export const HybridSearchModal: React.FC<Props> = ({
   const [releaseResults, setReleaseResults] = useState<UnifiedReleaseSummary[]>([]);
   const [counts, setCounts] = useState<{ artists: number; discogsReleases: number; deezerReleases: number } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [discogsProgressiveLoading, setDiscogsProgressiveLoading] = useState(false);
 
   const [importingKey, setImportingKey] = useState<string | null>(null);
   const [addedArtists, setAddedArtists] = useState<Set<string>>(new Set());
@@ -52,6 +54,7 @@ export const HybridSearchModal: React.FC<Props> = ({
 
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const checkTokenStatus = async () => {
     try {
@@ -79,6 +82,10 @@ export const HybridSearchModal: React.FC<Props> = ({
   useEffect(() => {
     if (!isOpen) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
 
     const trimmed = query.trim();
     if (!trimmed) {
@@ -86,20 +93,32 @@ export const HybridSearchModal: React.FC<Props> = ({
       setReleaseResults([]);
       setCounts(null);
       setLoading(false);
+      setDiscogsProgressiveLoading(false);
       return;
     }
 
     setLoading(true);
     setError(null);
 
+    // Fast 150ms debounce for responsive instant typing
     debounceTimer.current = setTimeout(async () => {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       try {
         if (provider === 'hybrid') {
-          const res = await searchHybrid(trimmed);
-          setArtistResults(res.artists || []);
-          setReleaseResults(res.releases || []);
-          setCounts(res.counts || null);
-          setHasDiscogsToken(res.discogsConfigured);
+          await streamHybridSearch(
+            trimmed,
+            (res) => {
+              setArtistResults(res.artists || []);
+              setReleaseResults(res.releases || []);
+              setCounts(res.counts || null);
+              setHasDiscogsToken(res.discogsConfigured);
+              setLoading(false);
+              setDiscogsProgressiveLoading(!!res.discogsLoading);
+            },
+            controller.signal
+          );
         } else if (provider === 'discogs') {
           const res = await searchDiscogs(trimmed);
           setArtistResults([]);
@@ -118,10 +137,12 @@ export const HybridSearchModal: React.FC<Props> = ({
               thumb: d.thumb,
             }))
           );
+          setLoading(false);
         } else if (provider === 'deezer') {
           const res = await searchHybrid(trimmed);
           setArtistResults((res.artists || []).filter(a => a.source === 'deezer'));
           setReleaseResults((res.releases || []).filter(r => r.source === 'deezer'));
+          setLoading(false);
         } else if (provider === 'musicbrainz') {
           const res = await searchMusicBrainz(trimmed);
           setArtistResults([]);
@@ -141,21 +162,28 @@ export const HybridSearchModal: React.FC<Props> = ({
               track_count: m.track_count,
             }))
           );
+          setLoading(false);
         }
       } catch (err: any) {
+        if (err.name === 'AbortError') {
+          return;
+        }
         if (err.message === 'NO_TOKEN') {
           setHasDiscogsToken(false);
           setIsEditingToken(true);
         } else {
           setError(err.message || 'Error querying database');
         }
-      } finally {
         setLoading(false);
       }
-    }, 350);
+    }, 150);
 
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
     };
   }, [query, isOpen, provider]);
 
@@ -410,8 +438,16 @@ export const HybridSearchModal: React.FC<Props> = ({
         )}
 
         {loading && (
-          <div style={{ color: 'var(--mu)', padding: '14px 0', textAlign: 'center' }}>
-            Searching {provider === 'hybrid' ? 'artists & releases across Discogs & Deezer' : provider}...
+          <div style={{ color: 'var(--mu)', padding: '14px 0', textAlign: 'center', fontSize: 13 }}>
+            Searching {provider === 'hybrid' ? 'fast digital catalog...' : provider}...
+          </div>
+        )}
+
+        {/* Progressive Discogs Enrichment Indicator */}
+        {discogsProgressiveLoading && (
+          <div className="progressive-search-banner">
+            <div className="progressive-spinner" />
+            <span>Instant catalog loaded · Enriching with Discogs physical pressings in background...</span>
           </div>
         )}
 
@@ -531,7 +567,8 @@ export const HybridSearchModal: React.FC<Props> = ({
                 <span>💿 Releases & Albums ({releaseResults.length})</span>
                 {counts && (
                   <span style={{ color: 'var(--mu)', fontWeight: 400, textTransform: 'none', fontSize: 11 }}>
-                    — {counts.discogsReleases} from Discogs, {counts.deezerReleases} from Deezer
+                    — {counts.discogsReleases > 0 ? `${counts.discogsReleases} vinyl from Discogs, ` : ''}{counts.deezerReleases} from Deezer
+                    {discogsProgressiveLoading && ' (loading vinyl pressings...)'}
                   </span>
                 )}
               </div>

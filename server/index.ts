@@ -168,6 +168,171 @@ const server = Bun.serve({
         return json({ success: true });
       }
 
+      // 10a. Progressive Streaming Music Search (SSE): GET /api/search/stream?q=...
+      if (path === '/api/search/stream' && method === 'GET') {
+        const query = (url.searchParams.get('q') || '').trim();
+        const discogsEnabled = isDiscogsConfigured();
+
+        if (!query) {
+          return new Response('event: done\ndata: {}\n\n', {
+            headers: {
+              'Content-Type': 'text/event-stream; charset=utf-8',
+              'Cache-Control': 'no-cache, no-transform',
+              'Connection': 'keep-alive',
+            },
+          });
+        }
+
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+          async start(controller) {
+            let isAborted = false;
+            req.signal.addEventListener('abort', () => {
+              isAborted = true;
+            });
+
+            const sendEvent = (event: string, data: any) => {
+              if (isAborted) return;
+              try {
+                controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+              } catch {}
+            };
+
+            // Tier 1: Fast Phase (Deezer releases & artists in ~60-80ms)
+            let deezerReleases: any[] = [];
+            let deezerArtists: any[] = [];
+
+            try {
+              const [dReleases, dArtists] = await Promise.all([
+                searchDeezerReleases(query).catch(() => []),
+                searchDeezerArtists(query).catch(() => []),
+              ]);
+
+              deezerReleases = dReleases.map(d => ({
+                source: 'deezer' as const,
+                id: d.id,
+                title: d.title,
+                artist: d.artist,
+                year: d.year,
+                format: d.format,
+                catalog_no: d.catalog_no,
+                barcode: d.barcode,
+                country: d.country,
+                label: d.label,
+                thumb: d.thumb,
+                track_count: d.track_count,
+              }));
+
+              deezerArtists = dArtists.map(a => ({
+                source: 'deezer' as const,
+                id: a.id,
+                name: a.name,
+                thumb: a.thumb,
+                nb_album: a.nb_album,
+              }));
+
+              // Send immediate fast results
+              sendEvent('fast', {
+                artists: deezerArtists,
+                releases: deezerReleases,
+                counts: {
+                  artists: deezerArtists.length,
+                  deezerReleases: deezerReleases.length,
+                  discogsReleases: 0,
+                },
+                discogsLoading: discogsEnabled,
+                discogsConfigured: discogsEnabled,
+                phase: 'fast',
+              });
+            } catch (err: any) {
+              console.warn('[Stream Search Fast Error]', err.message);
+            }
+
+            if (isAborted || !discogsEnabled) {
+              sendEvent('done', { done: true });
+              try { controller.close(); } catch {}
+              return;
+            }
+
+            // Tier 2: Discogs Deep Phase (Physical pressings & vinyl in background)
+            try {
+              const [discReleases, discArtists] = await Promise.all([
+                searchDiscogsReleases(query).catch(() => []),
+                searchDiscogsArtists(query).catch(() => []),
+              ]);
+
+              if (isAborted) return;
+
+              const mappedDiscogsReleases = discReleases.map(d => ({
+                source: 'discogs' as const,
+                id: d.id,
+                title: d.title,
+                artist: d.artist,
+                year: d.year,
+                format: d.format,
+                catalog_no: d.catalog_no,
+                barcode: d.barcode,
+                country: d.country,
+                label: d.label,
+                thumb: d.thumb,
+                track_count: 0,
+              }));
+
+              const mappedDiscogsArtists = discArtists.map(a => ({
+                source: 'discogs' as const,
+                id: a.id,
+                name: a.name,
+                thumb: a.thumb,
+                nb_album: 0,
+              }));
+
+              // Merge and deduplicate artists
+              const artistMap = new Map<string, any>();
+              for (const a of [...mappedDiscogsArtists, ...deezerArtists]) {
+                const cleanName = a.name.replace(/\s\(\d+\)$/, '').trim();
+                const normKey = cleanName.toLowerCase();
+                if (!artistMap.has(normKey)) {
+                  artistMap.set(normKey, { ...a, name: cleanName });
+                } else {
+                  const existing = artistMap.get(normKey);
+                  if (!existing.thumb && a.thumb) existing.thumb = a.thumb;
+                  if (a.nb_album) existing.nb_album = a.nb_album;
+                }
+              }
+
+              const combinedArtists = Array.from(artistMap.values());
+              const combinedReleases = [...mappedDiscogsReleases, ...deezerReleases];
+
+              sendEvent('discogs', {
+                artists: combinedArtists,
+                releases: combinedReleases,
+                counts: {
+                  artists: combinedArtists.length,
+                  deezerReleases: deezerReleases.length,
+                  discogsReleases: mappedDiscogsReleases.length,
+                },
+                discogsLoading: false,
+                discogsConfigured: true,
+                phase: 'discogs',
+              });
+            } catch (err: any) {
+              console.warn('[Stream Search Discogs Error]', err.message);
+            }
+
+            sendEvent('done', { done: true });
+            try { controller.close(); } catch {}
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache, no-transform',
+            'Connection': 'keep-alive',
+          },
+        });
+      }
+
       // 10. Hybrid Music Search: GET /api/search/hybrid?q=...
       if (path === '/api/search/hybrid' && method === 'GET') {
         const query = (url.searchParams.get('q') || '').trim();
@@ -500,8 +665,13 @@ const server = Bun.serve({
       // 15. MusicBrainz Search: GET /api/musicbrainz/search?q=...
       if (path === '/api/musicbrainz/search' && method === 'GET') {
         const query = url.searchParams.get('q') || '';
-        const results = await searchMusicBrainzReleases(query);
-        return json(results);
+        try {
+          const results = await searchMusicBrainzReleases(query);
+          return json(results);
+        } catch (err: any) {
+          console.warn('[MusicBrainz search error]', err.message);
+          return json([]);
+        }
       }
 
       // 11. MusicBrainz Release Details: GET /api/musicbrainz/release/:mbid

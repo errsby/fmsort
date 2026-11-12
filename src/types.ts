@@ -109,6 +109,8 @@ export interface HybridSearchResponse {
   artists: UnifiedArtistSummary[];
   releases: UnifiedReleaseSummary[];
   discogsConfigured: boolean;
+  discogsLoading?: boolean;
+  phase?: 'fast' | 'discogs' | 'done';
   counts?: {
     artists: number;
     discogsReleases: number;

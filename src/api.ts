@@ -111,6 +111,72 @@ export async function searchHybrid(query: string): Promise<HybridSearchResponse>
   return res.json();
 }
 
+export async function streamHybridSearch(
+  query: string,
+  onUpdate: (data: HybridSearchResponse) => void,
+  signal?: AbortSignal
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/search/stream?q=${encodeURIComponent(query)}`, {
+    signal,
+    headers: { 'Accept': 'text/event-stream' },
+  });
+
+  if (!res.ok) {
+    throw new Error('Streaming search failed');
+  }
+
+  if (!res.body) {
+    const data = await res.json();
+    onUpdate({ ...data, discogsLoading: false });
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const chunks = buffer.split('\n\n');
+      buffer = chunks.pop() || '';
+
+      for (const chunk of chunks) {
+        if (!chunk.trim()) continue;
+        const lines = chunk.split('\n');
+        let event = '';
+        let dataStr = '';
+
+        for (const line of lines) {
+          if (line.startsWith('event:')) {
+            event = line.slice(6).trim();
+          } else if (line.startsWith('data:')) {
+            dataStr = line.slice(5).trim();
+          }
+        }
+
+        if (dataStr) {
+          try {
+            const parsed = JSON.parse(dataStr);
+            if (event === 'fast' || event === 'discogs') {
+              onUpdate(parsed);
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      // Ignored: aborted on new keystroke
+      return;
+    }
+    throw err;
+  }
+}
+
 export async function importUniversalRelease(
   source: 'discogs' | 'deezer' | 'musicbrainz',
   releaseId: string | number,
