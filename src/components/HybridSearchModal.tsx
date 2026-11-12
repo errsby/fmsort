@@ -294,36 +294,29 @@ export const HybridSearchModal: React.FC<Props> = ({
           <button onClick={onClose} style={{ padding: '2px 8px' }}>✕</button>
         </div>
 
-        {/* Discogs Token Status & Inline Setup */}
+        {/* Server Provider Status */}
         <div style={{ marginBottom: 12 }}>
-          {hasDiscogsToken && !isEditingToken ? (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--mu)', background: '#0f172a', border: '1px solid #1e293b', padding: '4px 10px', borderRadius: 6 }}>
-              <span>✓ Discogs 17.5M+ Catalog Connected {tokenPreview && `(${tokenPreview})`}</span>
-              <button
-                type="button"
-                onClick={() => setIsEditingToken(true)}
-                style={{ border: 'none', background: 'transparent', padding: '1px 4px', fontSize: 11, color: '#93c5fd', cursor: 'pointer', textDecoration: 'underline' }}
-              >
-                Change Token
-              </button>
+          {hasDiscogsToken ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#93c5fd', background: '#0f172a', border: '1px solid #1e3a5f', padding: '5px 10px', borderRadius: 6 }}>
+              <span>✓ Discogs 17.5M+ Physical Archive & Deezer Instant Streaming Active</span>
             </div>
           ) : (
-            <div style={{ background: '#1c1917', border: '1px solid #78350f', borderRadius: 8, padding: 10 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                <span style={{ fontWeight: 500, color: '#fde68a', fontSize: 12 }}>
-                  Connect Discogs for 17.5M+ physical & rare vinyl releases
-                </span>
-                <a
-                  href="https://www.discogs.com/settings/developers"
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ color: '#93c5fd', fontSize: 11, textDecoration: 'underline' }}
-                >
-                  Get free token on Discogs ↗
-                </a>
-              </div>
+            <div style={{ background: '#1c1917', border: '1px solid #78350f', borderRadius: 6, padding: '6px 10px', fontSize: 11, color: 'var(--mu)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>⚡ Deezer active. Discogs server credentials not yet configured in <code>.env</code>.</span>
+              <button
+                type="button"
+                onClick={() => setIsEditingToken(!isEditingToken)}
+                style={{ border: 'none', background: 'transparent', padding: '1px 4px', fontSize: 11, color: '#fde68a', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                {isEditingToken ? 'Hide' : 'Configure Discogs'}
+              </button>
+            </div>
+          )}
+
+          {isEditingToken && (
+            <div style={{ marginTop: 8, background: '#18181b', border: '1px solid var(--bd)', borderRadius: 6, padding: 10 }}>
               <p style={{ margin: '0 0 8px', fontSize: 11, color: 'var(--mu)' }}>
-                Deezer instant search works right now with no keys. Paste your personal token below to search physical vinyl editions and catalog numbers on Discogs.
+                You can insert your Discogs credentials into <code>.env</code> (recommended for all users) or paste a token below:
               </p>
               <form onSubmit={handleSaveToken} style={{ display: 'flex', gap: 6 }}>
                 <input
@@ -334,13 +327,11 @@ export const HybridSearchModal: React.FC<Props> = ({
                   style={{ flex: 1, fontSize: 11, padding: '4px 8px' }}
                 />
                 <button type="submit" className="p" style={{ fontSize: 11, padding: '4px 10px' }} disabled={savingToken || !tokenInput.trim()}>
-                  {savingToken ? 'Saving...' : 'Connect'}
+                  {savingToken ? 'Saving...' : 'Save Token'}
                 </button>
-                {hasDiscogsToken && (
-                  <button type="button" style={{ fontSize: 11 }} onClick={() => setIsEditingToken(false)}>
-                    Cancel
-                  </button>
-                )}
+                <button type="button" style={{ fontSize: 11 }} onClick={() => setIsEditingToken(false)}>
+                  Close
+                </button>
               </form>
             </div>
           )}

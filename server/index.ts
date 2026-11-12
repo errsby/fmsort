@@ -19,7 +19,7 @@ import {
   getMusicBrainzReleaseDetails,
 } from './musicbrainz';
 import {
-  getDiscogsToken,
+  isDiscogsConfigured,
   searchDiscogsReleases,
   getDiscogsReleaseDetails,
 } from './discogs';
@@ -167,11 +167,12 @@ const server = Bun.serve({
       // 10. Hybrid Music Search: GET /api/search/hybrid?q=...
       if (path === '/api/search/hybrid' && method === 'GET') {
         const query = (url.searchParams.get('q') || '').trim();
+        const discogsEnabled = isDiscogsConfigured();
+
         if (!query) {
-          return json({ results: [], discogsConfigured: !!getDiscogsToken() });
+          return json({ results: [], discogsConfigured: discogsEnabled });
         }
 
-        const discogsToken = getDiscogsToken();
         const promises: Promise<any>[] = [
           searchDeezerReleases(query)
             .then(items =>
@@ -196,7 +197,7 @@ const server = Bun.serve({
             }),
         ];
 
-        if (discogsToken) {
+        if (discogsEnabled) {
           promises.push(
             searchDiscogsReleases(query)
               .then(items =>
@@ -323,12 +324,10 @@ const server = Bun.serve({
         return json({ success: true, destNodeId, tree: updatedTree });
       }
 
-      // 14. Discogs Token Status: GET /api/discogs/status
+      // 14. Discogs Status: GET /api/discogs/status
       if (path === '/api/discogs/status' && method === 'GET') {
-        const token = getDiscogsToken();
-        const hasToken = !!token;
-        const tokenPreview = hasToken && token.length > 8 ? `${token.slice(0, 4)}••••${token.slice(-4)}` : '';
-        return json({ hasToken, tokenPreview });
+        const configured = isDiscogsConfigured();
+        return json({ hasToken: configured });
       }
 
       // 11. Save Discogs Token: POST /api/discogs/token

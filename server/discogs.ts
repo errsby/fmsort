@@ -2,7 +2,7 @@ import { getSetting } from './db';
 
 interface DiscogsRateLimitItem {
   url: string;
-  token: string;
+  authHeader: string;
   resolve: (value: any) => void;
   reject: (reason?: any) => void;
 }
@@ -15,12 +15,29 @@ const MIN_REQUEST_INTERVAL_MS = 1050; // Discogs allows 60 req/min
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
 
-export function getDiscogsToken(): string | null {
+export function getDiscogsAuthHeader(): string | null {
+  // 1. Personal Access Token from env or database
   const envToken = process.env.DISCOGS_TOKEN;
-  if (envToken && envToken.trim()) return envToken.trim();
+  if (envToken && envToken.trim()) {
+    return `Discogs token=${envToken.trim()}`;
+  }
   const dbToken = getSetting('discogs_token');
-  if (dbToken && dbToken.trim()) return dbToken.trim();
+  if (dbToken && dbToken.trim()) {
+    return `Discogs token=${dbToken.trim()}`;
+  }
+
+  // 2. Dev App Consumer Key & Consumer Secret from env or database
+  const key = process.env.DISCOGS_KEY || getSetting('discogs_key');
+  const secret = process.env.DISCOGS_SECRET || getSetting('discogs_secret');
+  if (key && secret && key.trim() && secret.trim()) {
+    return `Discogs key=${key.trim()}, secret=${secret.trim()}`;
+  }
+
   return null;
+}
+
+export function isDiscogsConfigured(): boolean {
+  return getDiscogsAuthHeader() !== null;
 }
 
 async function processQueue() {
@@ -42,13 +59,12 @@ async function processQueue() {
       const res = await fetch(item.url, {
         headers: {
           'User-Agent': 'FMSort/1.0.0 ( +https://github.com/err/fmsort )',
-          'Authorization': `Discogs token=${item.token}`,
+          'Authorization': item.authHeader,
           'Accept': 'application/json',
         },
       });
 
       if (res.status === 429) {
-        // Rate limited - wait 2 seconds and retry
         console.warn('[Discogs] Rate limit hit (429), pausing 2s...');
         await new Promise(r => setTimeout(r, 2000));
         queue.unshift(item);
@@ -70,14 +86,14 @@ async function processQueue() {
   isProcessingQueue = false;
 }
 
-function fetchDiscogsWithRateLimit<T>(url: string, token: string): Promise<T> {
+function fetchDiscogsWithRateLimit<T>(url: string, authHeader: string): Promise<T> {
   const cached = cache.get(url);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return Promise.resolve(cached.data as T);
   }
 
   return new Promise<T>((resolve, reject) => {
-    queue.push({ url, token, resolve, reject });
+    queue.push({ url, authHeader, resolve, reject });
     processQueue();
   });
 }
@@ -88,10 +104,8 @@ export function parseDuration(durationStr?: string): number {
   if (parts.some(isNaN)) return 0;
 
   if (parts.length === 3) {
-    // HH:MM:SS
     return parts[0] * 3600 + parts[1] * 60 + parts[2];
   } else if (parts.length === 2) {
-    // MM:SS
     return parts[0] * 60 + parts[1];
   } else if (parts.length === 1) {
     return parts[0];
@@ -140,16 +154,16 @@ export interface DiscogsReleaseDetail {
 }
 
 export async function searchDiscogsReleases(query: string): Promise<DiscogsReleaseSummary[]> {
-  const token = getDiscogsToken();
-  if (!token) {
-    throw new Error('NO_TOKEN: Please provide a Discogs Personal Access Token to search.');
+  const authHeader = getDiscogsAuthHeader();
+  if (!authHeader) {
+    throw new Error('NO_TOKEN: Server Discogs credentials not configured.');
   }
 
   const cleanQ = query.trim();
   if (!cleanQ) return [];
 
   const url = `https://api.discogs.com/database/search?q=${encodeURIComponent(cleanQ)}&type=release&per_page=30`;
-  const data = await fetchDiscogsWithRateLimit<any>(url, token);
+  const data = await fetchDiscogsWithRateLimit<any>(url, authHeader);
 
   if (!data || !Array.isArray(data.results)) {
     return [];
@@ -159,7 +173,6 @@ export async function searchDiscogsReleases(query: string): Promise<DiscogsRelea
     let artist = 'Unknown Artist';
     let albumTitle = r.title || 'Untitled';
 
-    // Discogs search results often format title as "Artist - Title"
     if (r.title && r.title.includes(' - ')) {
       const parts = r.title.split(' - ');
       artist = parts[0].trim();
@@ -188,19 +201,18 @@ export async function searchDiscogsReleases(query: string): Promise<DiscogsRelea
 }
 
 export async function getDiscogsReleaseDetails(releaseId: string | number): Promise<DiscogsReleaseDetail> {
-  const token = getDiscogsToken();
-  if (!token) {
-    throw new Error('NO_TOKEN: Please provide a Discogs Personal Access Token.');
+  const authHeader = getDiscogsAuthHeader();
+  if (!authHeader) {
+    throw new Error('NO_TOKEN: Server Discogs credentials not configured.');
   }
 
   const url = `https://api.discogs.com/releases/${releaseId}`;
-  const data = await fetchDiscogsWithRateLimit<any>(url, token);
+  const data = await fetchDiscogsWithRateLimit<any>(url, authHeader);
 
   const albumTitle = data.title || 'Untitled';
   const albumArtist = (data.artists || []).map((a: any) => a.name).join(', ') || 'Unknown Artist';
   const year = data.year || (data.released ? parseInt(data.released.slice(0, 4), 10) : 0) || 0;
 
-  // Format description
   let formatName = 'Release';
   if (Array.isArray(data.formats) && data.formats.length > 0) {
     const f = data.formats[0];
@@ -208,7 +220,6 @@ export async function getDiscogsReleaseDetails(releaseId: string | number): Prom
     formatName = `${f.name || 'Release'}${descs ? ` (${descs})` : ''}`;
   }
 
-  // Label & Catalog
   let catalog_no = '—';
   let labelName = '';
   if (Array.isArray(data.labels) && data.labels.length > 0) {
@@ -217,7 +228,6 @@ export async function getDiscogsReleaseDetails(releaseId: string | number): Prom
     if (l.name) labelName = l.name;
   }
 
-  // Barcode / ISRC from identifiers
   let barcode = '—';
   let releaseIsrc = '—';
   if (Array.isArray(data.identifiers)) {
@@ -232,7 +242,6 @@ export async function getDiscogsReleaseDetails(releaseId: string | number): Prom
   const tracklist = data.tracklist || [];
 
   for (const tr of tracklist) {
-    // Discogs tracklist includes tracks and sometimes headings/index tracks
     if (tr.type_ && tr.type_ !== 'track') continue;
 
     const trackTitle = tr.title || 'Untitled Track';
