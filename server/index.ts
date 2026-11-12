@@ -231,7 +231,7 @@ const server = Bun.serve({
         const combined = [...discogsItems, ...deezerItems];
         return json({
           results: combined,
-          discogsConfigured: !!discogsToken,
+          discogsConfigured: discogsEnabled,
           counts: {
             discogs: discogsItems.length,
             deezer: deezerItems.length,
