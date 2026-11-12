@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { LibraryNode, Track, ColumnDef, ColumnKey } from './types';
 import { fetchTree, deleteTracksBatch } from './api';
 import {
@@ -27,6 +27,7 @@ import {
   Settings,
   Sparkles,
   Disc,
+  MoreHorizontal,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -92,9 +93,14 @@ export const App: React.FC = () => {
   const [newTrackOpen, setNewTrackOpen] = useState(false);
   const [moveTracksOpen, setMoveTracksOpen] = useState(false);
   const [nodeEditOpen, setNodeEditOpen] = useState(false);
+  const [nodeToEdit, setNodeToEdit] = useState<LibraryNode | null>(null);
   const [backupOpen, setBackupOpen] = useState(false);
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+  const [addMusicMenuOpen, setAddMusicMenuOpen] = useState(false);
   const [sidebarOpenMobile, setSidebarOpenMobile] = useState(false);
+
+  const addMusicRef = useRef<HTMLDivElement>(null);
+  const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
 
   const loadTree = async (preferredNodeId?: string) => {
     try {
@@ -124,6 +130,20 @@ export const App: React.FC = () => {
     }
   }, [visibleColumns]);
 
+  // Click outside to close menus
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (addMusicRef.current && !addMusicRef.current.contains(e.target as Node)) {
+        setAddMusicMenuOpen(false);
+      }
+      if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
+        setColumnMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Keyboard shortcut for Command Palette
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -137,8 +157,10 @@ export const App: React.FC = () => {
         setNewTrackOpen(false);
         setMoveTracksOpen(false);
         setNodeEditOpen(false);
+        setNodeToEdit(null);
         setBackupOpen(false);
         setColumnMenuOpen(false);
+        setAddMusicMenuOpen(false);
         setActiveTrack(null);
       }
     };
@@ -312,7 +334,19 @@ export const App: React.FC = () => {
             {hasChildren ? '›' : ''}
           </span>
           <span className="ty">{n.type}</span>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.name}</span>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{n.name}</span>
+          <button
+            type="button"
+            className="node-more-btn"
+            title={`Manage ${n.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setNodeToEdit(n);
+              setNodeEditOpen(true);
+            }}
+          >
+            <MoreHorizontal size={13} />
+          </button>
         </div>
         {isOpen && hasChildren && n.children.map(c => renderTreeNode(c, depth + 1))}
       </React.Fragment>
@@ -322,7 +356,7 @@ export const App: React.FC = () => {
   // Render table rows recursively for current node and its children
   const renderSections = (n: LibraryNode, depth: number): React.ReactNode[] => {
     const activeCols = COLUMNS.filter(c => visibleColumns[c.key]);
-    const colSpan = activeCols.length + 1;
+    const colSpan = activeCols.length + 2;
     const nodesOut: React.ReactNode[] = [];
 
     // Filter tracks if filterText is active
@@ -389,6 +423,7 @@ export const App: React.FC = () => {
             if (col.key === 'key') return <td key={col.key} className="mono">{t.key || '—'}</td>;
             return <td key={col.key}>—</td>;
           })}
+          <td style={{ width: 36 }}></td>
         </tr>
       );
     });
@@ -544,51 +579,55 @@ export const App: React.FC = () => {
               style={{ padding: '4px 9px', fontSize: 12, width: 140 }}
             />
 
-            <button onClick={() => setColumnMenuOpen(!columnMenuOpen)}>
-              <SlidersHorizontal size={13} />
-              <span>Columns</span>
-            </button>
-
-            <button
-              className="p"
-              onClick={() => setImportModalOpen(true)}
-            >
-              <Sparkles size={13} />
-              <span>Import Releases</span>
-            </button>
-
-            <button onClick={() => setNewTrackOpen(true)}>
-              <Plus size={13} />
-              <span>Add Track</span>
-            </button>
-
-            {activeNode && (
-              <button onClick={() => setNodeEditOpen(true)} title="Container settings">
-                <Settings size={13} />
-                <span>Container</span>
+            {/* Merged unified Add Music Button */}
+            <div style={{ position: 'relative' }} ref={addMusicRef}>
+              <button
+                className="p"
+                onClick={() => setAddMusicMenuOpen(!addMusicMenuOpen)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+              >
+                <Plus size={14} />
+                <span>Add Music</span>
               </button>
-            )}
 
-            {/* Columns Dropdown Menu */}
-            {columnMenuOpen && (
-              <div className="menu on">
-                {COLUMNS.filter(c => c.key !== 'title').map(col => (
-                  <label key={col.key}>
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns[col.key]}
-                      onChange={e =>
-                        setVisibleColumns(prev => ({
-                          ...prev,
-                          [col.key]: e.target.checked,
-                        }))
-                      }
-                    />
-                    {col.label} {col.isOptional ? '(optional)' : ''}
-                  </label>
-                ))}
-              </div>
-            )}
+              {addMusicMenuOpen && (
+                <div className="add-music-dropdown">
+                  <button
+                    type="button"
+                    className="add-music-option"
+                    onClick={() => {
+                      setAddMusicMenuOpen(false);
+                      setImportModalOpen(true);
+                    }}
+                  >
+                    <div style={{ padding: 6, borderRadius: 6, background: '#1e3a5f', color: '#60a5fa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Sparkles size={16} />
+                    </div>
+                    <div>
+                      <div className="add-music-title">Search &amp; Import Releases</div>
+                      <div className="add-music-desc">Search artists &amp; albums from Discogs 17.5M+ and Deezer</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="add-music-option"
+                    onClick={() => {
+                      setAddMusicMenuOpen(false);
+                      setNewTrackOpen(true);
+                    }}
+                  >
+                    <div style={{ padding: 6, borderRadius: 6, background: '#143825', color: '#34d399', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Plus size={16} />
+                    </div>
+                    <div>
+                      <div className="add-music-title">Add Track Manually</div>
+                      <div className="add-music-desc">Enter custom track metadata, duration &amp; catalog tags</div>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Batch Actions Toolbar */}
@@ -648,6 +687,47 @@ export const App: React.FC = () => {
                       </th>
                     );
                   })}
+                  {/* Columns dropdown button in the actual column label row */}
+                  <th
+                    style={{ width: 36, textAlign: 'center', position: 'relative', cursor: 'default' }}
+                    ref={columnMenuRef}
+                  >
+                    <button
+                      type="button"
+                      className="btn-icon"
+                      style={{ width: 22, height: 22, border: 'none', color: columnMenuOpen ? 'var(--fg)' : 'var(--mu)', margin: '0 auto' }}
+                      title="Customize Columns"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setColumnMenuOpen(!columnMenuOpen);
+                      }}
+                    >
+                      <SlidersHorizontal size={12} />
+                    </button>
+
+                    {columnMenuOpen && (
+                      <div className="menu on" style={{ right: 0, top: '100%', minWidth: 160 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--mu)', padding: '2px 4px 6px', borderBottom: '1px solid var(--bd)', marginBottom: 4 }}>
+                          Toggle Columns
+                        </div>
+                        {COLUMNS.filter(c => c.key !== 'title').map(col => (
+                          <label key={col.key}>
+                            <input
+                              type="checkbox"
+                              checked={visibleColumns[col.key]}
+                              onChange={e =>
+                                setVisibleColumns(prev => ({
+                                  ...prev,
+                                  [col.key]: e.target.checked,
+                                }))
+                              }
+                            />
+                            <span>{col.label} {col.isOptional ? '(optional)' : ''}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -784,11 +864,15 @@ export const App: React.FC = () => {
 
       {/* Edit Container Modal */}
       <NodeEditModal
-        node={activeNode}
+        node={nodeToEdit || activeNode}
         isOpen={nodeEditOpen}
-        onClose={() => setNodeEditOpen(false)}
+        onClose={() => {
+          setNodeEditOpen(false);
+          setNodeToEdit(null);
+        }}
         allTreeNodes={tree}
         onUpdated={newId => {
+          setNodeToEdit(null);
           loadTree(newId);
         }}
       />
