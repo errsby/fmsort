@@ -1,4 +1,12 @@
-import type { LibraryNode, Track, MbReleaseSummary } from './types';
+import type {
+  LibraryNode,
+  Track,
+  MbReleaseSummary,
+  DiscogsReleaseSummary,
+  DiscogsStatus,
+  HybridSearchResponse,
+  UnifiedReleaseSummary,
+} from './types';
 
 const API_BASE = '/api';
 
@@ -94,6 +102,77 @@ export async function moveTracksBatch(ids: number[], targetNodeId: string): Prom
     body: JSON.stringify({ ids, targetNodeId }),
   });
   if (!res.ok) throw new Error('Failed to move tracks');
+}
+
+export async function searchHybrid(query: string): Promise<HybridSearchResponse> {
+  const res = await fetch(`${API_BASE}/search/hybrid?q=${encodeURIComponent(query)}`);
+  if (!res.ok) throw new Error('Failed to perform hybrid search');
+  return res.json();
+}
+
+export async function importUniversalRelease(
+  source: 'discogs' | 'deezer' | 'musicbrainz',
+  releaseId: string | number,
+  targetNodeId: string,
+  createAlbumContainer = true
+): Promise<{ destNodeId: string; tree: LibraryNode[] }> {
+  const res = await fetch(`${API_BASE}/releases/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source, releaseId, targetNodeId, createAlbumContainer }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to import release');
+  }
+  return res.json();
+}
+
+export async function fetchDiscogsStatus(): Promise<DiscogsStatus> {
+  const res = await fetch(`${API_BASE}/discogs/status`);
+  if (!res.ok) throw new Error('Failed to fetch Discogs status');
+  return res.json();
+}
+
+export async function saveDiscogsToken(token: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/discogs/token`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error || 'Failed to save Discogs token');
+  }
+}
+
+export async function searchDiscogs(query: string): Promise<DiscogsReleaseSummary[]> {
+  const res = await fetch(`${API_BASE}/discogs/search?q=${encodeURIComponent(query)}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    if (res.status === 401) {
+      throw new Error('NO_TOKEN');
+    }
+    throw new Error(err.error || 'Failed to search Discogs');
+  }
+  return res.json();
+}
+
+export async function importDiscogsRelease(
+  releaseId: number,
+  targetNodeId: string,
+  createAlbumContainer = true
+): Promise<{ destNodeId: string; tree: LibraryNode[] }> {
+  const res = await fetch(`${API_BASE}/discogs/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ releaseId, targetNodeId, createAlbumContainer }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to import Discogs release');
+  }
+  return res.json();
 }
 
 export async function searchMusicBrainz(query: string): Promise<MbReleaseSummary[]> {

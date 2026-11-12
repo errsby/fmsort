@@ -346,6 +346,19 @@ export function moveTracksBatch(ids: number[], targetNodeId: string) {
   db.prepare(`UPDATE tracks SET node_id = ? WHERE id IN (${placeholders})`).run(targetNodeId, ...ids);
 }
 
+export function getSetting(key: string): string | null {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+  return row ? row.value : null;
+}
+
+export function setSetting(key: string, value: string): void {
+  db.prepare(`
+    INSERT INTO settings (key, value)
+    VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(key, value);
+}
+
 export function exportLibrary() {
   const nodes = db.query('SELECT * FROM nodes').all();
   const tracks = db.query('SELECT * FROM tracks').all();

@@ -9,7 +9,7 @@ import {
   findNodePath,
 } from './utils';
 
-import { MusicBrainzSearchModal } from './components/MusicBrainzSearchModal';
+import { HybridSearchModal } from './components/HybridSearchModal';
 import { CommandPaletteModal } from './components/CommandPaletteModal';
 import { TrackEditDrawer } from './components/TrackEditDrawer';
 import { NewContainerModal } from './components/NewContainerModal';
@@ -75,7 +75,7 @@ export const App: React.FC = () => {
   const [activeTrack, setActiveTrack] = useState<Track | null>(null);
 
   // Modals state
-  const [mbSearchOpen, setMbSearchOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [newContainerOpen, setNewContainerOpen] = useState(false);
   const [newTrackOpen, setNewTrackOpen] = useState(false);
@@ -120,7 +120,7 @@ export const App: React.FC = () => {
         e.preventDefault();
         setCommandPaletteOpen(true);
       } else if (e.key === 'Escape') {
-        setMbSearchOpen(false);
+        setImportModalOpen(false);
         setCommandPaletteOpen(false);
         setNewContainerOpen(false);
         setNewTrackOpen(false);
@@ -508,9 +508,9 @@ export const App: React.FC = () => {
 
             <button
               className="p"
-              onClick={() => setMbSearchOpen(true)}
+              onClick={() => setImportModalOpen(true)}
             >
-              Import from MusicBrainz
+              Import Releases
             </button>
 
             <button onClick={() => setNewTrackOpen(true)}>
@@ -615,7 +615,7 @@ export const App: React.FC = () => {
                             colSpan={COLUMNS.filter(c => visibleColumns[c.key]).length + 1}
                             style={{ padding: 36, color: 'var(--mu)', textAlign: 'center' }}
                           >
-                            This container is empty. Click &ldquo;Import from MusicBrainz&rdquo; or &ldquo;+ Add Track&rdquo; to populate it.
+                            This container is empty. Click &ldquo;Import Releases&rdquo; or &ldquo;+ Add Track&rdquo; to populate it.
                           </td>
                         </tr>
                       );
@@ -647,10 +647,10 @@ export const App: React.FC = () => {
         }}
       />
 
-      {/* MusicBrainz Live Search Modal */}
-      <MusicBrainzSearchModal
-        isOpen={mbSearchOpen}
-        onClose={() => setMbSearchOpen(false)}
+      {/* Hybrid Search & Import Modal (Discogs + Deezer + MusicBrainz) */}
+      <HybridSearchModal
+        isOpen={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
         currentNode={activeNode}
         allTreeNodes={tree}
         onImportSuccess={newDestId => {

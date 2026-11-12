@@ -11,11 +11,22 @@ import {
   moveTracksBatch,
   exportLibrary,
   importLibrary,
+  getSetting,
+  setSetting,
 } from './db';
 import {
   searchMusicBrainzReleases,
   getMusicBrainzReleaseDetails,
 } from './musicbrainz';
+import {
+  getDiscogsToken,
+  searchDiscogsReleases,
+  getDiscogsReleaseDetails,
+} from './discogs';
+import {
+  searchDeezerReleases,
+  getDeezerReleaseDetails,
+} from './deezer';
 
 initDb();
 
@@ -153,7 +164,252 @@ const server = Bun.serve({
         return json({ success: true });
       }
 
-      // 10. MusicBrainz Search: GET /api/musicbrainz/search?q=...
+      // 10. Hybrid Music Search: GET /api/search/hybrid?q=...
+      if (path === '/api/search/hybrid' && method === 'GET') {
+        const query = (url.searchParams.get('q') || '').trim();
+        if (!query) {
+          return json({ results: [], discogsConfigured: !!getDiscogsToken() });
+        }
+
+        const discogsToken = getDiscogsToken();
+        const promises: Promise<any>[] = [
+          searchDeezerReleases(query)
+            .then(items =>
+              items.map(d => ({
+                source: 'deezer' as const,
+                id: d.id,
+                title: d.title,
+                artist: d.artist,
+                year: d.year,
+                format: d.format,
+                catalog_no: d.catalog_no,
+                barcode: d.barcode,
+                country: d.country,
+                label: d.label,
+                thumb: d.thumb,
+                track_count: d.track_count,
+              }))
+            )
+            .catch(err => {
+              console.warn('[Hybrid] Deezer search error:', err.message);
+              return [];
+            }),
+        ];
+
+        if (discogsToken) {
+          promises.push(
+            searchDiscogsReleases(query)
+              .then(items =>
+                items.map(d => ({
+                  source: 'discogs' as const,
+                  id: d.id,
+                  title: d.title,
+                  artist: d.artist,
+                  year: d.year,
+                  format: d.format,
+                  catalog_no: d.catalog_no,
+                  barcode: d.barcode,
+                  country: d.country,
+                  label: d.label,
+                  thumb: d.thumb,
+                  track_count: 0,
+                }))
+              )
+              .catch(err => {
+                console.warn('[Hybrid] Discogs search error:', err.message);
+                return [];
+              })
+          );
+        }
+
+        const settled = await Promise.all(promises);
+        const deezerItems = settled[0] || [];
+        const discogsItems = settled[1] || [];
+
+        // Combine: Discogs physical variants + Deezer digital releases
+        const combined = [...discogsItems, ...deezerItems];
+        return json({
+          results: combined,
+          discogsConfigured: !!discogsToken,
+          counts: {
+            discogs: discogsItems.length,
+            deezer: deezerItems.length,
+          },
+        });
+      }
+
+      // 11. Deezer Search: GET /api/deezer/search?q=...
+      if (path === '/api/deezer/search' && method === 'GET') {
+        const query = url.searchParams.get('q') || '';
+        const results = await searchDeezerReleases(query);
+        return json(results);
+      }
+
+      // 12. Deezer Album Details: GET /api/deezer/album/:id
+      const deezerAlbumMatch = path.match(/^\/api\/deezer\/album\/(\d+)$/);
+      if (deezerAlbumMatch && method === 'GET') {
+        const id = parseInt(deezerAlbumMatch[1], 10);
+        const details = await getDeezerReleaseDetails(id);
+        return json(details);
+      }
+
+      // 13. Unified Universal Import: POST /api/releases/import
+      if (path === '/api/releases/import' && method === 'POST') {
+        const body = await req.json();
+        const { source, releaseId, targetNodeId, createAlbumContainer = true } = body;
+
+        if (!source || !releaseId || !targetNodeId) {
+          return errorJson('Missing source, releaseId, or targetNodeId');
+        }
+
+        let releaseTitle = 'Untitled Album';
+        let tracksToInsert: any[] = [];
+
+        if (source === 'discogs') {
+          const rel = await getDiscogsReleaseDetails(releaseId);
+          releaseTitle = rel.title;
+          tracksToInsert = rel.tracks.map((t, idx) => ({
+            ...t,
+            sort_order: idx,
+          }));
+        } else if (source === 'deezer') {
+          const rel = await getDeezerReleaseDetails(releaseId);
+          releaseTitle = rel.title;
+          tracksToInsert = rel.tracks.map((t, idx) => ({
+            ...t,
+            sort_order: idx,
+          }));
+        } else if (source === 'musicbrainz') {
+          const rel = await getMusicBrainzReleaseDetails(releaseId);
+          releaseTitle = rel.title;
+          tracksToInsert = rel.tracks.map((t, idx) => ({
+            ...t,
+            sort_order: idx,
+          }));
+        } else {
+          return errorJson(`Unknown source: ${source}`);
+        }
+
+        let destNodeId = targetNodeId;
+        if (createAlbumContainer) {
+          const newAlbumNode = createNode({
+            parent_id: targetNodeId,
+            type: 'Album',
+            name: releaseTitle,
+          });
+          destNodeId = newAlbumNode.id;
+        }
+
+        for (const tr of tracksToInsert) {
+          createTrack({
+            node_id: destNodeId,
+            t: tr.title,
+            a: tr.artist,
+            al: tr.album,
+            y: tr.year,
+            f: tr.format,
+            c: tr.catalog_no,
+            bc: tr.barcode,
+            mb: tr.mbid,
+            isrc: tr.isrc,
+            len: tr.length,
+            bpm: tr.bpm,
+            key: tr.key,
+            sort_order: tr.sort_order,
+          });
+        }
+
+        const updatedTree = getFullTree();
+        return json({ success: true, destNodeId, tree: updatedTree });
+      }
+
+      // 14. Discogs Token Status: GET /api/discogs/status
+      if (path === '/api/discogs/status' && method === 'GET') {
+        const token = getDiscogsToken();
+        const hasToken = !!token;
+        const tokenPreview = hasToken && token.length > 8 ? `${token.slice(0, 4)}••••${token.slice(-4)}` : '';
+        return json({ hasToken, tokenPreview });
+      }
+
+      // 11. Save Discogs Token: POST /api/discogs/token
+      if (path === '/api/discogs/token' && method === 'POST') {
+        const body = await req.json();
+        const token = (body.token || '').trim();
+        if (!token) {
+          return errorJson('Token cannot be empty');
+        }
+        setSetting('discogs_token', token);
+        return json({ success: true, hasToken: true });
+      }
+
+      // 12. Discogs Search: GET /api/discogs/search?q=...
+      if (path === '/api/discogs/search' && method === 'GET') {
+        const query = url.searchParams.get('q') || '';
+        try {
+          const results = await searchDiscogsReleases(query);
+          return json(results);
+        } catch (err: any) {
+          if (err.message && err.message.startsWith('NO_TOKEN:')) {
+            return errorJson(err.message, 401);
+          }
+          throw err;
+        }
+      }
+
+      // 13. Discogs Release Details: GET /api/discogs/release/:id
+      const discogsReleaseMatch = path.match(/^\/api\/discogs\/release\/([^/]+)$/);
+      if (discogsReleaseMatch && method === 'GET') {
+        const id = discogsReleaseMatch[1];
+        const details = await getDiscogsReleaseDetails(id);
+        return json(details);
+      }
+
+      // 14. Discogs Import: POST /api/discogs/import
+      if (path === '/api/discogs/import' && method === 'POST') {
+        const body = await req.json();
+        const { releaseId, targetNodeId, createAlbumContainer = true } = body;
+
+        if (!releaseId || !targetNodeId) {
+          return errorJson('Missing releaseId or targetNodeId');
+        }
+
+        const release = await getDiscogsReleaseDetails(releaseId);
+
+        let destNodeId = targetNodeId;
+        if (createAlbumContainer) {
+          const newAlbumNode = createNode({
+            parent_id: targetNodeId,
+            type: 'Album',
+            name: release.title,
+          });
+          destNodeId = newAlbumNode.id;
+        }
+
+        for (let i = 0; i < release.tracks.length; i++) {
+          const tr = release.tracks[i];
+          createTrack({
+            node_id: destNodeId,
+            t: tr.title,
+            a: tr.artist,
+            al: tr.album,
+            y: tr.year,
+            f: tr.format,
+            c: tr.catalog_no,
+            bc: tr.barcode,
+            mb: tr.mbid,
+            isrc: tr.isrc,
+            len: tr.length,
+            bpm: tr.bpm,
+            key: tr.key,
+            sort_order: i,
+          });
+        }
+
+        const updatedTree = getFullTree();
+        return json({ success: true, destNodeId, tree: updatedTree });
+      }
+
+      // 15. MusicBrainz Search: GET /api/musicbrainz/search?q=...
       if (path === '/api/musicbrainz/search' && method === 'GET') {
         const query = url.searchParams.get('q') || '';
         const results = await searchMusicBrainzReleases(query);

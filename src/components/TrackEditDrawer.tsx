@@ -110,11 +110,23 @@ export const TrackEditDrawer: React.FC<Props> = ({
               <dt>Barcode</dt>
               <dd className="mono">{track.bc || '—'}</dd>
 
-              <dt>Release MBID</dt>
+              <dt>
+                {track.mb && track.mb.startsWith('discogs-')
+                  ? 'Discogs ID'
+                  : track.mb && track.mb.startsWith('deezer-')
+                  ? 'Deezer ID'
+                  : 'Release MBID'}
+              </dt>
               <dd className="mono" style={{ fontSize: 11 }}>
-                {track.mb ? (
+                {track.mb && track.mb !== '—' ? (
                   <a
-                    href={`https://musicbrainz.org/release/${track.mb}`}
+                    href={
+                      track.mb.startsWith('discogs-')
+                        ? `https://www.discogs.com/release/${track.mb.replace('discogs-', '')}`
+                        : track.mb.startsWith('deezer-')
+                        ? `https://www.deezer.com/track/${track.mb.replace('deezer-', '')}`
+                        : `https://musicbrainz.org/release/${track.mb}`
+                    }
                     target="_blank"
                     rel="noreferrer"
                     style={{ color: '#93c5fd', textDecoration: 'none' }}

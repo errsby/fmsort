@@ -59,3 +59,47 @@ export interface MbReleaseSummary {
   track_count: number;
   label: string;
 }
+
+export interface DiscogsReleaseSummary {
+  id: number;
+  title: string;
+  artist: string;
+  year: number;
+  format: string;
+  catalog_no: string;
+  barcode: string;
+  country: string;
+  label: string;
+  thumb: string;
+}
+
+export interface DiscogsStatus {
+  hasToken: boolean;
+  tokenPreview?: string;
+}
+
+export type SearchProvider = 'hybrid' | 'discogs' | 'deezer' | 'musicbrainz';
+
+export interface UnifiedReleaseSummary {
+  source: 'discogs' | 'deezer' | 'musicbrainz';
+  id: string | number;
+  title: string;
+  artist: string;
+  year: number;
+  format: string;
+  catalog_no: string;
+  barcode: string;
+  country: string;
+  label: string;
+  thumb: string;
+  track_count?: number;
+}
+
+export interface HybridSearchResponse {
+  results: UnifiedReleaseSummary[];
+  discogsConfigured: boolean;
+  counts?: {
+    discogs: number;
+    deezer: number;
+  };
+}
