@@ -891,62 +891,121 @@ tr.h .m {
   font-size: 12px;
 }
 
-/* Active Container Hero Banner */
+/* Active Container Hero Banner with Discogs Background Artwork */
 .active-hero-banner {
+  position: relative;
+  overflow: hidden;
+  min-height: 140px;
+  border-bottom: 1px solid var(--bd);
+  background: #0d0d10;
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 16px 20px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
-  border-bottom: 1px solid var(--bd);
-  position: relative;
+}
+
+.hero-backdrop {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
   overflow: hidden;
 }
 
-.active-hero-banner::before {
-  content: '';
+/* Atmospheric ambient glow filling the whole background */
+.hero-backdrop-glow {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.1) 50%, transparent 100%);
+  inset: -30px;
+  background-size: cover;
+  background-position: center 30%;
+  filter: blur(36px) saturate(1.7) brightness(0.26);
+  opacity: 0.9;
+}
+
+/* Bigger art on the right side with gradient fade */
+.hero-backdrop-artwork {
+  position: absolute;
+  top: -20px;
+  bottom: -20px;
+  right: -10px;
+  width: 520px;
+  background-size: cover;
+  background-position: center;
+  opacity: 0.38;
+  filter: contrast(1.08) saturate(1.15);
+  mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.4) 30%, rgba(0,0,0,0.95) 75%, rgba(0,0,0,1) 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.4) 30%, rgba(0,0,0,0.95) 75%, rgba(0,0,0,1) 100%);
+  transition: opacity 0.3s ease;
+}
+
+/* Darkening gradient scrim across the left so text is completely crisp */
+.hero-backdrop-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #09090b 0%, rgba(9, 9, 11, 0.88) 42%, rgba(9, 9, 11, 0.45) 75%, rgba(9, 9, 11, 0.2) 100%),
+              linear-gradient(180deg, transparent 65%, #09090b 100%);
+}
+
+.active-hero-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 22px 24px;
+  width: 100%;
 }
 
 .active-hero-meta {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   min-width: 0;
   flex: 1;
+}
+
+.active-hero-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .active-hero-badge {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  color: var(--mu);
+  color: #a1a1aa;
   text-transform: uppercase;
+}
+
+.active-hero-tag {
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e4e4e7;
+  padding: 1px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
 }
 
 .active-hero-title {
   margin: 0;
-  font-size: 22px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: #fafafa;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: #ffffff;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
 }
 
 .active-hero-sub {
   font-size: 12px;
-  color: var(--mu);
+  color: #a1a1aa;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 2px;
+  gap: 3px;
 }
 
 /* Micro artwork hover effects */

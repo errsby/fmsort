@@ -172,11 +172,30 @@ export async function getDeezerReleaseDetails(albumId: string | number): Promise
 
   const coverUrl = data.cover_medium || data.cover_big || data.cover_small || '';
 
+  // Fetch real verified ISRCs for each track in parallel
+  const trackIsrcMap = new Map<number, string>();
+  await Promise.all(
+    tracklist.map(async (tr: any) => {
+      try {
+        const trackRes = await fetch(`https://api.deezer.com/track/${tr.id}`, {
+          headers: {
+            'User-Agent': 'FMSort/1.0.0 ( https://github.com/err/fmsort )',
+            'Accept': 'application/json',
+          },
+        });
+        if (trackRes.ok) {
+          const tData = await trackRes.json();
+          if (tData.isrc) trackIsrcMap.set(tr.id, tData.isrc);
+        }
+      } catch {}
+    })
+  );
+
   for (const tr of tracklist) {
     const trackTitle = tr.title || tr.title_short || 'Untitled Track';
     const trackArtist = tr.artist?.name || albumArtist;
     const lengthSeconds = tr.duration || 0;
-    const isrc = tr.isrc || '—';
+    const isrc = trackIsrcMap.get(tr.id) || tr.isrc || '—';
 
     tracks.push({
       title: trackTitle,
@@ -210,4 +229,56 @@ export async function getDeezerReleaseDetails(albumId: string | number): Promise
 
   cache.set(url, { data: detail, timestamp: Date.now() });
   return detail;
+}
+
+/**
+ * Universal ISRC Lookup fallback for any artist + track title.
+ * Queries Deezer's catalog to find the official 12-character ISRC code.
+ */
+export async function lookupIsrc(artist: string, title: string): Promise<string> {
+  const cleanArtist = (artist || '').replace(/\s\(\d+\)$/, '').trim();
+  const cleanTitle = (title || '')
+    .replace(/\s\([^)]*mix[^)]*\)/i, '')
+    .replace(/\s\(feat\..*?\)/i, '')
+    .replace(/^\d+[\s.-]+/, '')
+    .trim();
+  const q = `${cleanArtist} ${cleanTitle}`.trim();
+  if (!q) return '—';
+
+  const cacheKey = `isrc:${q.toLowerCase()}`;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  try {
+    const searchUrl = `https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=1`;
+    const res = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': 'FMSort/1.0.0 ( https://github.com/err/fmsort )',
+        'Accept': 'application/json',
+      },
+    });
+    if (!res.ok) return '—';
+    const sData = await res.json();
+    if (!sData.data || !Array.isArray(sData.data) || sData.data.length === 0) return '—';
+
+    const trackId = sData.data[0].id;
+    const trackRes = await fetch(`https://api.deezer.com/track/${trackId}`, {
+      headers: {
+        'User-Agent': 'FMSort/1.0.0 ( https://github.com/err/fmsort )',
+        'Accept': 'application/json',
+      },
+    });
+    if (!trackRes.ok) return '—';
+    const tData = await trackRes.json();
+    const isrc = (tData.isrc || '').trim() || '—';
+    if (isrc && isrc !== '—') {
+      cache.set(cacheKey, { data: isrc, timestamp: Date.now() });
+    }
+    return isrc;
+  } catch (err: any) {
+    console.warn('[Deezer ISRC lookup error]', err.message);
+    return '—';
+  }
 }

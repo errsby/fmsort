@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { LibraryNode, Track, ColumnDef, ColumnKey } from './types';
-import { fetchTree, deleteTracksBatch } from './api';
+import { fetchTree, deleteTracksBatch, updateNode, fetchDiscogsArtwork, enrichAllIsrcs } from './api';
 import {
   fmtDuration,
   fmtTotalRuntime,
@@ -99,6 +99,8 @@ export const App: React.FC = () => {
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [addMusicMenuOpen, setAddMusicMenuOpen] = useState(false);
   const [sidebarOpenMobile, setSidebarOpenMobile] = useState(false);
+  const [heroBackdrop, setHeroBackdrop] = useState<string | null>(null);
+  const [enrichingIsrc, setEnrichingIsrc] = useState(false);
 
   const addMusicRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
@@ -183,6 +185,52 @@ export const App: React.FC = () => {
     if (!activeNode) return [];
     return flattenTracks(activeNode);
   }, [activeNode]);
+
+  const handleEnrichActiveTracksIsrc = async () => {
+    if (!activeFlatTracks.length) return;
+    setEnrichingIsrc(true);
+    try {
+      const ids = activeFlatTracks.filter(t => !t.isrc || t.isrc === '—').map(t => t.id);
+      await enrichAllIsrcs(ids);
+      await loadTree(activeNodeId || undefined);
+    } catch (err: any) {
+      console.warn('Failed to resolve ISRCs:', err);
+    } finally {
+      setEnrichingIsrc(false);
+    }
+  };
+
+  // Fetch & manage bigger Discogs art backdrop for active Album / Artist
+  useEffect(() => {
+    let isCurrent = true;
+    if (!activeNode || (activeNode.type !== 'Album' && activeNode.type !== 'Artist' && activeNode.type !== 'Playlist')) {
+      setHeroBackdrop(null);
+      return;
+    }
+
+    // 1. Initial immediate backdrop from node's cover or track's cover
+    const immediateCover = activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || null;
+    setHeroBackdrop(immediateCover);
+
+    // 2. Fetch bigger art from Discogs
+    const queryType = activeNode.type === 'Artist' ? 'artist' : 'release';
+    fetchDiscogsArtwork(activeNode.name, queryType)
+      .then(art => {
+        if (!isCurrent) return;
+        if (art && art.cover_image) {
+          setHeroBackdrop(art.cover_image);
+          // Persist onto node if none was set
+          if (!activeNode.cover_url) {
+            updateNode(activeNode.id, { cover_url: art.cover_image }).catch(() => {});
+          }
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url]);
 
   const toggleNodeExpansion = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -589,29 +637,81 @@ export const App: React.FC = () => {
 
         {/* Section / Table */}
         <section>
-          {/* Active Container Hero Banner */}
+          {/* Active Container Hero Banner with Discogs Background Artwork */}
           {activeNode && (activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist') && (
             <div className="active-hero-banner">
-              <CoverArt
-                src={activeNode.cover_url || activeNode.tracks?.[0]?.cover_url}
-                alt={activeNode.name}
-                size={84}
-                type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : 'album'}
-                seed={activeNode.name}
-                rounded={activeNode.type === 'Artist' ? 'full' : 8}
-              />
-              <div className="active-hero-meta">
-                <div className="active-hero-badge">{activeNode.type.toUpperCase()}</div>
-                <h2 className="active-hero-title">{activeNode.name}</h2>
-                <div className="active-hero-sub">
-                  {activeNode.type === 'Album' && activeNode.tracks?.[0]?.a && (
-                    <span style={{ color: '#fafafa', fontWeight: 500 }}>{activeNode.tracks[0].a} · </span>
-                  )}
-                  {activeNode.type === 'Album' && activeNode.tracks?.[0]?.y ? (
-                    <span>{activeNode.tracks[0].y} · </span>
-                  ) : null}
-                  <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
-                  {activeFlatTracks.length > 0 && <span> · {fmtTotalRuntime(activeFlatTracks)}</span>}
+              {/* Bigger Art Backdrop from Discogs */}
+              {heroBackdrop && (
+                <div className="hero-backdrop" aria-hidden="true">
+                  <div
+                    className="hero-backdrop-glow"
+                    style={{ backgroundImage: `url(${heroBackdrop})` }}
+                  />
+                  <div
+                    className="hero-backdrop-artwork"
+                    style={{ backgroundImage: `url(${heroBackdrop})` }}
+                  />
+                  <div className="hero-backdrop-scrim" />
+                </div>
+              )}
+
+              {/* Foreground Type Art / Title / Info Section */}
+              <div className="active-hero-content">
+                <CoverArt
+                  src={activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || heroBackdrop}
+                  alt={activeNode.name}
+                  size={92}
+                  type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : 'album'}
+                  seed={activeNode.name}
+                  rounded={activeNode.type === 'Artist' ? 'full' : 8}
+                />
+                <div className="active-hero-meta">
+                  <div className="active-hero-badge-row">
+                    <span className="active-hero-badge">{activeNode.type.toUpperCase()}</span>
+                    {activeNode.type === 'Artist' && (
+                      <span className="active-hero-tag">DISCOGS ARTIST</span>
+                    )}
+                    {activeNode.type === 'Album' && activeNode.tracks?.[0]?.f && (
+                      <span className="active-hero-tag">{activeNode.tracks[0].f}</span>
+                    )}
+                  </div>
+                  <h2 className="active-hero-title">{activeNode.name}</h2>
+                  <div className="active-hero-sub">
+                    {activeNode.type === 'Album' && activeNode.tracks?.[0]?.a && (
+                      <span style={{ color: '#fafafa', fontWeight: 500 }}>{activeNode.tracks[0].a} · </span>
+                    )}
+                    {activeNode.type === 'Album' && activeNode.tracks?.[0]?.y ? (
+                      <span>{activeNode.tracks[0].y} · </span>
+                    ) : null}
+                    <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
+                    {activeFlatTracks.length > 0 && <span> · {fmtTotalRuntime(activeFlatTracks)}</span>}
+                    {activeFlatTracks.some(t => !t.isrc || t.isrc === '—') && (
+                      <>
+                        <span> · </span>
+                        <button
+                          type="button"
+                          onClick={handleEnrichActiveTracksIsrc}
+                          disabled={enrichingIsrc}
+                          title="Search digital music catalog to find verified ISRC codes for these tracks"
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.08)',
+                            border: '1px solid rgba(255, 255, 255, 0.15)',
+                            borderRadius: 4,
+                            padding: '1px 8px',
+                            color: '#e4e4e7',
+                            fontSize: 11,
+                            cursor: enrichingIsrc ? 'wait' : 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                          }}
+                        >
+                          <Sparkles size={11} />
+                          <span>{enrichingIsrc ? 'Resolving ISRCs...' : 'Resolve ISRCs'}</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

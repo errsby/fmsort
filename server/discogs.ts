@@ -124,6 +124,7 @@ export interface DiscogsReleaseSummary {
   country: string;
   label: string;
   thumb: string;
+  cover_image?: string;
 }
 
 export interface DiscogsTrackDetail {
@@ -159,6 +160,7 @@ export interface DiscogsArtistSummary {
   id: number;
   name: string;
   thumb: string;
+  cover_image?: string;
 }
 
 export async function searchDiscogsArtists(query: string): Promise<DiscogsArtistSummary[]> {
@@ -179,6 +181,7 @@ export async function searchDiscogsArtists(query: string): Promise<DiscogsArtist
     id: r.id,
     name: r.title,
     thumb: r.thumb || '',
+    cover_image: r.cover_image || r.thumb || '',
   }));
 }
 
@@ -225,8 +228,30 @@ export async function searchDiscogsReleases(query: string): Promise<DiscogsRelea
       country: r.country || '',
       label,
       thumb: r.thumb || '',
+      cover_image: r.cover_image || r.thumb || '',
     };
   });
+}
+
+export async function getDiscogsBiggerArtwork(query: string, type: 'artist' | 'release'): Promise<{ cover_image: string; thumb: string } | null> {
+  const authHeader = getDiscogsAuthHeader();
+  if (!authHeader) return null;
+
+  const cleanQ = query.trim();
+  if (!cleanQ) return null;
+
+  const url = `https://api.discogs.com/database/search?q=${encodeURIComponent(cleanQ)}&type=${type}&per_page=1`;
+  const data = await fetchDiscogsWithRateLimit<any>(url, authHeader);
+
+  if (!data || !Array.isArray(data.results) || data.results.length === 0) {
+    return null;
+  }
+
+  const first = data.results[0];
+  return {
+    cover_image: first.cover_image || first.thumb || '',
+    thumb: first.thumb || '',
+  };
 }
 
 export async function getDiscogsReleaseDetails(releaseId: string | number): Promise<DiscogsReleaseDetail> {

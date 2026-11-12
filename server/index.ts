@@ -13,6 +13,8 @@ import {
   importLibrary,
   getSetting,
   setSetting,
+  getAllTracks,
+  getTrackById,
 } from './db';
 import {
   searchMusicBrainzReleases,
@@ -23,11 +25,13 @@ import {
   searchDiscogsReleases,
   searchDiscogsArtists,
   getDiscogsReleaseDetails,
+  getDiscogsBiggerArtwork,
 } from './discogs';
 import {
   searchDeezerReleases,
   searchDeezerArtists,
   getDeezerReleaseDetails,
+  lookupIsrc,
 } from './deezer';
 
 initDb();
@@ -166,6 +170,61 @@ const server = Bun.serve({
         }
         moveTracksBatch(body.ids, body.targetNodeId);
         return json({ success: true });
+      }
+
+      // 9b. Enrich Single Track ISRC: POST /api/tracks/:id/enrich-isrc
+      const enrichSingleMatch = path.match(/^\/api\/tracks\/(\d+)\/enrich-isrc$/);
+      if (enrichSingleMatch && method === 'POST') {
+        const id = parseInt(enrichSingleMatch[1], 10);
+        const tr = getTrackById(id);
+        if (!tr) return errorJson('Track not found', 404);
+
+        const isrc = await lookupIsrc(tr.artist, tr.title);
+        if (isrc && isrc !== '—') {
+          updateTrack(id, { isrc });
+          return json({ success: true, id, isrc, updated: true });
+        }
+        return json({ success: true, id, isrc: tr.isrc || '—', updated: false });
+      }
+
+      // 9c. Batch Enrich Missing ISRCs: POST /api/tracks/enrich-isrc
+      if (path === '/api/tracks/enrich-isrc' && method === 'POST') {
+        const body = await req.json().catch(() => ({}));
+        const trackIds: number[] | undefined = body.trackIds;
+
+        const allTracks = getAllTracks();
+        const targets = trackIds && Array.isArray(trackIds)
+          ? allTracks.filter(t => trackIds.includes(t.id) && (!t.isrc || t.isrc === '—'))
+          : allTracks.filter(t => !t.isrc || t.isrc === '—');
+
+        let updatedCount = 0;
+        const results: { id: number; title: string; isrc: string }[] = [];
+
+        // Concurrency-limited enrichment in chunks of 5
+        const CHUNK_SIZE = 5;
+        for (let i = 0; i < targets.length; i += CHUNK_SIZE) {
+          const chunk = targets.slice(i, i + CHUNK_SIZE);
+          await Promise.all(
+            chunk.map(async tr => {
+              try {
+                const isrc = await lookupIsrc(tr.artist, tr.title);
+                if (isrc && isrc !== '—') {
+                  updateTrack(tr.id, { isrc });
+                  updatedCount++;
+                  results.push({ id: tr.id, title: tr.title, isrc });
+                }
+              } catch {}
+            })
+          );
+        }
+
+        return json({
+          success: true,
+          totalProcessed: targets.length,
+          updatedCount,
+          results,
+          tree: getFullTree(),
+        });
       }
 
       // 10a. Progressive Streaming Music Search (SSE): GET /api/search/stream?q=...
@@ -543,6 +602,18 @@ const server = Bun.serve({
           return errorJson(`Unknown source: ${source}`);
         }
 
+        // Enrich missing ISRCs via Deezer fallback
+        await Promise.all(
+          tracksToInsert.map(async tr => {
+            if (!tr.isrc || tr.isrc === '—') {
+              try {
+                const found = await lookupIsrc(tr.artist, tr.title);
+                if (found && found !== '—') tr.isrc = found;
+              } catch {}
+            }
+          })
+        );
+
         let destNodeId = targetNodeId;
         if (createAlbumContainer) {
           const newAlbumNode = createNode({
@@ -609,6 +680,18 @@ const server = Bun.serve({
         }
       }
 
+      // 12b. Discogs Bigger Artwork Lookup: GET /api/discogs/artwork?q=...&type=artist|release
+      if (path === '/api/discogs/artwork' && method === 'GET') {
+        const query = (url.searchParams.get('q') || '').trim();
+        const type = (url.searchParams.get('type') === 'artist' ? 'artist' : 'release') as 'artist' | 'release';
+        try {
+          const artwork = await getDiscogsBiggerArtwork(query, type);
+          return json(artwork || { cover_image: '', thumb: '' });
+        } catch (err: any) {
+          return json({ cover_image: '', thumb: '' });
+        }
+      }
+
       // 13. Discogs Release Details: GET /api/discogs/release/:id
       const discogsReleaseMatch = path.match(/^\/api\/discogs\/release\/([^/]+)$/);
       if (discogsReleaseMatch && method === 'GET') {
@@ -627,6 +710,18 @@ const server = Bun.serve({
         }
 
         const release = await getDiscogsReleaseDetails(releaseId);
+
+        // Enrich missing ISRCs via Deezer fallback
+        await Promise.all(
+          release.tracks.map(async tr => {
+            if (!tr.isrc || tr.isrc === '—') {
+              try {
+                const found = await lookupIsrc(tr.artist, tr.title);
+                if (found && found !== '—') tr.isrc = found;
+              } catch {}
+            }
+          })
+        );
 
         let destNodeId = targetNodeId;
         if (createAlbumContainer) {
@@ -692,6 +787,18 @@ const server = Bun.serve({
         }
 
         const release = await getMusicBrainzReleaseDetails(mbid);
+
+        // Enrich missing ISRCs via Deezer fallback
+        await Promise.all(
+          release.tracks.map(async tr => {
+            if (!tr.isrc || tr.isrc === '—') {
+              try {
+                const found = await lookupIsrc(tr.artist, tr.title);
+                if (found && found !== '—') tr.isrc = found;
+              } catch {}
+            }
+          })
+        );
 
         let destNodeId = targetNodeId;
         if (createAlbumContainer) {

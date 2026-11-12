@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { Track } from '../types';
 import { fmtDuration } from '../utils';
-import { updateTrack, deleteTrack } from '../api';
+import { updateTrack, deleteTrack, enrichTrackIsrc } from '../api';
 import { CoverArt } from './CoverArt';
 
 interface Props {
@@ -22,6 +22,7 @@ export const TrackEditDrawer: React.FC<Props> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<Partial<Track>>({});
   const [saving, setSaving] = useState(false);
+  const [resolvingIsrc, setResolvingIsrc] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -70,6 +71,23 @@ export const TrackEditDrawer: React.FC<Props> = ({
       onTrackDeleted();
     } catch (err: any) {
       setError(err.message || 'Failed to delete track');
+    }
+  };
+
+  const handleResolveIsrc = async () => {
+    setResolvingIsrc(true);
+    setError(null);
+    try {
+      const res = await enrichTrackIsrc(track.id);
+      if (res.updated) {
+        onTrackUpdated();
+      } else {
+        setError('No verified ISRC found in digital music catalog for this track');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to resolve ISRC');
+    } finally {
+      setResolvingIsrc(false);
     }
   };
 
@@ -156,7 +174,28 @@ export const TrackEditDrawer: React.FC<Props> = ({
               </dd>
 
               <dt>ISRC</dt>
-              <dd className="mono">{track.isrc || '—'}</dd>
+              <dd className="mono" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <span>{track.isrc || '—'}</span>
+                {(!track.isrc || track.isrc === '—') && (
+                  <button
+                    type="button"
+                    onClick={handleResolveIsrc}
+                    disabled={resolvingIsrc}
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: '2px 8px',
+                      background: 'rgba(255, 255, 255, 0.08)',
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      borderRadius: 4,
+                      color: '#fafafa',
+                      cursor: resolvingIsrc ? 'wait' : 'pointer',
+                    }}
+                  >
+                    {resolvingIsrc ? 'Finding...' : 'Find ISRC'}
+                  </button>
+                )}
+              </dd>
 
               <dt>Length</dt>
               <dd className="mono">{fmtDuration(track.len)}</dd>

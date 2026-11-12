@@ -177,6 +177,41 @@ export async function streamHybridSearch(
   }
 }
 
+export async function fetchDiscogsArtwork(
+  query: string,
+  type: 'artist' | 'release'
+): Promise<{ cover_image: string; thumb: string }> {
+  try {
+    const res = await fetch(`${API_BASE}/discogs/artwork?q=${encodeURIComponent(query)}&type=${type}`);
+    if (!res.ok) return { cover_image: '', thumb: '' };
+    return res.json();
+  } catch {
+    return { cover_image: '', thumb: '' };
+  }
+}
+
+export async function enrichTrackIsrc(
+  trackId: number
+): Promise<{ success: boolean; id: number; isrc: string; updated: boolean }> {
+  const res = await fetch(`${API_BASE}/tracks/${trackId}/enrich-isrc`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error('Failed to resolve ISRC');
+  return res.json();
+}
+
+export async function enrichAllIsrcs(
+  trackIds?: number[]
+): Promise<{ success: boolean; totalProcessed: number; updatedCount: number; tree: LibraryNode[] }> {
+  const res = await fetch(`${API_BASE}/tracks/enrich-isrc`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(trackIds ? { trackIds } : {}),
+  });
+  if (!res.ok) throw new Error('Failed to batch enrich ISRCs');
+  return res.json();
+}
+
 export async function importUniversalRelease(
   source: 'discogs' | 'deezer' | 'musicbrainz',
   releaseId: string | number,

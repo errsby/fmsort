@@ -349,6 +349,23 @@ export function updateTrack(id: number, updates: Partial<{
   db.prepare(`UPDATE tracks SET ${fields.join(', ')} WHERE id = ?`).run(...values);
 }
 
+export function getAllTracks(): TrackRecord[] {
+  return db.prepare(`
+    SELECT id, node_id, title, artist, album, year, format, catalog_no, barcode, mbid, isrc, length, bpm, key, sort_order, cover_url
+    FROM tracks
+    ORDER BY id ASC
+  `).all() as TrackRecord[];
+}
+
+export function getTrackById(id: number): TrackRecord | null {
+  const row = db.prepare(`
+    SELECT id, node_id, title, artist, album, year, format, catalog_no, barcode, mbid, isrc, length, bpm, key, sort_order, cover_url
+    FROM tracks
+    WHERE id = ?
+  `).get(id) as TrackRecord | undefined;
+  return row || null;
+}
+
 export function deleteTrack(id: number) {
   db.prepare('DELETE FROM tracks WHERE id = ?').run(id);
 }
