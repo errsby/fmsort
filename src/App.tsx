@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { LibraryNode, Track, ColumnDef, ColumnKey } from './types';
-import { fetchTree, deleteTracksBatch, updateNode, fetchDiscogsArtwork, enrichAllIsrcs } from './api';
+import {
+  fetchTree,
+  deleteTracksBatch,
+  updateNode,
+  deleteNode,
+  createNode,
+  deleteTrack,
+  enrichTrackIsrc,
+  fetchDiscogsArtwork,
+  enrichAllIsrcs,
+} from './api';
 import {
   fmtDuration,
   fmtTotalRuntime,
@@ -19,6 +29,8 @@ import { NodeEditModal } from './components/NodeEditModal';
 import { BackupModal } from './components/BackupModal';
 import { SocialWidgets } from './components/SocialWidgets';
 import { CoverArt } from './components/CoverArt';
+import { ContextMenu } from './components/ContextMenu';
+import type { ContextMenuState } from './components/ContextMenu';
 import {
   Search,
   FolderPlus,
@@ -29,6 +41,10 @@ import {
   Sparkles,
   Disc,
   MoreHorizontal,
+  Folder,
+  ExternalLink,
+  Check,
+  Info,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -102,6 +118,26 @@ export const App: React.FC = () => {
   const [heroBackdrop, setHeroBackdrop] = useState<string | null>(null);
   const [enrichingIsrc, setEnrichingIsrc] = useState(false);
 
+  // Custom Context Menu State
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    isOpen: false,
+    x: 0,
+    y: 0,
+    target: null,
+  });
+
+  // Toast feedback state
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimeoutRef = useRef<any>(null);
+
+  const showToast = (msg: string) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToastMessage(msg);
+    toastTimeoutRef.current = setTimeout(() => {
+      setToastMessage(null);
+    }, 2800);
+  };
+
   const addMusicRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
 
@@ -154,6 +190,7 @@ export const App: React.FC = () => {
         e.preventDefault();
         setCommandPaletteOpen(true);
       } else if (e.key === 'Escape') {
+        setContextMenu(prev => ({ ...prev, isOpen: false }));
         setImportModalOpen(false);
         setCommandPaletteOpen(false);
         setNewContainerOpen(false);
@@ -200,10 +237,23 @@ export const App: React.FC = () => {
     }
   };
 
-  // Fetch & manage bigger Discogs art backdrop for active Album / Artist
+  // Fetch & manage bigger Discogs art backdrop for active Album / Artist / Folder
   useEffect(() => {
     let isCurrent = true;
-    if (!activeNode || (activeNode.type !== 'Album' && activeNode.type !== 'Artist' && activeNode.type !== 'Playlist')) {
+    if (!activeNode) {
+      setHeroBackdrop(null);
+      return;
+    }
+
+    // Folders pull ambient backdrop from their first child container with cover art
+    if (activeNode.type === 'Folder') {
+      const firstChildWithCover = activeNode.children?.find(c => c.cover_url || c.tracks?.[0]?.cover_url);
+      const folderCover = activeNode.cover_url || firstChildWithCover?.cover_url || firstChildWithCover?.tracks?.[0]?.cover_url || null;
+      setHeroBackdrop(folderCover);
+      return;
+    }
+
+    if (activeNode.type !== 'Album' && activeNode.type !== 'Artist' && activeNode.type !== 'Playlist') {
       setHeroBackdrop(null);
       return;
     }
@@ -231,6 +281,174 @@ export const App: React.FC = () => {
       isCurrent = false;
     };
   }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url]);
+
+  // Context Menu Trigger Handlers
+  const handleTrackContextMenu = (e: React.MouseEvent, track: Track) => {
+    if (e.shiftKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const isMulti = selectedTrackIds.has(track.id) && selectedTrackIds.size > 1;
+    if (!selectedTrackIds.has(track.id) && !isMulti) {
+      setSelectedTrackIds(new Set([track.id]));
+    }
+
+    setContextMenu({
+      isOpen: true,
+      x: e.clientX,
+      y: e.clientY,
+      target: {
+        type: 'track',
+        track,
+        isMulti,
+        count: isMulti ? selectedTrackIds.size : 1,
+      },
+    });
+  };
+
+  const handleNodeContextMenu = (e: React.MouseEvent, node: LibraryNode) => {
+    if (e.shiftKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    setContextMenu({
+      isOpen: true,
+      x: e.clientX,
+      y: e.clientY,
+      target: {
+        type: 'node',
+        node,
+      },
+    });
+  };
+
+  const handleTableContextMenu = (e: React.MouseEvent) => {
+    if (e.shiftKey) return;
+    if ((e.target as HTMLElement).closest('.t') || (e.target as HTMLElement).closest('.folder-item-hero-row') || (e.target as HTMLElement).closest('.h')) return;
+    e.preventDefault();
+
+    setContextMenu({
+      isOpen: true,
+      x: e.clientX,
+      y: e.clientY,
+      target: {
+        type: 'table',
+        activeNode,
+      },
+    });
+  };
+
+  const handleSidebarContextMenu = (e: React.MouseEvent) => {
+    if (e.shiftKey) return;
+    if ((e.target as HTMLElement).closest('.n')) return;
+    e.preventDefault();
+
+    setContextMenu({
+      isOpen: true,
+      x: e.clientX,
+      y: e.clientY,
+      target: {
+        type: 'sidebar',
+      },
+    });
+  };
+
+  const handleResolveIsrcAction = async (track: Track) => {
+    showToast(`Searching ISRC for "${track.t}"...`);
+    try {
+      const res = await enrichTrackIsrc(track.id);
+      if (res.updated) {
+        showToast(`ISRC resolved: ${res.isrc}`);
+        await loadTree(activeNodeId || undefined);
+      } else {
+        showToast('No ISRC found in digital music catalog');
+      }
+    } catch {
+      showToast('Failed to resolve ISRC');
+    }
+  };
+
+  const handleBatchResolveIsrcAction = async () => {
+    const ids = Array.from(selectedTrackIds);
+    if (ids.length === 0) return;
+    showToast(`Resolving ISRCs for ${ids.length} tracks...`);
+    try {
+      const res = await enrichAllIsrcs(ids);
+      showToast(`Resolved ${res.updatedCount} ISRCs`);
+      await loadTree(activeNodeId || undefined);
+    } catch {
+      showToast('Failed to batch resolve ISRCs');
+    }
+  };
+
+  const handleDeleteTrackAction = async (track: Track) => {
+    if (!confirm(`Delete track "${track.t}"?`)) return;
+    try {
+      await deleteTrack(track.id);
+      showToast(`Deleted "${track.t}"`);
+      await loadTree(activeNodeId || undefined);
+    } catch {
+      showToast('Failed to delete track');
+    }
+  };
+
+  const handleBatchDeleteTracksAction = async () => {
+    const ids = Array.from(selectedTrackIds);
+    if (ids.length === 0) return;
+    if (!confirm(`Delete ${ids.length} selected tracks?`)) return;
+    try {
+      await deleteTracksBatch(ids);
+      setSelectedTrackIds(new Set());
+      showToast(`Deleted ${ids.length} tracks`);
+      await loadTree(activeNodeId || undefined);
+    } catch {
+      showToast('Failed to delete tracks');
+    }
+  };
+
+  const handleDeleteNodeAction = async (node: LibraryNode) => {
+    if (!confirm(`Delete container "${node.name}" and all its contents?`)) return;
+    try {
+      await deleteNode(node.id);
+      showToast(`Deleted "${node.name}"`);
+      await loadTree();
+    } catch {
+      showToast('Failed to delete container');
+    }
+  };
+
+  const handleRefreshArtworkAction = async (node: LibraryNode) => {
+    showToast(`Searching Discogs for ${node.name}...`);
+    try {
+      const art = await fetchDiscogsArtwork(node.name, node.type === 'Artist' ? 'artist' : 'release');
+      if (art && art.cover_image) {
+        await updateNode(node.id, { cover_url: art.cover_image });
+        showToast(`Discogs artwork updated!`);
+        await loadTree(activeNodeId || undefined);
+      } else {
+        showToast('No artwork found on Discogs');
+      }
+    } catch {
+      showToast('Failed to refresh artwork');
+    }
+  };
+
+  const handleResolveNodeIsrcsAction = async (node: LibraryNode) => {
+    const trs = flattenTracks(node);
+    const missing = trs.filter(t => !t.isrc || t.isrc === '—').map(t => t.id);
+    if (missing.length === 0) {
+      showToast('All tracks already have ISRCs');
+      return;
+    }
+    showToast(`Resolving ${missing.length} missing ISRCs...`);
+    try {
+      const res = await enrichAllIsrcs(missing);
+      showToast(`Resolved ${res.updatedCount} ISRCs`);
+      await loadTree(activeNodeId || undefined);
+    } catch {
+      showToast('Failed to resolve ISRCs');
+    }
+  };
 
   const toggleNodeExpansion = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -373,6 +591,7 @@ export const App: React.FC = () => {
           className={`n ${isActive ? 'on' : ''}`}
           style={{ paddingLeft: `${6 + depth * 14}px` }}
           onClick={() => selectNode(n)}
+          onContextMenu={e => handleNodeContextMenu(e, n)}
           tabIndex={0}
           role="treeitem"
         >
@@ -437,7 +656,11 @@ export const App: React.FC = () => {
     sorted.forEach(t => {
       const isSelected = selectedTrackIds.has(t.id);
       nodesOut.push(
-        <tr key={`t-${t.id}`} className={`t ${isSelected ? 's' : ''}`}>
+        <tr
+          key={`t-${t.id}`}
+          className={`t ${isSelected ? 's' : ''}`}
+          onContextMenu={e => handleTrackContextMenu(e, t)}
+        >
           <td style={{ paddingLeft: `${10 + depth * 16}px` }}>
             <input
               type="checkbox"
@@ -495,38 +718,148 @@ export const App: React.FC = () => {
       );
     });
 
-    // Sub-containers as section header rows
+    // Sub-containers as section header rows with backdrop designs
     if (n.children && n.children.length > 0) {
       n.children.forEach(child => {
         const childTracks = flattenTracks(child);
         const isCollapsed = collapsedSections[child.id] ?? false;
+        const backdropImg = child.cover_url || child.tracks?.[0]?.cover_url || null;
 
-        nodesOut.push(
-          <tr
-            key={`h-${child.id}`}
-            className="h"
-            onClick={() => toggleSectionCollapse(child.id)}
-          >
-            <td colSpan={colSpan} style={{ paddingLeft: `${10 + depth * 16}px` }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                <span className={`ar ${isCollapsed ? '' : 'o'}`}>›</span>
-                <CoverArt
-                  src={child.cover_url || child.tracks?.[0]?.cover_url}
-                  alt={child.name}
-                  size={24}
-                  type={child.type === 'Artist' ? 'artist' : child.type === 'Playlist' ? 'playlist' : 'album'}
-                  seed={child.name}
-                  rounded={child.type === 'Artist' ? 'full' : 4}
-                />
-                <span className="ty">{child.type}</span>
-                <span style={{ fontWeight: 600, color: '#f4f4f5' }}>{child.name}</span>
-                <span className="m">
-                  {childTracks.length} tracks · {fmtTotalRuntime(childTracks)}
-                </span>
-              </div>
-            </td>
-          </tr>
-        );
+        if (child.type === 'Album' || child.type === 'Artist' || child.type === 'Playlist') {
+          // Folder item with same backdrop design as full page
+          nodesOut.push(
+            <tr
+              key={`h-${child.id}`}
+              className="folder-item-hero-row"
+              data-context-type="node"
+              data-node-id={child.id}
+              onClick={() => toggleSectionCollapse(child.id)}
+              onContextMenu={e => handleNodeContextMenu(e, child)}
+            >
+              <td colSpan={colSpan}>
+                <div
+                  className="folder-item-hero"
+                  style={{ paddingLeft: `${14 + depth * 16}px` }}
+                >
+                  {/* Backdrop Layer */}
+                  {backdropImg && (
+                    <div className="hero-backdrop" aria-hidden="true">
+                      <div
+                        className="hero-backdrop-glow"
+                        style={{ backgroundImage: `url(${backdropImg})` }}
+                      />
+                      <div
+                        className="hero-backdrop-artwork folder-backdrop-artwork"
+                        style={{ backgroundImage: `url(${backdropImg})` }}
+                      />
+                      <div className="hero-backdrop-scrim folder-backdrop-scrim" />
+                    </div>
+                  )}
+
+                  {/* Foreground Content */}
+                  <div className="folder-item-content">
+                    <span
+                      className={`ar ${isCollapsed ? '' : 'o'}`}
+                      style={{ fontSize: 18, color: '#a1a1aa', width: 16, display: 'inline-flex', alignItems: 'center' }}
+                    >
+                      ›
+                    </span>
+
+                    <CoverArt
+                      src={backdropImg}
+                      alt={child.name}
+                      size={48}
+                      type={child.type === 'Artist' ? 'artist' : child.type === 'Playlist' ? 'playlist' : 'album'}
+                      seed={child.name}
+                      rounded={child.type === 'Artist' ? 'full' : 6}
+                    />
+
+                    <div className="folder-item-meta">
+                      <div className="folder-item-badge-row">
+                        <span className="active-hero-badge">{child.type.toUpperCase()}</span>
+                        {child.type === 'Artist' && (
+                          <span className="active-hero-tag">ARTIST</span>
+                        )}
+                        {child.type === 'Album' && child.tracks?.[0]?.f && (
+                          <span className="active-hero-tag">{child.tracks[0].f}</span>
+                        )}
+                      </div>
+                      <div className="folder-item-title-row">
+                        <span className="folder-item-title">{child.name}</span>
+                        {child.type === 'Album' && child.tracks?.[0]?.a && (
+                          <span className="folder-item-artist">by {child.tracks[0].a}</span>
+                        )}
+                      </div>
+                      <div className="folder-item-sub">
+                        {child.type === 'Album' && child.tracks?.[0]?.y ? (
+                          <span>{child.tracks[0].y} · </span>
+                        ) : null}
+                        <span>{childTracks.length} {childTracks.length === 1 ? 'track' : 'tracks'}</span>
+                        {childTracks.length > 0 && <span> · {fmtTotalRuntime(childTracks)}</span>}
+                      </div>
+                    </div>
+
+                    {/* Actions on right */}
+                    <div className="folder-item-actions" onClick={e => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        className="folder-item-nav-btn"
+                        title={`Go to ${child.name}`}
+                        onClick={() => selectNode(child)}
+                      >
+                        <span>Open</span>
+                        <ExternalLink size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        className="node-more-btn"
+                        title={`Manage ${child.name}`}
+                        onClick={() => {
+                          setNodeToEdit(child);
+                          setNodeEditOpen(true);
+                        }}
+                      >
+                        <MoreHorizontal size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          );
+        } else {
+          // Child folder row
+          nodesOut.push(
+            <tr
+              key={`h-${child.id}`}
+              className="h"
+              data-context-type="node"
+              data-node-id={child.id}
+              onClick={() => toggleSectionCollapse(child.id)}
+              onContextMenu={e => handleNodeContextMenu(e, child)}
+            >
+              <td colSpan={colSpan} style={{ paddingLeft: `${14 + depth * 16}px` }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                  <span className={`ar ${isCollapsed ? '' : 'o'}`}>›</span>
+                  <CoverArt
+                    src={child.cover_url}
+                    alt={child.name}
+                    size={24}
+                    type="folder"
+                    seed={child.name}
+                    rounded={4}
+                  />
+                  <span className="ty">{child.type}</span>
+                  <span style={{ fontWeight: 600, color: '#f4f4f5' }}>{child.name}</span>
+                  <span className="m">
+                    {child.children?.length ? `${child.children.length} items · ` : ''}
+                    {childTracks.length} tracks · {fmtTotalRuntime(childTracks)}
+                  </span>
+                </div>
+              </td>
+            </tr>
+          );
+        }
 
         if (!isCollapsed) {
           nodesOut.push(...renderSections(child, depth + 1));
@@ -591,7 +924,11 @@ export const App: React.FC = () => {
       {/* Main Workspace */}
       <main>
         {/* Sidebar */}
-        <aside id="side" className={sidebarOpenMobile ? 'on' : ''}>
+        <aside
+          id="side"
+          className={sidebarOpenMobile ? 'on' : ''}
+          onContextMenu={handleSidebarContextMenu}
+        >
           <div className="tree-list">
             {loading ? (
               <div style={{ color: 'var(--mu)', padding: 12 }}>Loading library...</div>
@@ -636,11 +973,11 @@ export const App: React.FC = () => {
         </aside>
 
         {/* Section / Table */}
-        <section>
-          {/* Active Container Hero Banner with Discogs Background Artwork */}
-          {activeNode && (activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist') && (
+        <section onContextMenu={handleTableContextMenu}>
+          {/* Active Container Hero Banner with Discogs / Ambient Background Artwork */}
+          {activeNode && (activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist' || activeNode.type === 'Folder') && (
             <div className="active-hero-banner">
-              {/* Bigger Art Backdrop from Discogs */}
+              {/* Bigger Art Backdrop from Discogs or Child Artwork */}
               {heroBackdrop && (
                 <div className="hero-backdrop" aria-hidden="true">
                   <div
@@ -661,7 +998,7 @@ export const App: React.FC = () => {
                   src={activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || heroBackdrop}
                   alt={activeNode.name}
                   size={92}
-                  type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : 'album'}
+                  type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : activeNode.type === 'Folder' ? 'folder' : 'album'}
                   seed={activeNode.name}
                   rounded={activeNode.type === 'Artist' ? 'full' : 8}
                 />
@@ -673,6 +1010,9 @@ export const App: React.FC = () => {
                     )}
                     {activeNode.type === 'Album' && activeNode.tracks?.[0]?.f && (
                       <span className="active-hero-tag">{activeNode.tracks[0].f}</span>
+                    )}
+                    {activeNode.type === 'Folder' && (
+                      <span className="active-hero-tag">{activeNode.children?.length || 0} CONTAINERS</span>
                     )}
                   </div>
                   <h2 className="active-hero-title">{activeNode.name}</h2>
@@ -1041,6 +1381,59 @@ export const App: React.FC = () => {
         onClose={() => setBackupOpen(false)}
         onLibraryRestored={() => loadTree()}
       />
+
+      {/* Custom Right-Click Context Menu */}
+      <ContextMenu
+        state={contextMenu}
+        onClose={() => setContextMenu(prev => ({ ...prev, isOpen: false }))}
+        onInspectTrack={track => setActiveTrack(track)}
+        onResolveIsrc={handleResolveIsrcAction}
+        onBatchResolveIsrc={handleBatchResolveIsrcAction}
+        onMoveTracks={ids => {
+          if (ids.length > 0) setSelectedTrackIds(new Set(ids));
+          setMoveTracksOpen(true);
+        }}
+        onDeleteTrack={handleDeleteTrackAction}
+        onBatchDeleteTracks={handleBatchDeleteTracksAction}
+        onSelectNode={node => selectNode(node)}
+        onAddMusicToNode={node => {
+          setActiveNodeId(node.id);
+          setImportModalOpen(true);
+        }}
+        onAddTrackToNode={node => {
+          setActiveNodeId(node.id);
+          setNewTrackOpen(true);
+        }}
+        onNewContainerInside={node => {
+          setActiveNodeId(node.id);
+          setNewContainerOpen(true);
+        }}
+        onEditNode={node => {
+          setNodeToEdit(node);
+          setNodeEditOpen(true);
+        }}
+        onDeleteNode={handleDeleteNodeAction}
+        onRefreshArtwork={handleRefreshArtworkAction}
+        onResolveNodeIsrcs={handleResolveNodeIsrcsAction}
+        onOpenImport={() => setImportModalOpen(true)}
+        onOpenNewTrack={() => setNewTrackOpen(true)}
+        onOpenNewContainer={() => setNewContainerOpen(true)}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+        onRefreshLibrary={() => {
+          loadTree(activeNodeId || undefined);
+          showToast('Library refreshed');
+        }}
+        onOpenBackup={() => setBackupOpen(true)}
+        onShowToast={showToast}
+      />
+
+      {/* Floating Toast Notification */}
+      {toastMessage && (
+        <div className="fmsort-toast" role="status">
+          <Check size={15} style={{ color: '#4ade80' }} />
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </>
   );
 };

@@ -29,7 +29,7 @@ export async function createNode(data: { parent_id: string | null; type: string;
 
 export async function updateNode(
   id: string,
-  updates: { name?: string; type?: string; parent_id?: string | null; sort_order?: number }
+  updates: { name?: string; type?: string; parent_id?: string | null; sort_order?: number; cover_url?: string }
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/nodes/${encodeURIComponent(id)}`, {
     method: 'PATCH',
