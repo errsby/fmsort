@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FMSort</title>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root{color-scheme:dark;--bg:#09090b;--pn:#0f0f12;--bd:#27272a;--mu:#a1a1aa;--fg:#fafafa;--hv:#18181b;--ac:#e4e4e7;--sl:#1e293b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*{box-sizing:border-box}
+body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:13px/1.4 Geist,system-ui,sans-serif;display:flex;flex-direction:column}
+.mono{font-family:"Geist Mono",ui-monospace,monospace;font-size:12px}
+button,input,select{font:inherit;color:inherit}
+button{background:none;border:1px solid var(--bd);border-radius:6px;padding:5px 10px;cursor:pointer}
+button:hover{background:var(--hv)}button.p{background:var(--fg);color:#09090b;border-color:var(--fg)}
+button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid #71717a;outline-offset:1px}
+input,select{background:var(--bg);border:1px solid var(--bd);border-radius:6px;padding:6px 9px}
+header{display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--bd);flex-wrap:wrap}
+.logo{font-weight:600;font-size:15px;letter-spacing:-.02em}
+.cmd{flex:1;min-width:140px;max-width:420px;text-align:left;color:var(--mu);display:flex;justify-content:space-between}
+.crumbs{color:var(--mu);display:flex;gap:6px;flex-wrap:wrap}.crumbs b{color:var(--fg);font-weight:500}
+main{flex:1;display:flex;min-height:0}
+aside{width:270px;border-right:1px solid var(--bd);background:var(--pn);overflow:auto;padding:8px;flex-shrink:0}
+.n{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:5px;cursor:pointer;white-space:nowrap}
+.n:hover{background:var(--hv)}.n.on{background:var(--sl)}
+.ty{color:var(--mu);font-size:11px;border:1px solid var(--bd);border-radius:4px;padding:0 4px}
+.ar{width:12px;color:var(--mu);display:inline-block;transition:transform .15s}.ar.o{transform:rotate(90deg)}
+section{flex:1;display:flex;flex-direction:column;min-width:0}
+.tb{display:flex;gap:8px;padding:8px 14px;border-bottom:1px solid var(--bd);align-items:center;flex-wrap:wrap}
+.tb h1{font-size:16px;margin:0 auto 0 0;font-weight:600;letter-spacing:-.01em}
+.sel{color:var(--mu)}
+.tw{overflow:auto;flex:1}
+table{border-collapse:collapse;width:100%;min-width:720px}
+th{position:sticky;top:0;background:var(--bg);text-align:left;color:var(--mu);font-weight:500;padding:6px 10px;border-bottom:1px solid var(--bd);cursor:pointer;white-space:nowrap;z-index:1}
+td{padding:5px 10px;border-bottom:1px solid #1c1c20;white-space:nowrap}
+tr.t:hover td{background:var(--hv)}tr.t.s td{background:var(--sl)}
+tr.h td{background:var(--pn);font-weight:500;cursor:pointer}
+tr.h .m{color:var(--mu);font-weight:400;margin-left:10px}
+.ttl{cursor:pointer;text-decoration:underline;text-decoration-color:#3f3f46;text-underline-offset:3px}
+.ov{position:fixed;inset:0;background:#000a;display:none;z-index:20}.ov.on{display:block}
+.sheet{position:fixed;top:0;right:0;bottom:0;width:min(400px,100%);background:var(--pn);border-left:1px solid var(--bd);padding:18px;overflow:auto;transform:translateX(100%);transition:transform .2s;z-index:30;padding-top:calc(18px + env(safe-area-inset-top,0px))}
+.sheet.on{transform:none}
+.sheet dl{display:grid;grid-template-columns:110px 1fr;gap:8px 12px;margin:14px 0}.sheet dt{color:var(--mu)}.sheet dd{margin:0;word-break:break-all}
+.dlg{position:fixed;left:50%;top:12%;transform:translateX(-50%);width:min(560px,94%);background:var(--pn);border:1px solid var(--bd);border-radius:10px;padding:16px;z-index:30;display:none;max-height:76%;overflow:auto}.dlg.on{display:block}
+.dlg input{width:100%}
+.r{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #1c1c20}.r div{flex:1}.r small{color:var(--mu);display:block}
+.cl{padding:7px 8px;border-radius:5px;cursor:pointer;display:flex;justify-content:space-between}.cl:hover,.cl.on{background:var(--sl)}
+.menu{position:absolute;right:14px;top:100%;background:var(--pn);border:1px solid var(--bd);border-radius:8px;padding:8px;display:none;z-index:15}.menu.on{display:block}.menu label{display:flex;gap:8px;padding:3px 4px}
+@media(max-width:760px){aside{position:fixed;z-index:12;top:0;bottom:0;transform:translateX(-100%);transition:transform .2s;padding-top:calc(8px + env(safe-area-inset-top,0px))}aside.on{transform:none}}
+@media(min-width:761px){#mb{display:none}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head><body>
+<header>
+<button id="mb" aria-label="Toggle library">Library</button>
+<span class="logo">FMSort</span>
+<button class="cmd" id="cmdb"><span>Search or jump to…</span><span class="mono">⌘K</span></button>
+<nav class="crumbs" id="crumbs" aria-label="Breadcrumb"></nav>
+</header>
+<main>
+<aside id="side" aria-label="Library tree"></aside>
+<section>
+<div class="tb" style="position:relative">
+<h1 id="ttl"></h1><span class="sel" id="selc"></span>
+<button id="colb">Columns</button><button class="p" id="imp">Import from MusicBrainz</button>
+<div class="menu" id="menu"></div>
+</div>
+<div class="tw"><table><thead id="th"></thead><tbody id="tb"></tbody></table></div>
+</section>
+</main>
+<div class="ov" id="ov"></div>
+<aside class="sheet" id="sheet" aria-label="Metadata"></aside>
+<div class="dlg" id="mbd" role="dialog" aria-label="MusicBrainz search">
+<h2 style="margin:0 0 4px;font-size:15px">Search MusicBrainz</h2>
+<p style="color:var(--mu);margin:0 0 10px">Releases are added to <b id="dest"></b>.</p>
+<input id="q" placeholder="Artist, album, catalog number or barcode" autocomplete="off">
+<div id="res"></div></div>
+<div class="dlg" id="cmd" role="dialog" aria-label="Command bar"><input id="cq" placeholder="Jump to a folder, label, artist, playlist…" autocomplete="off"><div id="cres" style="margin-top:8px"></div></div>
+<script>
+let _i=0;const T=(t,a,al,y,f,c,bc,mb,isrc,len,bpm,key)=>({id:++_i,t,a,al,y,f,c,bc,mb,isrc,len,bpm,key});
+const N=(id,type,name,o={})=>({id,type,name,children:[],tracks:[],...o});
+const neu75=N('neu75','Album','Neu! 75',{tracks:[
+T('Isi','Neu!','Neu! 75',1975,'Vinyl LP','1K 062-32 271','4003099432712','a3f1c2d8-4b5e-4a10-9c11-0d2e7f6b1a01','DEBR07500011',(9*60+55),128,'D'),
+T('Seeland','Neu!','Neu! 75',1975,'Vinyl LP','1K 062-32 271','4003099432712','a3f1c2d8-4b5e-4a10-9c11-0d2e7f6b1a01','DEBR07500012',(4*60+37),96,'A'),
+T('Leb’ wohl','Neu!','Neu! 75',1975,'Vinyl LP','1K 062-32 271','4003099432712','a3f1c2d8-4b5e-4a10-9c11-0d2e7f6b1a01','DEBR07500013',(5*60+45),72,'F')]});
+const cluster=N('cl2','Album','Zuckerzeit',{tracks:[
+T('Rosa','Cluster','Zuckerzeit',1974,'Vinyl LP','Brain 1077','4003099432774','b7e24a90-1c3d-4f55-8a2e-5d91c0e3f702','DEBR07400021',(5*60+40),110,'C'),
+T('Hollywood','Cluster','Zuckerzeit',1974,'Vinyl LP','Brain 1077','4003099432774','b7e24a90-1c3d-4f55-8a2e-5d91c0e3f702','DEBR07400022',(5*60+12),104,'G')]});
+const dub1=N('dubm','Section','Dub Mixes',{tracks:[
+T('Fat Man Dub','King Tubby','Dub From The Roots',1974,'Vinyl LP','SLP 001','—','c1d93e05-77a2-4be8-b3f4-62a8e1d90c03','JMX017400031',(3*60+48),0,''),
+T('Dub Organiser','King Tubby','Dub From The Roots',1974,'Vinyl LP','SLP 001','—','c1d93e05-77a2-4be8-b3f4-62a8e1d90c03','JMX017400032',(4*60+2),0,'')]});
+const n70=N('e70','Era','1970s',{tracks:[
+T('Autobahn','Kraftwerk','Autobahn',1974,'Vinyl LP','6305 231','—','d2e04f16-88b3-4cf9-84a5-73b9f2ea1d04','DEPH07400041',(22*60+43),120,'D'),
+T('Heroes','David Bowie','"Heroes"',1977,'Vinyl LP','PL 12522','—','e3f15a27-99c4-4da0-95b6-84cae3fb2e05','GBAYE7700051',(6*60+11),112,'E')]});
+const n80=N('e80','Era','1980s',{tracks:[
+T('Atmosphere','Joy Division','Closer',1980,'Vinyl LP','FACT 25','5012093000253','f4a26b38-aad5-4eb1-a6c7-95dbf40c3f06','GBAAA8000061',(4*60+11),138,'Am'),
+T('Blue Monday','New Order','Power, Corruption & Lies',1983,'12" Single','FAC 73','—','a5b37c49-bbe6-4fc2-b7d8-a6ec051d4a07','GBAAA8300071',(7*60+29),130,'F')]});
+const lib=[
+N('f1','Folder','Krautrock & Adjacent',{children:[
+ N('brain','Label','Brain Records',{children:[N('neu','Artist','Neu!',{children:[neu75]}),N('clu','Artist','Cluster',{children:[cluster]})]})]}),
+N('p1','Playlist','Night Drives',{children:[n70,n80]}),
+N('g1','Genre','Dub',{children:[N('p2','Playlist','King Tubby Essentials',{children:[dub1]})]})];
+const cols=[['title','Title',x=>x.t],['artist','Artist',x=>x.a],['album','Album',x=>x.al],['year','Year',x=>x.y],['format','Format',x=>x.f],['cat','Catalog no.',x=>x.c],['bc','Barcode',x=>x.bc],['mbid','MBID',x=>x.mb.slice(0,8)+'…'],['isrc','ISRC',x=>x.isrc],['len','Length',x=>fmt(x.len)],['bpm','BPM',x=>x.bpm||'—'],['key','Key',x=>x.key||'—']];
+const vis={title:1,artist:1,album:1,year:1,format:1,cat:1,mbid:1,isrc:1,len:1,bc:0,bpm:0,key:0};
+const raw={year:x=>x.y,len:x=>x.len,bpm:x=>x.bpm};
+let cur=lib[0],open={f1:1,brain:1,neu:1,p1:1,g1:1,p2:1},coll={},selT=new Set(),sort=null;
+const $=s=>document.getElementById(s);
+const fmt=s=>s>=3600?Math.floor(s/3600)+':'+String(Math.floor(s%3600/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0'):Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+const flat=n=>[...n.tracks,...n.children.flatMap(flat)];
+const rt=a=>{const s=a.reduce((p,x)=>p+x.len,0);return s>=3600?Math.floor(s/3600)+' hr '+Math.floor(s%3600/60)+' min':Math.round(s/60)+' min'};
+const all=(n=null,out=[])=>{(n?n.children:lib).forEach(c=>{out.push(c);all(c,out)});return out};
+const path=(t,n=null,p=[])=>{for(const c of (n?n.children:lib)){const q=[...p,c];if(c===t)return q;const r=path(t,c,q);if(r)return r}return null};
+function tree(ns,d){return ns.map(n=>{const k=n.children.length,o=open[n.id];return `<div class="n ${n===cur?'on':''}" style="padding-left:${6+d*14}px" data-n="${n.id}" tabindex="0" role="treeitem"><span class="ar ${o?'o':''}" data-t="${n.id}">${k?'›':''}</span><span class="ty">${n.type}</span><span>${n.name}</span></div>`+(o&&k?tree(n.children,d+1):'')}).join('')}
+function head(){$('th').innerHTML='<tr><th style="width:30px"></th>'+cols.filter(c=>vis[c[0]]).map(c=>`<th data-s="${c[0]}">${c[1]}${sort&&sort[0]==c[0]?(sort[1]>0?' ↑':' ↓'):''}</th>`).join('')+'</tr>'}
+function secs(n,d,rows){const sp=cols.filter(c=>vis[c[0]]).length+1;
+ if(n.tracks.length){let ts=[...n.tracks];if(sort){const c=cols.find(c=>c[0]==sort[0]),g=raw[sort[0]]||c[2];ts.sort((a,b)=>(g(a)>g(b)?1:g(a)<g(b)?-1:0)*sort[1])}
+  ts.forEach(x=>rows.push(`<tr class="t ${selT.has(x.id)?'s':''}"><td style="padding-left:${10+d*16}px"><input type="checkbox" data-c="${x.id}" ${selT.has(x.id)?'checked':''} aria-label="Select ${x.t}"></td>`+cols.filter(c=>vis[c[0]]).map(c=>`<td class="${['bc','mbid','isrc','cat'].includes(c[0])?'mono':''}">${c[0]=='title'?`<span class="ttl" data-d="${x.id}" tabindex="0">${x.t}</span>`:c[2](x)}</td>`).join('')+'</tr>'))}
+ n.children.forEach(c=>{const f=flat(c),cl=coll[c.id];rows.push(`<tr class="h" data-h="${c.id}"><td colspan="${sp}" style="padding-left:${10+d*16}px"><span class="ar ${cl?'':'o'}">›</span> <span class="ty">${c.type}</span> ${c.name}<span class="m">${f.length} tracks · ${rt(f)}</span></td></tr>`);if(!cl)secs(c,d+1,rows)})}
+function render(){$('side').innerHTML=tree(lib,0);head();const rows=[];secs(cur,0,rows);const f=flat(cur);
+ $('tb').innerHTML=rows.join('')||`<tr><td colspan="9" style="padding:30px;color:var(--mu)">This container is empty. Import a release from MusicBrainz to add tracks.</td></tr>`;
+ $('ttl').textContent=cur.name;$('selc').textContent=(selT.size?selT.size+' selected · ':'')+f.length+' tracks · '+rt(f);
+ const p=path(cur)||[];$('crumbs').innerHTML='<span>Library</span>'+p.map((x,i)=>'<span>/</span>'+(i==p.length-1?`<b>${x.name}</b>`:`<span>${x.name}</span>`)).join('');
+ $('menu').innerHTML=cols.filter(c=>c[0]!='title').map(c=>`<label><input type="checkbox" data-v="${c[0]}" ${vis[c[0]]?'checked':''}>${c[1]}${['bpm','key'].includes(c[0])?' (optional)':''}</label>`).join('')}
+const ov=()=>$('ov').classList.toggle('on',document.querySelector('.sheet.on,.dlg.on')!=null);
+function closeAll(){document.querySelectorAll('.sheet.on,.dlg.on').forEach(e=>e.classList.remove('on'));ov()}
+function drawer(id){const x=lib.flatMap(flat).find(t=>t.id==id);if(!x)return;
+ $('sheet').innerHTML=`<button id="x" style="float:right">Close</button><h2 style="margin:0;font-size:17px">${x.t}</h2><div style="color:var(--mu)">${x.a} · ${x.al}</div><dl>${[['Release year',x.y],['Format',x.f],['Catalog no.',x.c],['Barcode',x.bc],['Release MBID',x.mb],['ISRC',x.isrc],['Length',fmt(x.len)]].map(r=>`<dt>${r[0]}</dt><dd class="mono">${r[1]}</dd>`).join('')}</dl><button>Find variant releases</button> <button>Re-sync metadata</button>`;
+ $('sheet').classList.add('on');ov();$('x').onclick=closeAll}
+const MB=[{a:'Can',t:'Tago Mago',y:1971,f:'2x12" Vinyl LP',c:'UAS 29 211/2',n:[['Paperhouse',7*60+28],['Mushroom',4*60+3],['Oh Yeah',7*60+30]]},{a:'Harmonia',t:'Deluxe',y:1975,f:'Vinyl LP',c:'Brain 1.052',n:[['Monza (Rauch)',(9*60+28)],['Notre Dame',(5*60+14)]]},{a:'Neu!',t:'Neu!',y:1972,f:'Vinyl LP',c:'Brain 1004',n:[['Hallogallo',10*60+8],['Sonnenschirm',9*60+17]]},{a:'Faust',t:'Faust IV',y:1973,f:'Vinyl LP',c:'V 2004',n:[['Krautrock',11*60+1],['Jennifer',4*60+40]]}];
+function mb(){const q=$('q').value.toLowerCase();$('res').innerHTML=MB.filter(r=>(r.a+r.t+r.c).toLowerCase().includes(q)).map((r,i)=>`<div class="r"><div>${r.a} — ${r.t}<small>${r.y} · ${r.f} · ${r.c} · ${r.n.length} tracks</small></div><button data-i="${MB.indexOf(r)}">Add</button></div>`).join('')||'<p style="color:var(--mu)">No releases match. Try an artist name or catalog number.</p>'}
+function go(n){cur=n;(path(n)||[]).forEach(p=>open[p.id]=1);selT.clear();closeAll();$('side').classList.remove('on');render()}
+function palette(){const q=$('cq').value.toLowerCase();$('cres').innerHTML=all().filter(n=>n.name.toLowerCase().includes(q)).slice(0,8).map(n=>`<div class="cl" data-g="${n.id}" tabindex="0"><span>${n.name}</span><span class="ty">${n.type}</span></div>`).join('')}
+document.addEventListener('click',e=>{const t=e.target,g=s=>t.closest(s);
+ if(g('[data-t]')&&t.dataset.t){open[t.dataset.t]=!open[t.dataset.t];render();e.stopPropagation();return}
+ if(g('[data-n]')){go(all().find(n=>n.id==g('[data-n]').dataset.n));return}
+ if(g('[data-h]')){const i=g('[data-h]').dataset.h;coll[i]=!coll[i];render();return}
+ if(t.dataset.c){const i=+t.dataset.c;t.checked?selT.add(i):selT.delete(i);render();return}
+ if(t.dataset.d){drawer(t.dataset.d);return}
+ if(t.dataset.s){sort=sort&&sort[0]==t.dataset.s?[t.dataset.s,-sort[1]]:[t.dataset.s,1];render();return}
+ if(g('th[data-s]')){const k=g('th[data-s]').dataset.s;sort=sort&&sort[0]==k?[k,-sort[1]]:[k,1];render();return}
+ if(t.dataset.v){vis[t.dataset.v]=t.checked?1:0;render();$('menu').classList.add('on');return}
+ if(t.dataset.i!==undefined){const r=MB[+t.dataset.i];const al=N('imp'+t.dataset.i,'Album',r.t);al.tracks=r.n.map(x=>T(x[0],r.a,r.t,r.y,r.f,r.c,'—','new-mbid-'+t.dataset.i,'—',x[1],0,''));cur.children.push(al);t.textContent='Added';t.disabled=true;open[cur.id]=1;render();return}
+ if(g('[data-g]')){go(all().find(n=>n.id==g('[data-g]').dataset.g));return}
+ if(t.id=='colb'){$('menu').classList.toggle('on');return}
+ if(!g('#menu'))$('menu').classList.remove('on');
+ if(t.id=='imp'){$('dest').textContent=cur.name;$('mbd').classList.add('on');ov();mb();$('q').focus()}
+ if(g('#cmdb')){$('cmd').classList.add('on');ov();$('cq').value='';palette();$('cq').focus()}
+ if(t.id=='ov')closeAll();
+ if(t.id=='mb')$('side').classList.toggle('on')});
+document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key=='k'){e.preventDefault();$('cmdb').click()}if(e.key=='Escape')closeAll();if(e.key=='Enter'&&e.target.matches('[data-n],[data-d],[data-g]'))e.target.click()});
+$('q').oninput=mb;$('cq').oninput=palette;render();
+</script></body></html>
