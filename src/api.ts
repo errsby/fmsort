@@ -17,7 +17,13 @@ export async function fetchTree(): Promise<LibraryNode[]> {
   return res.json();
 }
 
-export async function createNode(data: { parent_id: string | null; type: string; name: string }): Promise<LibraryNode> {
+export async function createNode(data: {
+  parent_id: string | null;
+  type: string;
+  name: string;
+  sort_order?: number;
+  cover_url?: string;
+}): Promise<LibraryNode> {
   const res = await fetch(`${API_BASE}/nodes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

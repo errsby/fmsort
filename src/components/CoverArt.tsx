@@ -27,21 +27,23 @@ const GRADIENTS = [
   'linear-gradient(135deg, #d97706 0%, #b45309 100%)', // Warm Bronze
 ];
 
-function getGradient(seed: string): string {
-  if (!seed) return GRADIENTS[0];
+function getGradient(seed?: string): string {
+  if (!seed) return GRADIENTS[0] || 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)';
   let hash = 0;
   for (let i = 0; i < seed.length; i++) {
     hash = (hash << 5) - hash + seed.charCodeAt(i);
     hash |= 0;
   }
-  return GRADIENTS[Math.abs(hash) % GRADIENTS.length];
+  return GRADIENTS[Math.abs(hash) % GRADIENTS.length] || GRADIENTS[0] || 'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)';
 }
 
-function getInitials(text: string): string {
+function getInitials(text?: string): string {
   if (!text) return '';
   const words = text.trim().split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    return (words[0][0] + words[1][0]).toUpperCase();
+  const w1 = words[0];
+  const w2 = words[1];
+  if (w1 && w2 && w1[0] && w2[0]) {
+    return (w1[0] + w2[0]).toUpperCase();
   }
   return text.slice(0, 2).toUpperCase();
 }

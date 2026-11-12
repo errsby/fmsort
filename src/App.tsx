@@ -57,6 +57,7 @@ interface HistoryEntry {
 }
 
 function fmtTimeAgo(ts: number): string {
+  if (!ts || typeof ts !== 'number' || isNaN(ts)) return 'Just now';
   const diff = Math.floor((Date.now() - ts) / 1000);
   if (diff < 60) return 'Just now';
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
@@ -159,7 +160,12 @@ export const App: React.FC = () => {
   const [history, setHistory] = useState<HistoryEntry[]>(() => {
     try {
       const saved = localStorage.getItem('fmsort_nav_history');
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(item => item && typeof item === 'object' && item.id && item.name);
+      }
+      return [];
     } catch {
       return [];
     }
@@ -167,62 +173,6 @@ export const App: React.FC = () => {
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
   const historyTimerRef = useRef<any>(null);
-
-  // Record visited containers into history
-  useEffect(() => {
-    if (!activeNode) return;
-    setHistory(prev => {
-      const filtered = prev.filter(h => h.id !== activeNode.id);
-      const newEntry: HistoryEntry = {
-        id: activeNode.id,
-        name: activeNode.name,
-        type: activeNode.type,
-        cover_url: activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || '',
-        timestamp: Date.now(),
-      };
-      const updated = [newEntry, ...filtered].slice(0, 20);
-      try {
-        localStorage.setItem('fmsort_nav_history', JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
-  }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url]);
-
-  const handleHistoryMouseEnter = () => {
-    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
-    historyTimerRef.current = setTimeout(() => {
-      setHistoryOpen(true);
-    }, 140);
-  };
-
-  const handleHistoryMouseLeave = () => {
-    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
-    historyTimerRef.current = setTimeout(() => {
-      setHistoryOpen(false);
-    }, 280);
-  };
-
-  const handleHistoryClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
-    setHistoryOpen(!historyOpen);
-  };
-
-  const handleSelectHistoryItem = (entry: HistoryEntry) => {
-    setHistoryOpen(false);
-    const targetNode = findNodeById(tree, entry.id);
-    if (targetNode) {
-      selectNode(targetNode);
-    }
-  };
-
-  const handleClearHistory = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setHistory([]);
-    try {
-      localStorage.removeItem('fmsort_nav_history');
-    } catch {}
-  };
 
   const addMusicRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
@@ -233,7 +183,7 @@ export const App: React.FC = () => {
       setTree(data);
       if (preferredNodeId && findNodeById(data, preferredNodeId)) {
         setActiveNodeId(preferredNodeId);
-      } else if (!activeNodeId && data.length > 0) {
+      } else if (!activeNodeId && data.length > 0 && data[0]) {
         setActiveNodeId(data[0].id);
       }
     } catch (err) {
@@ -559,6 +509,62 @@ export const App: React.FC = () => {
     });
     setSelectedTrackIds(new Set());
     setSidebarOpenMobile(false);
+  };
+
+  // Record visited containers into history
+  useEffect(() => {
+    if (!activeNode) return;
+    setHistory(prev => {
+      const filtered = prev.filter(h => h.id !== activeNode.id);
+      const newEntry: HistoryEntry = {
+        id: activeNode.id,
+        name: activeNode.name,
+        type: activeNode.type,
+        cover_url: activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || '',
+        timestamp: Date.now(),
+      };
+      const updated = [newEntry, ...filtered].slice(0, 20);
+      try {
+        localStorage.setItem('fmsort_nav_history', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url]);
+
+  const handleHistoryMouseEnter = () => {
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    historyTimerRef.current = setTimeout(() => {
+      setHistoryOpen(true);
+    }, 140);
+  };
+
+  const handleHistoryMouseLeave = () => {
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    historyTimerRef.current = setTimeout(() => {
+      setHistoryOpen(false);
+    }, 280);
+  };
+
+  const handleHistoryClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    setHistoryOpen(!historyOpen);
+  };
+
+  const handleSelectHistoryItem = (entry: HistoryEntry) => {
+    setHistoryOpen(false);
+    const targetNode = findNodeById(tree, entry.id);
+    if (targetNode) {
+      selectNode(targetNode);
+    }
+  };
+
+  const handleClearHistory = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setHistory([]);
+    try {
+      localStorage.removeItem('fmsort_nav_history');
+    } catch {}
   };
 
   const toggleTrackSelect = (id: number) => {
@@ -1015,26 +1021,29 @@ export const App: React.FC = () => {
                       </div>
                     ) : (
                       history.map(item => {
+                        if (!item || !item.id) return null;
                         const isCurrent = activeNode?.id === item.id;
+                        const itemName = item.name || 'Untitled';
+                        const itemType = item.type || 'Folder';
                         return (
                           <button
-                            key={`${item.id}-${item.timestamp}`}
+                            key={`${item.id}-${item.timestamp || 0}`}
                             type="button"
                             className={`crumb-history-item ${isCurrent ? 'is-current' : ''}`}
                             onClick={() => handleSelectHistoryItem(item)}
                           >
                             <CoverArt
                               src={item.cover_url}
-                              alt={item.name}
+                              alt={itemName}
                               size={22}
-                              type={item.type === 'Artist' ? 'artist' : item.type === 'Folder' ? 'folder' : 'album'}
-                              seed={item.name}
-                              rounded={item.type === 'Artist' ? 'full' : 4}
+                              type={itemType === 'Artist' ? 'artist' : itemType === 'Folder' ? 'folder' : 'album'}
+                              seed={itemName}
+                              rounded={itemType === 'Artist' ? 'full' : 4}
                             />
                             <div className="crumb-history-item-meta">
-                              <span className="crumb-history-item-name">{item.name}</span>
+                              <span className="crumb-history-item-name">{itemName}</span>
                               <div className="crumb-history-item-sub">
-                                <span>{item.type}</span>
+                                <span>{itemType}</span>
                                 <span>·</span>
                                 <span>{fmtTimeAgo(item.timestamp)}</span>
                                 {isCurrent && (
