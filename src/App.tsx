@@ -45,7 +45,24 @@ import {
   ExternalLink,
   Check,
   Info,
+  History,
 } from 'lucide-react';
+
+interface HistoryEntry {
+  id: string;
+  name: string;
+  type: string;
+  cover_url?: string;
+  timestamp: number;
+}
+
+function fmtTimeAgo(ts: number): string {
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 60) return 'Just now';
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
 
 const COLUMNS: ColumnDef[] = [
   { key: 'title', label: 'Title' },
@@ -138,6 +155,75 @@ export const App: React.FC = () => {
     }, 2800);
   };
 
+  // Navigation History State (../)
+  const [history, setHistory] = useState<HistoryEntry[]>(() => {
+    try {
+      const saved = localStorage.getItem('fmsort_nav_history');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyRef = useRef<HTMLDivElement>(null);
+  const historyTimerRef = useRef<any>(null);
+
+  // Record visited containers into history
+  useEffect(() => {
+    if (!activeNode) return;
+    setHistory(prev => {
+      const filtered = prev.filter(h => h.id !== activeNode.id);
+      const newEntry: HistoryEntry = {
+        id: activeNode.id,
+        name: activeNode.name,
+        type: activeNode.type,
+        cover_url: activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || '',
+        timestamp: Date.now(),
+      };
+      const updated = [newEntry, ...filtered].slice(0, 20);
+      try {
+        localStorage.setItem('fmsort_nav_history', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url]);
+
+  const handleHistoryMouseEnter = () => {
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    historyTimerRef.current = setTimeout(() => {
+      setHistoryOpen(true);
+    }, 140);
+  };
+
+  const handleHistoryMouseLeave = () => {
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    historyTimerRef.current = setTimeout(() => {
+      setHistoryOpen(false);
+    }, 280);
+  };
+
+  const handleHistoryClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    setHistoryOpen(!historyOpen);
+  };
+
+  const handleSelectHistoryItem = (entry: HistoryEntry) => {
+    setHistoryOpen(false);
+    const targetNode = findNodeById(tree, entry.id);
+    if (targetNode) {
+      selectNode(targetNode);
+    }
+  };
+
+  const handleClearHistory = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setHistory([]);
+    try {
+      localStorage.removeItem('fmsort_nav_history');
+    } catch {}
+  };
+
   const addMusicRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
 
@@ -178,6 +264,9 @@ export const App: React.FC = () => {
       if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
         setColumnMenuOpen(false);
       }
+      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
+        setHistoryOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -190,6 +279,7 @@ export const App: React.FC = () => {
         e.preventDefault();
         setCommandPaletteOpen(true);
       } else if (e.key === 'Escape') {
+        setHistoryOpen(false);
         setContextMenu(prev => ({ ...prev, isOpen: false }));
         setImportModalOpen(false);
         setCommandPaletteOpen(false);
@@ -722,7 +812,8 @@ export const App: React.FC = () => {
     if (n.children && n.children.length > 0) {
       n.children.forEach(child => {
         const childTracks = flattenTracks(child);
-        const isCollapsed = collapsedSections[child.id] ?? false;
+        const hasSubItems = (child.children && child.children.length > 0) || childTracks.length > 0;
+        const isCollapsed = hasSubItems ? (collapsedSections[child.id] ?? false) : true;
         const backdropImg = child.cover_url || child.tracks?.[0]?.cover_url || null;
 
         if (child.type === 'Album' || child.type === 'Artist' || child.type === 'Playlist') {
@@ -730,15 +821,15 @@ export const App: React.FC = () => {
           nodesOut.push(
             <tr
               key={`h-${child.id}`}
-              className="folder-item-hero-row"
+              className={`folder-item-hero-row ${!hasSubItems ? 'is-empty' : ''}`}
               data-context-type="node"
               data-node-id={child.id}
-              onClick={() => toggleSectionCollapse(child.id)}
+              onClick={hasSubItems ? () => toggleSectionCollapse(child.id) : () => selectNode(child)}
               onContextMenu={e => handleNodeContextMenu(e, child)}
             >
               <td colSpan={colSpan}>
                 <div
-                  className={`folder-item-hero ${isCollapsed ? 'is-collapsed' : 'is-uncollapsed'}`}
+                  className={`folder-item-hero ${hasSubItems && isCollapsed ? 'is-collapsed' : 'is-uncollapsed'}`}
                   style={{ paddingLeft: `${10 + depth * 16}px` }}
                 >
                   {/* Backdrop Layer */}
@@ -758,7 +849,11 @@ export const App: React.FC = () => {
 
                   {/* Foreground Content - Compact Inlined Row */}
                   <div className="folder-item-content">
-                    <span className={`ar ${isCollapsed ? '' : 'o'}`}>›</span>
+                    {hasSubItems ? (
+                      <span className={`ar ${isCollapsed ? '' : 'o'}`}>›</span>
+                    ) : (
+                      <span className="ar empty" style={{ width: 14 }} />
+                    )}
 
                     <CoverArt
                       src={backdropImg}
@@ -781,9 +876,11 @@ export const App: React.FC = () => {
                         </span>
                       ) : null
                     ) : (
-                      <span className="m">
-                        {childTracks.length} {childTracks.length === 1 ? 'track' : 'tracks'} · {fmtTotalRuntime(childTracks)}
-                      </span>
+                      childTracks.length > 0 ? (
+                        <span className="m">
+                          {childTracks.length} {childTracks.length === 1 ? 'track' : 'tracks'} · {fmtTotalRuntime(childTracks)}
+                        </span>
+                      ) : null
                     )}
 
                     {/* Actions on right */}
@@ -822,12 +919,16 @@ export const App: React.FC = () => {
               className="h"
               data-context-type="node"
               data-node-id={child.id}
-              onClick={() => toggleSectionCollapse(child.id)}
+              onClick={hasSubItems ? () => toggleSectionCollapse(child.id) : () => selectNode(child)}
               onContextMenu={e => handleNodeContextMenu(e, child)}
             >
               <td colSpan={colSpan} style={{ paddingLeft: `${14 + depth * 16}px` }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                  <span className={`ar ${isCollapsed ? '' : 'o'}`}>›</span>
+                  {hasSubItems ? (
+                    <span className={`ar ${isCollapsed ? '' : 'o'}`}>›</span>
+                  ) : (
+                    <span className="ar empty" style={{ width: 14 }} />
+                  )}
                   <CoverArt
                     src={child.cover_url}
                     alt={child.name}
@@ -839,8 +940,8 @@ export const App: React.FC = () => {
                   <span className="ty">{child.type}</span>
                   <span style={{ fontWeight: 600, color: '#f4f4f5' }}>{child.name}</span>
                   <span className="m">
-                    {child.children?.length ? `${child.children.length} items · ` : ''}
-                    {childTracks.length} tracks · {fmtTotalRuntime(childTracks)}
+                    {child.children?.length ? `${child.children.length} items` : ''}
+                    {childTracks.length > 0 ? ` · ${childTracks.length} tracks · ${fmtTotalRuntime(childTracks)}` : ''}
                   </span>
                 </div>
               </td>
@@ -848,7 +949,7 @@ export const App: React.FC = () => {
           );
         }
 
-        if (!isCollapsed) {
+        if (hasSubItems && !isCollapsed) {
           nodesOut.push(...renderSections(child, depth + 1));
         }
       });
@@ -872,6 +973,87 @@ export const App: React.FC = () => {
           </button>
 
           <nav className="crumbs" aria-label="Breadcrumb">
+            <div
+              className="crumb-history-container"
+              ref={historyRef}
+              onMouseEnter={handleHistoryMouseEnter}
+              onMouseLeave={handleHistoryMouseLeave}
+            >
+              <button
+                type="button"
+                className={`crumb-history-btn ${historyOpen ? 'active' : ''}`}
+                onClick={handleHistoryClick}
+                title="Navigation history (hover or click)"
+                aria-label="Navigation history"
+              >
+                ../
+              </button>
+
+              {historyOpen && (
+                <div className="crumb-history-dropdown" role="menu">
+                  <div className="crumb-history-header">
+                    <div className="crumb-history-title">
+                      <History size={12} />
+                      <span>Navigation History</span>
+                    </div>
+                    {history.length > 0 && (
+                      <button
+                        type="button"
+                        className="crumb-history-clear-btn"
+                        onClick={handleClearHistory}
+                        title="Clear history"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="crumb-history-list">
+                    {history.length === 0 ? (
+                      <div className="crumb-history-empty">
+                        No pages visited yet
+                      </div>
+                    ) : (
+                      history.map(item => {
+                        const isCurrent = activeNode?.id === item.id;
+                        return (
+                          <button
+                            key={`${item.id}-${item.timestamp}`}
+                            type="button"
+                            className={`crumb-history-item ${isCurrent ? 'is-current' : ''}`}
+                            onClick={() => handleSelectHistoryItem(item)}
+                          >
+                            <CoverArt
+                              src={item.cover_url}
+                              alt={item.name}
+                              size={22}
+                              type={item.type === 'Artist' ? 'artist' : item.type === 'Folder' ? 'folder' : 'album'}
+                              seed={item.name}
+                              rounded={item.type === 'Artist' ? 'full' : 4}
+                            />
+                            <div className="crumb-history-item-meta">
+                              <span className="crumb-history-item-name">{item.name}</span>
+                              <div className="crumb-history-item-sub">
+                                <span>{item.type}</span>
+                                <span>·</span>
+                                <span>{fmtTimeAgo(item.timestamp)}</span>
+                                {isCurrent && (
+                                  <>
+                                    <span>·</span>
+                                    <span style={{ color: '#4ade80', fontWeight: 600 }}>Active</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <span
               className="crumb-link"
               onClick={() => tree[0] && selectNode(tree[0])}
