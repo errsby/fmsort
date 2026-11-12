@@ -193,6 +193,63 @@ export const App: React.FC = () => {
   const [openSiblingCrumbIndex, setOpenSiblingCrumbIndex] = useState<number | null>(null);
   const siblingMenuRef = useRef<HTMLDivElement>(null);
 
+  const selectNode = (node: LibraryNode) => {
+    setActiveNodeId(node.id);
+    const path = findNodePath(tree, node.id) || [];
+    setOpenNodes(prev => {
+      const next = { ...prev };
+      for (const p of path) next[p.id] = true;
+      return next;
+    });
+    setSelectedTrackIds(new Set());
+    setSidebarOpenMobile(false);
+  };
+
+  const activeNode = useMemo(() => {
+    if (!activeNodeId) return null;
+    return findNodeById(tree, activeNodeId) || null;
+  }, [tree, activeNodeId]);
+
+  const activePath = useMemo(() => {
+    if (!activeNode) return [];
+    return findNodePath(tree, activeNode.id) || [];
+  }, [tree, activeNode]);
+
+  const activeFlatTracks = useMemo(() => {
+    if (!activeNode) return [];
+    return flattenTracks(activeNode);
+  }, [activeNode]);
+
+  const allLibraryTracks = useMemo(() => {
+    const list: Track[] = [];
+    for (const n of tree) {
+      list.push(...flattenTracks(n));
+    }
+    return list;
+  }, [tree]);
+
+  const filteredRootNodes = useMemo(() => {
+    if (!filterText) return tree;
+    const q = filterText.toLowerCase();
+    return tree.filter(n => n.name.toLowerCase().includes(q) || n.type.toLowerCase().includes(q));
+  }, [tree, filterText]);
+
+  const getSiblingsForCrumbIndex = (idx: number): LibraryNode[] => {
+    if (idx <= 0) return tree;
+    const parent = activePath[idx - 1];
+    return parent && parent.children ? parent.children : [];
+  };
+
+  const handleGoBack = () => {
+    if (activePath.length > 1) {
+      const parent = activePath[activePath.length - 2];
+      if (parent) selectNode(parent);
+    } else {
+      setActiveNodeId('');
+      setSelectedTrackIds(new Set());
+    }
+  };
+
   const loadTree = async (preferredNodeId?: string) => {
     try {
       const data = await fetchTree();
@@ -277,51 +334,6 @@ export const App: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeNodeId, activePath]);
-
-  const activeNode = useMemo(() => {
-    if (!activeNodeId) return null;
-    return findNodeById(tree, activeNodeId) || null;
-  }, [tree, activeNodeId]);
-
-  const allLibraryTracks = useMemo(() => {
-    const list: Track[] = [];
-    for (const n of tree) {
-      list.push(...flattenTracks(n));
-    }
-    return list;
-  }, [tree]);
-
-  const filteredRootNodes = useMemo(() => {
-    if (!filterText) return tree;
-    const q = filterText.toLowerCase();
-    return tree.filter(n => n.name.toLowerCase().includes(q) || n.type.toLowerCase().includes(q));
-  }, [tree, filterText]);
-
-  const activePath = useMemo(() => {
-    if (!activeNode) return [];
-    return findNodePath(tree, activeNode.id) || [];
-  }, [tree, activeNode]);
-
-  const getSiblingsForCrumbIndex = (idx: number): LibraryNode[] => {
-    if (idx <= 0) return tree;
-    const parent = activePath[idx - 1];
-    return parent && parent.children ? parent.children : [];
-  };
-
-  const handleGoBack = () => {
-    if (activePath.length > 1) {
-      const parent = activePath[activePath.length - 2];
-      if (parent) selectNode(parent);
-    } else {
-      setActiveNodeId('');
-      setSelectedTrackIds(new Set());
-    }
-  };
-
-  const activeFlatTracks = useMemo(() => {
-    if (!activeNode) return [];
-    return flattenTracks(activeNode);
-  }, [activeNode]);
 
   const isArtistWithoutSubitems = useMemo(() => {
     return Boolean(
@@ -614,18 +626,6 @@ export const App: React.FC = () => {
 
   const toggleSectionCollapse = (id: string) => {
     setCollapsedSections(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const selectNode = (node: LibraryNode) => {
-    setActiveNodeId(node.id);
-    const path = findNodePath(tree, node.id) || [];
-    setOpenNodes(prev => {
-      const next = { ...prev };
-      for (const p of path) next[p.id] = true;
-      return next;
-    });
-    setSelectedTrackIds(new Set());
-    setSidebarOpenMobile(false);
   };
 
   // Record visited containers into history
