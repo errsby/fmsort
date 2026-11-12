@@ -15,6 +15,7 @@ import {
   importArtistContainer,
 } from '../api';
 import { getAllNodes } from '../utils';
+import { CoverArt } from './CoverArt';
 
 interface Props {
   isOpen: boolean;
@@ -194,7 +195,7 @@ export const HybridSearchModal: React.FC<Props> = ({
     setImportingKey(key);
     setError(null);
     try {
-      const { destNodeId } = await importArtistContainer(artist.name, targetNodeId);
+      const { destNodeId } = await importArtistContainer(artist.name, targetNodeId, artist.thumb);
       setAddedArtists(prev => new Set(prev).add(artist.name));
       onImportSuccess(destNodeId);
     } catch (err: any) {
@@ -214,7 +215,8 @@ export const HybridSearchModal: React.FC<Props> = ({
         r.source,
         r.id,
         targetNodeId,
-        createAlbumContainer
+        createAlbumContainer,
+        r.thumb
       );
       onImportSuccess(destNodeId);
       onClose();
@@ -462,37 +464,14 @@ export const HybridSearchModal: React.FC<Props> = ({
                         border: '1px solid #222228',
                       }}
                     >
-                      {artist.thumb ? (
-                        <img
-                          src={artist.thumb}
-                          alt=""
-                          style={{
-                            width: 42,
-                            height: 42,
-                            borderRadius: '50%',
-                            objectFit: 'cover',
-                            background: '#1c1c20',
-                            flexShrink: 0,
-                          }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: 42,
-                            height: 42,
-                            borderRadius: '50%',
-                            background: '#27272a',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: 'var(--mu)',
-                            fontSize: 16,
-                            flexShrink: 0,
-                          }}
-                        >
-                          👤
-                        </div>
-                      )}
+                      <CoverArt
+                        src={artist.thumb}
+                        alt={artist.name}
+                        size={42}
+                        type="artist"
+                        seed={artist.name}
+                        rounded="full"
+                      />
 
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -564,17 +543,14 @@ export const HybridSearchModal: React.FC<Props> = ({
 
                   return (
                     <div key={key} className="r">
-                      {r.thumb ? (
-                        <img
-                          src={r.thumb}
-                          alt=""
-                          style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4, background: '#1c1c20', flexShrink: 0 }}
-                        />
-                      ) : (
-                        <div style={{ width: 44, height: 44, borderRadius: 4, background: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mu)', fontSize: 11, flexShrink: 0 }}>
-                          ♫
-                        </div>
-                      )}
+                      <CoverArt
+                        src={r.thumb}
+                        alt={r.title}
+                        size={44}
+                        type="album"
+                        seed={r.title || r.artist}
+                        rounded={6}
+                      />
 
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>

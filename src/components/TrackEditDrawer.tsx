@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { Track } from '../types';
 import { fmtDuration } from '../utils';
 import { updateTrack, deleteTrack } from '../api';
+import { CoverArt } from './CoverArt';
 
 interface Props {
   track: Track | null;
@@ -38,6 +39,7 @@ export const TrackEditDrawer: React.FC<Props> = ({
         len: track.len,
         bpm: track.bpm,
         key: track.key,
+        cover_url: track.cover_url || '',
       });
       setIsEditing(false);
       setError(null);
@@ -92,9 +94,24 @@ export const TrackEditDrawer: React.FC<Props> = ({
 
         {!isEditing ? (
           <>
-            <h2 style={{ margin: '12px 0 2px', fontSize: 18 }}>{track.t}</h2>
-            <div style={{ color: 'var(--mu)', marginBottom: 14 }}>
-              {track.a} · {track.al}
+            <div style={{ display: 'flex', gap: 14, alignItems: 'center', margin: '14px 0 16px' }}>
+              <CoverArt
+                src={track.cover_url}
+                alt={track.t}
+                size={64}
+                type="album"
+                seed={track.al || track.t || track.a}
+                rounded={6}
+              />
+              <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                <h2 style={{ margin: '0 0 3px', fontSize: 17, color: '#fafafa', overflow: 'hidden', textOverflow: 'ellipsis' }}>{track.t}</h2>
+                <div style={{ color: 'var(--mu)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {track.a}
+                </div>
+                <div style={{ color: 'var(--mu)', fontSize: 12, opacity: 0.8, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {track.al}
+                </div>
+              </div>
             </div>
 
             <dl>
@@ -163,6 +180,29 @@ export const TrackEditDrawer: React.FC<Props> = ({
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
             <h3 style={{ margin: 0, fontSize: 15 }}>Edit Track Details</h3>
+
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '8px 10px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: 6, border: '1px solid var(--bd)' }}>
+              <CoverArt
+                src={formData.cover_url}
+                alt={formData.t}
+                size={48}
+                type="album"
+                seed={formData.al || formData.t || formData.a}
+                rounded={6}
+              />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ fontSize: 11, color: 'var(--mu)', display: 'block', marginBottom: 4 }}>
+                  Cover Image URL
+                </span>
+                <input
+                  type="url"
+                  placeholder="https://..."
+                  value={formData.cover_url || ''}
+                  onChange={e => setFormData({ ...formData, cover_url: e.target.value })}
+                  style={{ width: '100%', fontSize: 12, padding: '4px 8px' }}
+                />
+              </div>
+            </div>
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mu)' }}>
               Track Title

@@ -139,6 +139,7 @@ export interface DiscogsTrackDetail {
   length: number; // in seconds
   bpm: number;
   key: string;
+  cover_url?: string;
 }
 
 export interface DiscogsReleaseDetail {
@@ -150,6 +151,7 @@ export interface DiscogsReleaseDetail {
   catalog_no: string;
   barcode: string;
   label: string;
+  cover_url: string;
   tracks: DiscogsTrackDetail[];
 }
 
@@ -265,6 +267,11 @@ export async function getDiscogsReleaseDetails(releaseId: string | number): Prom
     if (is && is.value) releaseIsrc = is.value;
   }
 
+  let coverUrl = data.thumb || '';
+  if (Array.isArray(data.images) && data.images.length > 0) {
+    coverUrl = data.images[0].uri || data.images[0].resource_url || data.thumb || '';
+  }
+
   const tracks: DiscogsTrackDetail[] = [];
   const tracklist = data.tracklist || [];
 
@@ -292,6 +299,7 @@ export async function getDiscogsReleaseDetails(releaseId: string | number): Prom
       length: durationSeconds,
       bpm: 0,
       key: '',
+      cover_url: coverUrl,
     });
   }
 
@@ -304,6 +312,7 @@ export async function getDiscogsReleaseDetails(releaseId: string | number): Prom
     catalog_no,
     barcode,
     label: labelName,
+    cover_url: coverUrl,
     tracks,
   };
 }

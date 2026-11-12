@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { LibraryNode } from '../types';
 import { createTrack } from '../api';
+import { CoverArt } from './CoverArt';
 
 interface Props {
   isOpen: boolean;
@@ -28,6 +29,7 @@ export const NewTrackModal: React.FC<Props> = ({
   const [secs, setSecs] = useState<number>(0);
   const [bpm, setBpm] = useState<number>(0);
   const [key, setKey] = useState('');
+  const [coverUrl, setCoverUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +48,7 @@ export const NewTrackModal: React.FC<Props> = ({
       setSecs(30);
       setBpm(0);
       setKey('');
+      setCoverUrl(currentNode?.cover_url || '');
       setError(null);
     }
   }, [isOpen, currentNode]);
@@ -80,6 +83,7 @@ export const NewTrackModal: React.FC<Props> = ({
         len: lengthSeconds,
         bpm: bpm || 0,
         key: key.trim(),
+        cover_url: coverUrl.trim(),
       });
       onCreated();
       onClose();
@@ -102,6 +106,29 @@ export const NewTrackModal: React.FC<Props> = ({
         {error && <div style={{ color: '#f87171', marginBottom: 12, fontSize: 12 }}>{error}</div>}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '8px 10px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: 6, border: '1px solid var(--bd)' }}>
+            <CoverArt
+              src={coverUrl}
+              alt={title || 'Track Cover'}
+              size={46}
+              type="album"
+              seed={album || title || artist}
+              rounded={6}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 11, color: 'var(--mu)', display: 'block', marginBottom: 3 }}>
+                Cover Artwork URL (optional)
+              </span>
+              <input
+                type="url"
+                placeholder="https://... (or leave blank for album art)"
+                value={coverUrl}
+                onChange={e => setCoverUrl(e.target.value)}
+                style={{ width: '100%', fontSize: 12, padding: '4px 8px' }}
+              />
+            </div>
+          </div>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mu)' }}>
               Track Title *

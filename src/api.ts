@@ -115,12 +115,13 @@ export async function importUniversalRelease(
   source: 'discogs' | 'deezer' | 'musicbrainz',
   releaseId: string | number,
   targetNodeId: string,
-  createAlbumContainer = true
+  createAlbumContainer = true,
+  coverUrl?: string
 ): Promise<{ destNodeId: string; tree: LibraryNode[] }> {
   const res = await fetch(`${API_BASE}/releases/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ source, releaseId, targetNodeId, createAlbumContainer }),
+    body: JSON.stringify({ source, releaseId, targetNodeId, createAlbumContainer, coverUrl }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -131,12 +132,13 @@ export async function importUniversalRelease(
 
 export async function importArtistContainer(
   name: string,
-  targetNodeId: string
+  targetNodeId: string,
+  thumb?: string
 ): Promise<{ destNodeId: string; tree: LibraryNode[] }> {
   const res = await fetch(`${API_BASE}/artists/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, targetNodeId }),
+    body: JSON.stringify({ name, targetNodeId, thumb }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { LibraryNode } from '../types';
 import { getAllNodes } from '../utils';
 import { createNode } from '../api';
+import { CoverArt } from './CoverArt';
 
 interface Props {
   isOpen: boolean;
@@ -36,6 +37,7 @@ export const NewContainerModal: React.FC<Props> = ({
   const [type, setType] = useState('Folder');
   const [customType, setCustomType] = useState('');
   const [name, setName] = useState('');
+  const [coverUrl, setCoverUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +47,7 @@ export const NewContainerModal: React.FC<Props> = ({
       setType('Folder');
       setCustomType('');
       setName('');
+      setCoverUrl('');
       setError(null);
     }
   }, [isOpen, currentNode]);
@@ -74,6 +77,7 @@ export const NewContainerModal: React.FC<Props> = ({
         parent_id: parentId === '' ? null : parentId,
         type: finalType,
         name: finalName,
+        cover_url: coverUrl.trim(),
       });
       onCreated(newNode.id);
       onClose();
@@ -131,6 +135,29 @@ export const NewContainerModal: React.FC<Props> = ({
               />
             </label>
           )}
+
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '8px 10px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: 6, border: '1px solid var(--bd)' }}>
+            <CoverArt
+              src={coverUrl}
+              alt={name || 'Container'}
+              size={46}
+              type={type === 'Artist' ? 'artist' : type === 'Playlist' ? 'playlist' : 'album'}
+              seed={name}
+              rounded={type === 'Artist' ? 'full' : 6}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 11, color: 'var(--mu)', display: 'block', marginBottom: 3 }}>
+                Artwork / Avatar URL (optional)
+              </span>
+              <input
+                type="url"
+                placeholder="https://... image link"
+                value={coverUrl}
+                onChange={e => setCoverUrl(e.target.value)}
+                style={{ width: '100%', fontSize: 12, padding: '4px 8px' }}
+              />
+            </div>
+          </div>
 
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mu)' }}>
             Container Name

@@ -77,6 +77,7 @@ export interface MbReleaseSummary {
   country: string;
   track_count: number;
   label: string;
+  thumb: string;
 }
 
 export interface MbTrackDetail {
@@ -92,6 +93,7 @@ export interface MbTrackDetail {
   length: number; // in seconds
   bpm: number;
   key: string;
+  cover_url?: string;
 }
 
 export interface MbReleaseDetail {
@@ -103,6 +105,7 @@ export interface MbReleaseDetail {
   catalog_no: string;
   barcode: string;
   label: string;
+  cover_url: string;
   tracks: MbTrackDetail[];
 }
 
@@ -150,6 +153,7 @@ export async function searchMusicBrainzReleases(query: string): Promise<MbReleas
       country: r.country || '',
       track_count: r['track-count'] || (r.media ? r.media.reduce((acc: number, m: any) => acc + (m['track-count'] || 0), 0) : 0),
       label,
+      thumb: `https://coverartarchive.org/release/${r.id}/front-250`,
     };
   });
 }
@@ -201,6 +205,8 @@ export async function getMusicBrainzReleaseDetails(mbid: string): Promise<MbRele
       const isrc = rec.isrcs?.[0] || '—';
       const trackMbid = rec.id || tr.id || data.id;
 
+      const releaseCover = `https://coverartarchive.org/release/${data.id}/front-250`;
+
       tracks.push({
         title: trackTitle,
         artist: trackArtist,
@@ -214,9 +220,12 @@ export async function getMusicBrainzReleaseDetails(mbid: string): Promise<MbRele
         length: lengthSeconds,
         bpm: 0,
         key: '',
+        cover_url: releaseCover,
       });
     }
   }
+
+  const releaseCover = `https://coverartarchive.org/release/${data.id}/front-250`;
 
   return {
     id: data.id,
@@ -227,6 +236,7 @@ export async function getMusicBrainzReleaseDetails(mbid: string): Promise<MbRele
     catalog_no,
     barcode,
     label,
+    cover_url: releaseCover,
     tracks,
   };
 }

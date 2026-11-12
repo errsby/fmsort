@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { LibraryNode } from '../types';
 import { getAllNodes, findNodePath } from '../utils';
+import { CoverArt } from './CoverArt';
 
 interface Props {
   isOpen: boolean;
@@ -94,9 +95,19 @@ export const CommandPaletteModal: React.FC<Props> = ({
                   }}
                   onMouseEnter={() => setSelectedIndex(idx)}
                 >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontWeight: 500 }}>{n.name}</span>
-                    <span style={{ color: 'var(--mu)', fontSize: 11 }}>{pathString}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+                    <CoverArt
+                      src={n.cover_url || n.tracks?.[0]?.cover_url}
+                      alt={n.name}
+                      size={26}
+                      type={n.type === 'Artist' ? 'artist' : n.type === 'Playlist' ? 'playlist' : n.type === 'Folder' ? 'folder' : 'album'}
+                      seed={n.name}
+                      rounded={n.type === 'Artist' ? 'full' : 4}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, overflow: 'hidden' }}>
+                      <span style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
+                      <span style={{ color: 'var(--mu)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pathString}</span>
+                    </div>
                   </div>
                   <span className="ty">{n.type}</span>
                 </div>

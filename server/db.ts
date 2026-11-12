@@ -26,6 +26,7 @@ export interface TrackRecord {
   bpm: number;
   key: string;
   sort_order: number;
+  cover_url?: string;
   created_at?: string;
 }
 
@@ -35,6 +36,7 @@ export interface NodeRecord {
   type: string;
   name: string;
   sort_order: number;
+  cover_url?: string;
   children?: NodeRecord[];
   tracks?: TrackRecord[];
   created_at?: string;
@@ -48,6 +50,7 @@ export function initDb() {
       type TEXT NOT NULL,
       name TEXT NOT NULL,
       sort_order INTEGER DEFAULT 0,
+      cover_url TEXT DEFAULT '',
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -67,6 +70,7 @@ export function initDb() {
       bpm INTEGER DEFAULT 0,
       key TEXT DEFAULT '',
       sort_order INTEGER DEFAULT 0,
+      cover_url TEXT DEFAULT '',
       created_at TEXT DEFAULT (datetime('now'))
     );
 
@@ -75,6 +79,14 @@ export function initDb() {
       value TEXT
     );
   `);
+
+  try {
+    db.exec("ALTER TABLE nodes ADD COLUMN cover_url TEXT DEFAULT '';");
+  } catch {}
+
+  try {
+    db.exec("ALTER TABLE tracks ADD COLUMN cover_url TEXT DEFAULT '';");
+  } catch {}
 }
 
 function seedDefaultData() {
@@ -125,15 +137,15 @@ function seedDefaultData() {
 
 export function getFullTree(): NodeRecord[] {
   const rawNodes = db.query(`
-    SELECT id, parent_id, type, name, sort_order
+    SELECT id, parent_id, type, name, sort_order, cover_url
     FROM nodes
     ORDER BY sort_order ASC, name ASC
-  `).all() as { id: string; parent_id: string | null; type: string; name: string; sort_order: number }[];
+  `).all() as { id: string; parent_id: string | null; type: string; name: string; sort_order: number; cover_url?: string }[];
 
   const rawTracks = db.query(`
     SELECT id, node_id, title as t, artist as a, album as al, year as y,
            format as f, catalog_no as c, barcode as bc, mbid as mb, isrc,
-           length as len, bpm, key, sort_order
+           length as len, bpm, key, sort_order, cover_url
     FROM tracks
     ORDER BY sort_order ASC, id ASC
   `).all() as TrackRecord[];
@@ -168,14 +180,15 @@ export function getFullTree(): NodeRecord[] {
   return rootNodes;
 }
 
-export function createNode(data: { id?: string; parent_id: string | null; type: string; name: string; sort_order?: number }): NodeRecord {
+export function createNode(data: { id?: string; parent_id: string | null; type: string; name: string; sort_order?: number; cover_url?: string }): NodeRecord {
   const id = data.id || 'n_' + Math.random().toString(36).substring(2, 9);
   const sort_order = data.sort_order ?? 0;
+  const cover_url = data.cover_url || '';
   
   db.prepare(`
-    INSERT INTO nodes (id, parent_id, type, name, sort_order)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(id, data.parent_id, data.type, data.name, sort_order);
+    INSERT INTO nodes (id, parent_id, type, name, sort_order, cover_url)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, data.parent_id, data.type, data.name, sort_order, cover_url);
 
   return {
     id,
@@ -183,12 +196,13 @@ export function createNode(data: { id?: string; parent_id: string | null; type: 
     type: data.type,
     name: data.name,
     sort_order,
+    cover_url,
     children: [],
     tracks: [],
   };
 }
 
-export function updateNode(id: string, updates: Partial<{ name: string; type: string; parent_id: string | null; sort_order: number }>) {
+export function updateNode(id: string, updates: Partial<{ name: string; type: string; parent_id: string | null; sort_order: number; cover_url: string }>) {
   const fields: string[] = [];
   const values: any[] = [];
 
@@ -207,6 +221,10 @@ export function updateNode(id: string, updates: Partial<{ name: string; type: st
   if (updates.sort_order !== undefined) {
     fields.push('sort_order = ?');
     values.push(updates.sort_order);
+  }
+  if (updates.cover_url !== undefined) {
+    fields.push('cover_url = ?');
+    values.push(updates.cover_url);
   }
 
   if (fields.length === 0) return;
@@ -235,10 +253,12 @@ export function createTrack(data: {
   bpm?: number;
   key?: string;
   sort_order?: number;
+  cover_url?: string;
 }): TrackRecord {
+  const cover_url = data.cover_url || '';
   const result = db.prepare(`
-    INSERT INTO tracks (node_id, title, artist, album, year, format, catalog_no, barcode, mbid, isrc, length, bpm, key, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO tracks (node_id, title, artist, album, year, format, catalog_no, barcode, mbid, isrc, length, bpm, key, sort_order, cover_url)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     data.node_id,
     data.t,
@@ -253,7 +273,8 @@ export function createTrack(data: {
     data.len ?? 0,
     data.bpm ?? 0,
     data.key ?? '',
-    data.sort_order ?? 0
+    data.sort_order ?? 0,
+    cover_url
   );
 
   const trackId = Number(result.lastInsertRowid);
@@ -273,6 +294,7 @@ export function createTrack(data: {
     bpm: data.bpm ?? 0,
     key: data.key ?? '',
     sort_order: data.sort_order ?? 0,
+    cover_url,
   };
 }
 
@@ -291,6 +313,7 @@ export function updateTrack(id: number, updates: Partial<{
   key: string;
   node_id: string;
   sort_order: number;
+  cover_url: string;
 }>) {
   const fields: string[] = [];
   const values: any[] = [];
@@ -310,6 +333,7 @@ export function updateTrack(id: number, updates: Partial<{
     key: 'key',
     node_id: 'node_id',
     sort_order: 'sort_order',
+    cover_url: 'cover_url',
   };
 
   for (const [key, dbCol] of Object.entries(map)) {
@@ -366,17 +390,17 @@ export function importLibrary(data: { nodes: any[]; tracks: any[] }) {
     db.exec('DELETE FROM nodes;');
 
     const insertNode = db.prepare(`
-      INSERT INTO nodes (id, parent_id, type, name, sort_order)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO nodes (id, parent_id, type, name, sort_order, cover_url)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
 
     for (const n of data.nodes) {
-      insertNode.run(n.id, n.parent_id, n.type, n.name, n.sort_order ?? 0);
+      insertNode.run(n.id, n.parent_id, n.type, n.name, n.sort_order ?? 0, n.cover_url || '');
     }
 
     const insertTrack = db.prepare(`
-      INSERT INTO tracks (id, node_id, title, artist, album, year, format, catalog_no, barcode, mbid, isrc, length, bpm, key, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tracks (id, node_id, title, artist, album, year, format, catalog_no, barcode, mbid, isrc, length, bpm, key, sort_order, cover_url)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const t of data.tracks) {
@@ -395,7 +419,8 @@ export function importLibrary(data: { nodes: any[]; tracks: any[] }) {
         t.length || t.len || 0,
         t.bpm || 0,
         t.key || '',
-        t.sort_order || 0
+        t.sort_order || 0,
+        t.cover_url || ''
       );
     }
   })();

@@ -73,6 +73,7 @@ export interface DeezerTrackDetail {
   length: number; // in seconds
   bpm: number;
   key: string;
+  cover_url?: string;
 }
 
 export interface DeezerReleaseDetail {
@@ -84,6 +85,7 @@ export interface DeezerReleaseDetail {
   catalog_no: string;
   barcode: string;
   label: string;
+  cover_url: string;
   tracks: DeezerTrackDetail[];
 }
 
@@ -168,6 +170,8 @@ export async function getDeezerReleaseDetails(albumId: string | number): Promise
   const tracks: DeezerTrackDetail[] = [];
   const tracklist = data.tracks?.data || [];
 
+  const coverUrl = data.cover_medium || data.cover_big || data.cover_small || '';
+
   for (const tr of tracklist) {
     const trackTitle = tr.title || tr.title_short || 'Untitled Track';
     const trackArtist = tr.artist?.name || albumArtist;
@@ -187,6 +191,7 @@ export async function getDeezerReleaseDetails(albumId: string | number): Promise
       length: lengthSeconds,
       bpm: tr.bpm || 0,
       key: '',
+      cover_url: coverUrl,
     });
   }
 
@@ -199,6 +204,7 @@ export async function getDeezerReleaseDetails(albumId: string | number): Promise
     catalog_no: '—',
     barcode,
     label,
+    cover_url: coverUrl,
     tracks,
   };
 

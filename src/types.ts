@@ -14,6 +14,7 @@ export interface Track {
   bpm: number; // BPM
   key: string; // musical key
   sort_order: number;
+  cover_url?: string;
 }
 
 export interface LibraryNode {
@@ -22,6 +23,7 @@ export interface LibraryNode {
   type: string; // 'Folder' | 'Label' | 'Artist' | 'Album' | 'Playlist' | 'Genre' | 'Section' | 'Era' | custom
   name: string;
   sort_order: number;
+  cover_url?: string;
   children: LibraryNode[];
   tracks: Track[];
 }

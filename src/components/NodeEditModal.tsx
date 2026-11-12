@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { LibraryNode } from '../types';
 import { getAllNodes } from '../utils';
 import { updateNode, deleteNode } from '../api';
+import { CoverArt } from './CoverArt';
 
 interface Props {
   node: LibraryNode | null;
@@ -35,6 +36,7 @@ export const NodeEditModal: React.FC<Props> = ({
   const [name, setName] = useState('');
   const [type, setType] = useState('Folder');
   const [parentId, setParentId] = useState<string>('');
+  const [coverUrl, setCoverUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,6 +45,7 @@ export const NodeEditModal: React.FC<Props> = ({
       setName(node.name);
       setType(node.type);
       setParentId(node.parent_id || '');
+      setCoverUrl(node.cover_url || '');
       setError(null);
     }
   }, [node]);
@@ -75,6 +78,7 @@ export const NodeEditModal: React.FC<Props> = ({
         name: name.trim(),
         type,
         parent_id: parentId === '' ? null : parentId,
+        cover_url: coverUrl.trim(),
       });
       onUpdated(node.id);
       onClose();
@@ -117,6 +121,29 @@ export const NodeEditModal: React.FC<Props> = ({
         {error && <div style={{ color: '#f87171', marginBottom: 12, fontSize: 12 }}>{error}</div>}
 
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '8px 10px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: 6, border: '1px solid var(--bd)' }}>
+            <CoverArt
+              src={coverUrl}
+              alt={name}
+              size={50}
+              type={type === 'Artist' ? 'artist' : type === 'Playlist' ? 'playlist' : 'album'}
+              seed={name}
+              rounded={type === 'Artist' ? 'full' : 6}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 11, color: 'var(--mu)', display: 'block', marginBottom: 3 }}>
+                Artwork / Avatar URL
+              </span>
+              <input
+                type="url"
+                placeholder="https://... image link"
+                value={coverUrl}
+                onChange={e => setCoverUrl(e.target.value)}
+                style={{ width: '100%', fontSize: 12, padding: '4px 8px' }}
+              />
+            </div>
+          </div>
+
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mu)' }}>
             Container Name
             <input

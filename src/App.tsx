@@ -18,6 +18,7 @@ import { MoveTracksModal } from './components/MoveTracksModal';
 import { NodeEditModal } from './components/NodeEditModal';
 import { BackupModal } from './components/BackupModal';
 import { SocialWidgets } from './components/SocialWidgets';
+import { CoverArt } from './components/CoverArt';
 import {
   Search,
   FolderPlus,
@@ -333,6 +334,14 @@ export const App: React.FC = () => {
           >
             {hasChildren ? '›' : ''}
           </span>
+          <CoverArt
+            src={n.cover_url || n.tracks?.[0]?.cover_url}
+            alt={n.name}
+            size={18}
+            type={n.type === 'Artist' ? 'artist' : n.type === 'Playlist' ? 'playlist' : n.type === 'Folder' ? 'folder' : 'album'}
+            seed={n.name}
+            rounded={n.type === 'Artist' ? 'full' : 3}
+          />
           <span className="ty">{n.type}</span>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{n.name}</span>
           <button
@@ -393,13 +402,23 @@ export const App: React.FC = () => {
             if (col.key === 'title') {
               return (
                 <td key={col.key}>
-                  <span
-                    className="ttl"
-                    tabIndex={0}
-                    onClick={() => setActiveTrack(t)}
-                  >
-                    {t.t}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                    <CoverArt
+                      src={t.cover_url || n.cover_url}
+                      alt={t.t}
+                      size={26}
+                      type="album"
+                      seed={t.al || t.t || t.a}
+                      rounded={4}
+                    />
+                    <span
+                      className="ttl"
+                      tabIndex={0}
+                      onClick={() => setActiveTrack(t)}
+                    >
+                      {t.t}
+                    </span>
+                  </div>
                 </td>
               );
             }
@@ -441,11 +460,22 @@ export const App: React.FC = () => {
             onClick={() => toggleSectionCollapse(child.id)}
           >
             <td colSpan={colSpan} style={{ paddingLeft: `${10 + depth * 16}px` }}>
-              <span className={`ar ${isCollapsed ? '' : 'o'}`}>›</span>{' '}
-              <span className="ty">{child.type}</span> {child.name}
-              <span className="m">
-                {childTracks.length} tracks · {fmtTotalRuntime(childTracks)}
-              </span>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <span className={`ar ${isCollapsed ? '' : 'o'}`}>›</span>
+                <CoverArt
+                  src={child.cover_url || child.tracks?.[0]?.cover_url}
+                  alt={child.name}
+                  size={24}
+                  type={child.type === 'Artist' ? 'artist' : child.type === 'Playlist' ? 'playlist' : 'album'}
+                  seed={child.name}
+                  rounded={child.type === 'Artist' ? 'full' : 4}
+                />
+                <span className="ty">{child.type}</span>
+                <span style={{ fontWeight: 600, color: '#f4f4f5' }}>{child.name}</span>
+                <span className="m">
+                  {childTracks.length} tracks · {fmtTotalRuntime(childTracks)}
+                </span>
+              </div>
             </td>
           </tr>
         );
@@ -559,6 +589,34 @@ export const App: React.FC = () => {
 
         {/* Section / Table */}
         <section>
+          {/* Active Container Hero Banner */}
+          {activeNode && (activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist') && (
+            <div className="active-hero-banner">
+              <CoverArt
+                src={activeNode.cover_url || activeNode.tracks?.[0]?.cover_url}
+                alt={activeNode.name}
+                size={84}
+                type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : 'album'}
+                seed={activeNode.name}
+                rounded={activeNode.type === 'Artist' ? 'full' : 8}
+              />
+              <div className="active-hero-meta">
+                <div className="active-hero-badge">{activeNode.type.toUpperCase()}</div>
+                <h2 className="active-hero-title">{activeNode.name}</h2>
+                <div className="active-hero-sub">
+                  {activeNode.type === 'Album' && activeNode.tracks?.[0]?.a && (
+                    <span style={{ color: '#fafafa', fontWeight: 500 }}>{activeNode.tracks[0].a} · </span>
+                  )}
+                  {activeNode.type === 'Album' && activeNode.tracks?.[0]?.y ? (
+                    <span>{activeNode.tracks[0].y} · </span>
+                  ) : null}
+                  <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
+                  {activeFlatTracks.length > 0 && <span> · {fmtTotalRuntime(activeFlatTracks)}</span>}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Toolbar */}
           <div className="tb">
             <h1>

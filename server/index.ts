@@ -86,6 +86,7 @@ const server = Bun.serve({
           type: body.type,
           name: body.name,
           sort_order: body.sort_order,
+          cover_url: body.cover_url || '',
         });
         return json(node, 201);
       }
@@ -126,6 +127,7 @@ const server = Bun.serve({
           bpm: body.bpm || 0,
           key: body.key || '',
           sort_order: body.sort_order || 0,
+          cover_url: body.cover_url || '',
         });
         return json(track, 201);
       }
@@ -301,7 +303,7 @@ const server = Bun.serve({
       // 11. Add Artist Container: POST /api/artists/import
       if (path === '/api/artists/import' && method === 'POST') {
         const body = await req.json();
-        const { name, targetNodeId } = body;
+        const { name, targetNodeId, thumb, cover_url } = body;
         if (!name || !targetNodeId) {
           return errorJson('Missing artist name or targetNodeId');
         }
@@ -310,6 +312,7 @@ const server = Bun.serve({
           parent_id: targetNodeId,
           type: 'Artist',
           name: name.trim(),
+          cover_url: thumb || cover_url || '',
         });
 
         const updatedTree = getFullTree();
@@ -334,34 +337,41 @@ const server = Bun.serve({
       // 13. Unified Universal Import: POST /api/releases/import
       if (path === '/api/releases/import' && method === 'POST') {
         const body = await req.json();
-        const { source, releaseId, targetNodeId, createAlbumContainer = true } = body;
+        const { source, releaseId, targetNodeId, createAlbumContainer = true, coverUrl } = body;
 
         if (!source || !releaseId || !targetNodeId) {
           return errorJson('Missing source, releaseId, or targetNodeId');
         }
 
         let releaseTitle = 'Untitled Album';
+        let releaseCover = coverUrl || '';
         let tracksToInsert: any[] = [];
 
         if (source === 'discogs') {
           const rel = await getDiscogsReleaseDetails(releaseId);
           releaseTitle = rel.title;
+          if (rel.cover_url) releaseCover = rel.cover_url;
           tracksToInsert = rel.tracks.map((t, idx) => ({
             ...t,
+            cover_url: t.cover_url || releaseCover,
             sort_order: idx,
           }));
         } else if (source === 'deezer') {
           const rel = await getDeezerReleaseDetails(releaseId);
           releaseTitle = rel.title;
+          if (rel.cover_url) releaseCover = rel.cover_url;
           tracksToInsert = rel.tracks.map((t, idx) => ({
             ...t,
+            cover_url: t.cover_url || releaseCover,
             sort_order: idx,
           }));
         } else if (source === 'musicbrainz') {
           const rel = await getMusicBrainzReleaseDetails(releaseId);
           releaseTitle = rel.title;
+          if (rel.cover_url) releaseCover = rel.cover_url;
           tracksToInsert = rel.tracks.map((t, idx) => ({
             ...t,
+            cover_url: t.cover_url || releaseCover,
             sort_order: idx,
           }));
         } else {
@@ -374,6 +384,7 @@ const server = Bun.serve({
             parent_id: targetNodeId,
             type: 'Album',
             name: releaseTitle,
+            cover_url: releaseCover,
           });
           destNodeId = newAlbumNode.id;
         }
@@ -394,6 +405,7 @@ const server = Bun.serve({
             bpm: tr.bpm,
             key: tr.key,
             sort_order: tr.sort_order,
+            cover_url: tr.cover_url || releaseCover,
           });
         }
 
