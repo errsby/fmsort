@@ -2,6 +2,50 @@
  * Deezer API Service - Instant, Key-less Music Search & Tracklists
  */
 
+export interface DeezerArtistSummary {
+  id: number;
+  name: string;
+  thumb: string;
+  nb_album: number;
+}
+
+export async function searchDeezerArtists(query: string): Promise<DeezerArtistSummary[]> {
+  const cleanQ = query.trim();
+  if (!cleanQ) return [];
+
+  const url = `https://api.deezer.com/search/artist?q=${encodeURIComponent(cleanQ)}&limit=6`;
+  const cached = cache.get(url);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'FMSort/1.0.0 ( https://github.com/err/fmsort )',
+      'Accept': 'application/json',
+    },
+  });
+
+  if (!res.ok) {
+    return [];
+  }
+
+  const json = await res.json();
+  if (!json || !Array.isArray(json.data)) {
+    return [];
+  }
+
+  const results: DeezerArtistSummary[] = json.data.map((item: any) => ({
+    id: item.id,
+    name: item.name || 'Unknown Artist',
+    thumb: item.picture_small || item.picture_medium || '',
+    nb_album: item.nb_album || 0,
+  }));
+
+  cache.set(url, { data: results, timestamp: Date.now() });
+  return results;
+}
+
 export interface DeezerReleaseSummary {
   id: number;
   title: string;

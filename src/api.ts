@@ -6,6 +6,7 @@ import type {
   DiscogsStatus,
   HybridSearchResponse,
   UnifiedReleaseSummary,
+  UnifiedArtistSummary,
 } from './types';
 
 const API_BASE = '/api';
@@ -124,6 +125,22 @@ export async function importUniversalRelease(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || 'Failed to import release');
+  }
+  return res.json();
+}
+
+export async function importArtistContainer(
+  name: string,
+  targetNodeId: string
+): Promise<{ destNodeId: string; tree: LibraryNode[] }> {
+  const res = await fetch(`${API_BASE}/artists/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, targetNodeId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to create artist container');
   }
   return res.json();
 }

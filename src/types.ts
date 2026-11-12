@@ -80,6 +80,14 @@ export interface DiscogsStatus {
 
 export type SearchProvider = 'hybrid' | 'discogs' | 'deezer' | 'musicbrainz';
 
+export interface UnifiedArtistSummary {
+  source: 'discogs' | 'deezer' | 'musicbrainz';
+  id: string | number;
+  name: string;
+  thumb: string;
+  nb_album?: number;
+}
+
 export interface UnifiedReleaseSummary {
   source: 'discogs' | 'deezer' | 'musicbrainz';
   id: string | number;
@@ -96,10 +104,12 @@ export interface UnifiedReleaseSummary {
 }
 
 export interface HybridSearchResponse {
-  results: UnifiedReleaseSummary[];
+  artists: UnifiedArtistSummary[];
+  releases: UnifiedReleaseSummary[];
   discogsConfigured: boolean;
   counts?: {
-    discogs: number;
-    deezer: number;
+    artists: number;
+    discogsReleases: number;
+    deezerReleases: number;
   };
 }

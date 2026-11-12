@@ -153,6 +153,33 @@ export interface DiscogsReleaseDetail {
   tracks: DiscogsTrackDetail[];
 }
 
+export interface DiscogsArtistSummary {
+  id: number;
+  name: string;
+  thumb: string;
+}
+
+export async function searchDiscogsArtists(query: string): Promise<DiscogsArtistSummary[]> {
+  const authHeader = getDiscogsAuthHeader();
+  if (!authHeader) return [];
+
+  const cleanQ = query.trim();
+  if (!cleanQ) return [];
+
+  const url = `https://api.discogs.com/database/search?q=${encodeURIComponent(cleanQ)}&type=artist&per_page=6`;
+  const data = await fetchDiscogsWithRateLimit<any>(url, authHeader);
+
+  if (!data || !Array.isArray(data.results)) {
+    return [];
+  }
+
+  return data.results.map((r: any) => ({
+    id: r.id,
+    name: r.title,
+    thumb: r.thumb || '',
+  }));
+}
+
 export async function searchDiscogsReleases(query: string): Promise<DiscogsReleaseSummary[]> {
   const authHeader = getDiscogsAuthHeader();
   if (!authHeader) {

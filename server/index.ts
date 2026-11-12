@@ -21,10 +21,12 @@ import {
 import {
   isDiscogsConfigured,
   searchDiscogsReleases,
+  searchDiscogsArtists,
   getDiscogsReleaseDetails,
 } from './discogs';
 import {
   searchDeezerReleases,
+  searchDeezerArtists,
   getDeezerReleaseDetails,
 } from './deezer';
 
@@ -170,10 +172,12 @@ const server = Bun.serve({
         const discogsEnabled = isDiscogsConfigured();
 
         if (!query) {
-          return json({ results: [], discogsConfigured: discogsEnabled });
+          return json({ artists: [], releases: [], discogsConfigured: discogsEnabled });
         }
 
+        // 1. Parallel search: Deezer releases & artists + Discogs releases & artists
         const promises: Promise<any>[] = [
+          // [0] Deezer releases
           searchDeezerReleases(query)
             .then(items =>
               items.map(d => ({
@@ -192,12 +196,28 @@ const server = Bun.serve({
               }))
             )
             .catch(err => {
-              console.warn('[Hybrid] Deezer search error:', err.message);
+              console.warn('[Hybrid] Deezer releases error:', err.message);
+              return [];
+            }),
+          // [1] Deezer artists
+          searchDeezerArtists(query)
+            .then(items =>
+              items.map(a => ({
+                source: 'deezer' as const,
+                id: a.id,
+                name: a.name,
+                thumb: a.thumb,
+                nb_album: a.nb_album,
+              }))
+            )
+            .catch(err => {
+              console.warn('[Hybrid] Deezer artists error:', err.message);
               return [];
             }),
         ];
 
         if (discogsEnabled) {
+          // [2] Discogs releases
           promises.push(
             searchDiscogsReleases(query)
               .then(items =>
@@ -217,26 +237,83 @@ const server = Bun.serve({
                 }))
               )
               .catch(err => {
-                console.warn('[Hybrid] Discogs search error:', err.message);
+                console.warn('[Hybrid] Discogs releases error:', err.message);
+                return [];
+              })
+          );
+          // [3] Discogs artists
+          promises.push(
+            searchDiscogsArtists(query)
+              .then(items =>
+                items.map(a => ({
+                  source: 'discogs' as const,
+                  id: a.id,
+                  name: a.name,
+                  thumb: a.thumb,
+                  nb_album: 0,
+                }))
+              )
+              .catch(err => {
+                console.warn('[Hybrid] Discogs artists error:', err.message);
                 return [];
               })
           );
         }
 
         const settled = await Promise.all(promises);
-        const deezerItems = settled[0] || [];
-        const discogsItems = settled[1] || [];
+        const deezerReleases = settled[0] || [];
+        const deezerArtists = settled[1] || [];
+        const discogsReleases = discogsEnabled ? (settled[2] || []) : [];
+        const discogsArtists = discogsEnabled ? (settled[3] || []) : [];
 
-        // Combine: Discogs physical variants + Deezer digital releases
-        const combined = [...discogsItems, ...deezerItems];
+        // Deduplicate artists by normalized name while preserving sources
+        const artistMap = new Map<string, any>();
+        for (const a of [...discogsArtists, ...deezerArtists]) {
+          // Clean "(2)", "(3)" suffix from Discogs titles if present
+          const cleanName = a.name.replace(/\s\(\d+\)$/, '').trim();
+          const normKey = cleanName.toLowerCase();
+          if (!artistMap.has(normKey)) {
+            artistMap.set(normKey, { ...a, name: cleanName });
+          } else {
+            // If existing doesn't have thumb, take this one
+            const existing = artistMap.get(normKey);
+            if (!existing.thumb && a.thumb) existing.thumb = a.thumb;
+            if (a.nb_album) existing.nb_album = a.nb_album;
+          }
+        }
+        const combinedArtists = Array.from(artistMap.values());
+
+        // Combine: Discogs physical pressings + Deezer digital releases
+        const combinedReleases = [...discogsReleases, ...deezerReleases];
+
         return json({
-          results: combined,
+          artists: combinedArtists,
+          releases: combinedReleases,
           discogsConfigured: discogsEnabled,
           counts: {
-            discogs: discogsItems.length,
-            deezer: deezerItems.length,
+            artists: combinedArtists.length,
+            discogsReleases: discogsReleases.length,
+            deezerReleases: deezerReleases.length,
           },
         });
+      }
+
+      // 11. Add Artist Container: POST /api/artists/import
+      if (path === '/api/artists/import' && method === 'POST') {
+        const body = await req.json();
+        const { name, targetNodeId } = body;
+        if (!name || !targetNodeId) {
+          return errorJson('Missing artist name or targetNodeId');
+        }
+
+        const newArtistNode = createNode({
+          parent_id: targetNodeId,
+          type: 'Artist',
+          name: name.trim(),
+        });
+
+        const updatedTree = getFullTree();
+        return json({ success: true, destNodeId: newArtistNode.id, tree: updatedTree });
       }
 
       // 11. Deezer Search: GET /api/deezer/search?q=...

@@ -3,6 +3,7 @@ import type {
   LibraryNode,
   SearchProvider,
   UnifiedReleaseSummary,
+  UnifiedArtistSummary,
 } from '../types';
 import {
   fetchDiscogsStatus,
@@ -11,6 +12,7 @@ import {
   searchDiscogs,
   searchMusicBrainz,
   importUniversalRelease,
+  importArtistContainer,
 } from '../api';
 import { getAllNodes } from '../utils';
 
@@ -31,16 +33,18 @@ export const HybridSearchModal: React.FC<Props> = ({
 }) => {
   const [provider, setProvider] = useState<SearchProvider>('hybrid');
   const [hasDiscogsToken, setHasDiscogsToken] = useState<boolean | null>(null);
-  const [tokenPreview, setTokenPreview] = useState<string>('');
   const [tokenInput, setTokenInput] = useState<string>('');
   const [isEditingToken, setIsEditingToken] = useState(false);
   const [savingToken, setSavingToken] = useState(false);
 
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<UnifiedReleaseSummary[]>([]);
-  const [counts, setCounts] = useState<{ discogs: number; deezer: number } | null>(null);
+  const [artistResults, setArtistResults] = useState<UnifiedArtistSummary[]>([]);
+  const [releaseResults, setReleaseResults] = useState<UnifiedReleaseSummary[]>([]);
+  const [counts, setCounts] = useState<{ artists: number; discogsReleases: number; deezerReleases: number } | null>(null);
   const [loading, setLoading] = useState(false);
+
   const [importingKey, setImportingKey] = useState<string | null>(null);
+  const [addedArtists, setAddedArtists] = useState<Set<string>>(new Set());
   const [targetNodeId, setTargetNodeId] = useState<string>('');
   const [createAlbumContainer, setCreateAlbumContainer] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +56,6 @@ export const HybridSearchModal: React.FC<Props> = ({
     try {
       const status = await fetchDiscogsStatus();
       setHasDiscogsToken(status.hasToken);
-      setTokenPreview(status.tokenPreview || '');
     } catch {
       setHasDiscogsToken(false);
     }
@@ -62,8 +65,10 @@ export const HybridSearchModal: React.FC<Props> = ({
     if (isOpen) {
       setTargetNodeId(currentNode?.id || allTreeNodes[0]?.id || '');
       setQuery('');
-      setResults([]);
+      setArtistResults([]);
+      setReleaseResults([]);
       setCounts(null);
+      setAddedArtists(new Set());
       setError(null);
       checkTokenStatus();
       setTimeout(() => inputRef.current?.focus(), 120);
@@ -76,7 +81,8 @@ export const HybridSearchModal: React.FC<Props> = ({
 
     const trimmed = query.trim();
     if (!trimmed) {
-      setResults([]);
+      setArtistResults([]);
+      setReleaseResults([]);
       setCounts(null);
       setLoading(false);
       return;
@@ -89,12 +95,14 @@ export const HybridSearchModal: React.FC<Props> = ({
       try {
         if (provider === 'hybrid') {
           const res = await searchHybrid(trimmed);
-          setResults(res.results);
+          setArtistResults(res.artists || []);
+          setReleaseResults(res.releases || []);
           setCounts(res.counts || null);
           setHasDiscogsToken(res.discogsConfigured);
         } else if (provider === 'discogs') {
           const res = await searchDiscogs(trimmed);
-          setResults(
+          setArtistResults([]);
+          setReleaseResults(
             res.map(d => ({
               source: 'discogs' as const,
               id: d.id,
@@ -110,12 +118,13 @@ export const HybridSearchModal: React.FC<Props> = ({
             }))
           );
         } else if (provider === 'deezer') {
-          // In hybrid search, deezer items are always returned; or can query directly
           const res = await searchHybrid(trimmed);
-          setResults(res.results.filter(r => r.source === 'deezer'));
+          setArtistResults((res.artists || []).filter(a => a.source === 'deezer'));
+          setReleaseResults((res.releases || []).filter(r => r.source === 'deezer'));
         } else if (provider === 'musicbrainz') {
           const res = await searchMusicBrainz(trimmed);
-          setResults(
+          setArtistResults([]);
+          setReleaseResults(
             res.map(m => ({
               source: 'musicbrainz' as const,
               id: m.id,
@@ -167,7 +176,8 @@ export const HybridSearchModal: React.FC<Props> = ({
       if (query.trim()) {
         setLoading(true);
         const res = await searchHybrid(query.trim());
-        setResults(res.results);
+        setArtistResults(res.artists || []);
+        setReleaseResults(res.releases || []);
         setCounts(res.counts || null);
         setLoading(false);
       }
@@ -178,9 +188,25 @@ export const HybridSearchModal: React.FC<Props> = ({
     }
   };
 
-  const handleImport = async (r: UnifiedReleaseSummary) => {
+  const handleAddArtist = async (artist: UnifiedArtistSummary) => {
     if (!targetNodeId) return;
-    const key = `${r.source}-${r.id}`;
+    const key = `artist-${artist.name}`;
+    setImportingKey(key);
+    setError(null);
+    try {
+      const { destNodeId } = await importArtistContainer(artist.name, targetNodeId);
+      setAddedArtists(prev => new Set(prev).add(artist.name));
+      onImportSuccess(destNodeId);
+    } catch (err: any) {
+      setError(err.message || 'Failed to add artist container');
+    } finally {
+      setImportingKey(null);
+    }
+  };
+
+  const handleImportRelease = async (r: UnifiedReleaseSummary) => {
+    if (!targetNodeId) return;
+    const key = `release-${r.source}-${r.id}`;
     setImportingKey(key);
     setError(null);
     try {
@@ -210,7 +236,7 @@ export const HybridSearchModal: React.FC<Props> = ({
       case 'deezer':
         return (
           <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#3b0764', color: '#d8b4fe', border: '1px solid #6b21a8', fontWeight: 600, letterSpacing: '0.04em' }}>
-            DEEZER (INSTANT)
+            DEEZER
           </span>
         );
       case 'musicbrainz':
@@ -231,7 +257,7 @@ export const HybridSearchModal: React.FC<Props> = ({
         {/* Top Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <h2 style={{ margin: 0, fontSize: 16 }}>Import Releases</h2>
+            <h2 style={{ margin: 0, fontSize: 16 }}>Search & Import</h2>
             <div style={{ display: 'flex', background: 'var(--bg)', border: '1px solid var(--bd)', borderRadius: 6, padding: 2 }}>
               <button
                 type="button"
@@ -245,7 +271,7 @@ export const HybridSearchModal: React.FC<Props> = ({
                   fontWeight: 600,
                 }}
               >
-                ⚡ Hybrid (All)
+                ⚡ Hybrid (Artists & Releases)
               </button>
               <button
                 type="button"
@@ -297,8 +323,8 @@ export const HybridSearchModal: React.FC<Props> = ({
         {/* Server Provider Status */}
         <div style={{ marginBottom: 12 }}>
           {hasDiscogsToken ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#93c5fd', background: '#0f172a', border: '1px solid #1e3a5f', padding: '5px 10px', borderRadius: 6 }}>
-              <span>✓ Discogs 17.5M+ Physical Archive & Deezer Instant Streaming Active</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#93c5fd', background: '#0f172a', border: '1px solid #1e3a5f', padding: '4px 10px', borderRadius: 6 }}>
+              <span>✓ Discogs 17.5M+ Catalog & Deezer Streaming Active</span>
             </div>
           ) : (
             <div style={{ background: '#1c1917', border: '1px solid #78350f', borderRadius: 6, padding: '6px 10px', fontSize: 11, color: 'var(--mu)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -316,7 +342,7 @@ export const HybridSearchModal: React.FC<Props> = ({
           {isEditingToken && (
             <div style={{ marginTop: 8, background: '#18181b', border: '1px solid var(--bd)', borderRadius: 6, padding: 10 }}>
               <p style={{ margin: '0 0 8px', fontSize: 11, color: 'var(--mu)' }}>
-                You can insert your Discogs credentials into <code>.env</code> (recommended for all users) or paste a token below:
+                Insert credentials into <code>.env</code> (recommended) or paste a Discogs token below:
               </p>
               <form onSubmit={handleSaveToken} style={{ display: 'flex', gap: 6 }}>
                 <input
@@ -361,22 +387,14 @@ export const HybridSearchModal: React.FC<Props> = ({
                 checked={createAlbumContainer}
                 onChange={e => setCreateAlbumContainer(e.target.checked)}
               />
-              Create Album container for release
+              Create Album container when importing releases
             </label>
           </div>
 
           <input
             ref={inputRef}
             type="search"
-            placeholder={
-              provider === 'hybrid'
-                ? '⚡ Search across Discogs & Deezer (Artist, Album, Catalog #, Barcode, Pressing)...'
-                : provider === 'discogs'
-                ? 'Search Discogs (17.5M+ physical releases, vinyl, cassettes, CDs)...'
-                : provider === 'deezer'
-                ? 'Search Deezer (Instant zero-wait digital releases)...'
-                : 'Search MusicBrainz...'
-            }
+            placeholder="Search artists, albums, catalog numbers, barcodes, vinyl pressings..."
             value={query}
             onChange={e => setQuery(e.target.value)}
             autoComplete="off"
@@ -391,74 +409,203 @@ export const HybridSearchModal: React.FC<Props> = ({
 
         {loading && (
           <div style={{ color: 'var(--mu)', padding: '14px 0', textAlign: 'center' }}>
-            Searching {provider === 'hybrid' ? 'Discogs & Deezer simultaneously' : provider}...
+            Searching {provider === 'hybrid' ? 'artists & releases across Discogs & Deezer' : provider}...
           </div>
         )}
 
-        {/* Results Info Bar */}
-        {!loading && query.trim() !== '' && counts && provider === 'hybrid' && (
-          <div style={{ color: 'var(--mu)', fontSize: 11, marginBottom: 8, display: 'flex', gap: 8 }}>
-            <span>Found <b>{results.length}</b> releases</span>
-            <span>·</span>
-            <span>{counts.discogs} from Discogs</span>
-            <span>·</span>
-            <span>{counts.deezer} from Deezer</span>
-          </div>
-        )}
-
-        {/* Results List */}
+        {/* Results Container */}
         <div style={{ marginTop: 4 }}>
-          {!loading && results.length === 0 && query.trim() !== '' && (
+          {!loading && artistResults.length === 0 && releaseResults.length === 0 && query.trim() !== '' && (
             <p style={{ color: 'var(--mu)', margin: '14px 0' }}>
-              No releases found matching &ldquo;{query}&rdquo;.
+              No artists or releases found matching &ldquo;{query}&rdquo;.
             </p>
           )}
 
-          {results.map(r => {
-            const key = `${r.source}-${r.id}`;
-            const isImporting = importingKey === key;
-
-            return (
-              <div key={key} className="r">
-                {r.thumb ? (
-                  <img
-                    src={r.thumb}
-                    alt=""
-                    style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4, background: '#1c1c20', flexShrink: 0 }}
-                  />
-                ) : (
-                  <div style={{ width: 44, height: 44, borderRadius: 4, background: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mu)', fontSize: 11, flexShrink: 0 }}>
-                    ♫
-                  </div>
-                )}
-
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <strong>{r.artist}</strong> — {r.title}
-                    {getSourceBadge(r.source)}
-                  </div>
-                  <small>
-                    {r.year ? r.year : 'Unknown Year'}
-                    {r.format && ` · ${r.format}`}
-                    {r.catalog_no !== '—' && ` · Cat #${r.catalog_no}`}
-                    {r.barcode !== '—' && ` · Barcode ${r.barcode}`}
-                    {r.country && ` · ${r.country}`}
-                    {r.label && ` · ${r.label}`}
-                    {r.track_count ? ` · ${r.track_count} tracks` : ''}
-                  </small>
-                </div>
-
-                <button
-                  className="p"
-                  disabled={importingKey !== null}
-                  onClick={() => handleImport(r)}
-                  style={{ flexShrink: 0 }}
-                >
-                  {isImporting ? 'Importing...' : 'Import Release'}
-                </button>
+          {/* ============================================================ */}
+          {/* SECTION 1: ARTISTS (ALWAYS DISPLAYED FIRST)                   */}
+          {/* ============================================================ */}
+          {artistResults.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 0',
+                borderBottom: '1px solid var(--bd)',
+                marginBottom: 10,
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#e4e4e7',
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase'
+              }}>
+                <span>👤 Artists ({artistResults.length})</span>
+                <span style={{ color: 'var(--mu)', fontWeight: 400, textTransform: 'none', fontSize: 11 }}>
+                  — Add artist container or scope releases
+                </span>
               </div>
-            );
-          })}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {artistResults.map(artist => {
+                  const key = `artist-${artist.name}`;
+                  const isImporting = importingKey === key;
+                  const isAdded = addedArtists.has(artist.name);
+
+                  return (
+                    <div
+                      key={key}
+                      className="r"
+                      style={{
+                        padding: '8px 10px',
+                        background: '#121216',
+                        borderRadius: 6,
+                        border: '1px solid #222228',
+                      }}
+                    >
+                      {artist.thumb ? (
+                        <img
+                          src={artist.thumb}
+                          alt=""
+                          style={{
+                            width: 42,
+                            height: 42,
+                            borderRadius: '50%',
+                            objectFit: 'cover',
+                            background: '#1c1c20',
+                            flexShrink: 0,
+                          }}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            width: 42,
+                            height: 42,
+                            borderRadius: '50%',
+                            background: '#27272a',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: 'var(--mu)',
+                            fontSize: 16,
+                            flexShrink: 0,
+                          }}
+                        >
+                          👤
+                        </div>
+                      )}
+
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <strong style={{ fontSize: 14 }}>{artist.name}</strong>
+                          <span className="ty">Artist</span>
+                          {getSourceBadge(artist.source)}
+                        </div>
+                        <small style={{ color: 'var(--mu)' }}>
+                          {artist.nb_album ? `${artist.nb_album} releases cataloged` : 'Musical Artist'}
+                        </small>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        <button
+                          type="button"
+                          style={{ fontSize: 11, padding: '3px 8px' }}
+                          title="Search releases specifically by this artist"
+                          onClick={() => setQuery(artist.name)}
+                        >
+                          View Releases
+                        </button>
+                        <button
+                          type="button"
+                          className={isAdded ? '' : 'p'}
+                          disabled={isImporting || isAdded}
+                          onClick={() => handleAddArtist(artist)}
+                          style={{ fontSize: 11, padding: '3px 10px' }}
+                        >
+                          {isAdded ? 'Added ✓' : isImporting ? 'Adding...' : '+ Add Artist'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* SECTION 2: RELEASES & ALBUMS (DISPLAYED AFTER ARTISTS)        */}
+          {/* ============================================================ */}
+          {releaseResults.length > 0 && (
+            <div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 0',
+                borderBottom: '1px solid var(--bd)',
+                marginBottom: 10,
+                fontSize: 11,
+                fontWeight: 600,
+                color: '#e4e4e7',
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase'
+              }}>
+                <span>💿 Releases & Albums ({releaseResults.length})</span>
+                {counts && (
+                  <span style={{ color: 'var(--mu)', fontWeight: 400, textTransform: 'none', fontSize: 11 }}>
+                    — {counts.discogsReleases} from Discogs, {counts.deezerReleases} from Deezer
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {releaseResults.map(r => {
+                  const key = `release-${r.source}-${r.id}`;
+                  const isImporting = importingKey === key;
+
+                  return (
+                    <div key={key} className="r">
+                      {r.thumb ? (
+                        <img
+                          src={r.thumb}
+                          alt=""
+                          style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4, background: '#1c1c20', flexShrink: 0 }}
+                        />
+                      ) : (
+                        <div style={{ width: 44, height: 44, borderRadius: 4, background: '#27272a', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--mu)', fontSize: 11, flexShrink: 0 }}>
+                          ♫
+                        </div>
+                      )}
+
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <strong>{r.artist}</strong> — {r.title}
+                          {getSourceBadge(r.source)}
+                        </div>
+                        <small>
+                          {r.year ? r.year : 'Unknown Year'}
+                          {r.format && ` · ${r.format}`}
+                          {r.catalog_no !== '—' && ` · Cat #${r.catalog_no}`}
+                          {r.barcode !== '—' && ` · Barcode ${r.barcode}`}
+                          {r.country && ` · ${r.country}`}
+                          {r.label && ` · ${r.label}`}
+                          {r.track_count ? ` · ${r.track_count} tracks` : ''}
+                        </small>
+                      </div>
+
+                      <button
+                        className="p"
+                        disabled={importingKey !== null}
+                        onClick={() => handleImportRelease(r)}
+                        style={{ flexShrink: 0 }}
+                      >
+                        {isImporting ? 'Importing...' : 'Import Release'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </>
