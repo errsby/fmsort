@@ -44,12 +44,17 @@ import {
   Settings,
   Sparkles,
   Disc,
+  Disc3,
+  PanelLeft,
   MoreHorizontal,
   Folder,
   ExternalLink,
   Check,
   Info,
   History,
+  Radio,
+  Library,
+  Rss,
 } from 'lucide-react';
 
 interface HistoryEntry {
@@ -1030,115 +1035,132 @@ export const App: React.FC = () => {
   return (
     <>
       {/* Header */}
-      <header>
-        {/* Left: Mobile Toggle & Breadcrumbs at the very left */}
+      <header className="app-header">
+        {/* Left: Brand Identity + Contextual Breadcrumbs */}
         <div className="header-left">
-          <button
-            id="mb"
-            aria-label="Toggle library"
-            onClick={() => setSidebarOpenMobile(!sidebarOpenMobile)}
+          <div
+            className="header-brand"
+            role="button"
+            tabIndex={0}
+            onClick={() => {
+              setCurrentPage('library');
+              if (tree[0]) selectNode(tree[0]);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                setCurrentPage('library');
+                if (tree[0]) selectNode(tree[0]);
+              }
+            }}
+            title="FMSort — Audio Crate & Social Platform (Click for Library Root)"
           >
-            Library
-          </button>
+            <div className="brand-icon-wrap">
+              <Disc3 size={17} className="brand-disc-icon" />
+              <span className="brand-live-dot" />
+            </div>
+            <span className="brand-title">FMSort</span>
+            <span className="brand-badge">LIVE</span>
+          </div>
 
-          <nav className="crumbs" aria-label="Breadcrumb">
-            <div
-              className="crumb-history-container"
-              ref={historyRef}
-              onMouseEnter={handleHistoryMouseEnter}
-              onMouseLeave={handleHistoryMouseLeave}
-            >
+          <div className="header-vsep" />
+
+          {currentPage === 'library' ? (
+            <div className="header-context-library">
               <button
-                type="button"
-                className={`crumb-history-btn ${historyOpen ? 'active' : ''}`}
-                onClick={handleHistoryClick}
-                title="Navigation history (hover or click)"
-                aria-label="Navigation history"
+                id="mb"
+                className="header-mobile-sidebar-btn"
+                aria-label="Toggle sidebar navigation"
+                title="Toggle library sidebar"
+                onClick={() => setSidebarOpenMobile(!sidebarOpenMobile)}
               >
-                ../
+                <PanelLeft size={15} />
               </button>
 
-              {historyOpen && (
-                <div className="crumb-history-dropdown" role="menu">
-                  <div className="crumb-history-header">
-                    <div className="crumb-history-title">
-                      <History size={12} />
-                      <span>Navigation History</span>
-                    </div>
-                    {history.length > 0 && (
-                      <button
-                        type="button"
-                        className="crumb-history-clear-btn"
-                        onClick={handleClearHistory}
-                        title="Clear history"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="crumb-history-list">
-                    {history.length === 0 ? (
-                      <div className="crumb-history-empty">
-                        No pages visited yet
-                      </div>
-                    ) : (
-                      history.map(item => {
-                        if (!item || !item.id) return null;
-                        const isCurrent = activeNode?.id === item.id;
-                        const itemName = item.name || 'Untitled';
-                        const itemType = item.type || 'Folder';
-                        return (
-                          <button
-                            key={`${item.id}-${item.timestamp || 0}`}
-                            type="button"
-                            className={`crumb-history-item ${isCurrent ? 'is-current' : ''}`}
-                            onClick={() => handleSelectHistoryItem(item)}
-                          >
-                            <CoverArt
-                              src={item.cover_url}
-                              alt={itemName}
-                              size={22}
-                              type={itemType === 'Artist' ? 'artist' : itemType === 'Folder' ? 'folder' : 'album'}
-                              seed={itemName}
-                              rounded={itemType === 'Artist' ? 'full' : 4}
-                            />
-                            <div className="crumb-history-item-meta">
-                              <span className="crumb-history-item-name">{itemName}</span>
-                              <div className="crumb-history-item-sub">
-                                <span>{itemType}</span>
-                                <span>·</span>
-                                <span>{fmtTimeAgo(item.timestamp)}</span>
-                                {isCurrent && (
-                                  <>
-                                    <span>·</span>
-                                    <span style={{ color: '#4ade80', fontWeight: 600 }}>Active</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {currentPage === 'feed' ? (
-              <>
-                <span
-                  className="crumb-link"
-                  onClick={() => setCurrentPage('library')}
+              <nav className="crumbs" aria-label="Breadcrumb">
+                <div
+                  className="crumb-history-container"
+                  ref={historyRef}
+                  onMouseEnter={handleHistoryMouseEnter}
+                  onMouseLeave={handleHistoryMouseLeave}
                 >
-                  Library
-                </span>
-                <span>/</span>
-                <b>Feed</b>
-              </>
-            ) : (
-              <>
+                  <button
+                    type="button"
+                    className={`crumb-history-btn ${historyOpen ? 'active' : ''}`}
+                    onClick={handleHistoryClick}
+                    title="Navigation history (hover or click)"
+                    aria-label="Navigation history"
+                  >
+                    ../
+                  </button>
+
+                  {historyOpen && (
+                    <div className="crumb-history-dropdown" role="menu">
+                      <div className="crumb-history-header">
+                        <div className="crumb-history-title">
+                          <History size={12} />
+                          <span>Navigation History</span>
+                        </div>
+                        {history.length > 0 && (
+                          <button
+                            type="button"
+                            className="crumb-history-clear-btn"
+                            onClick={handleClearHistory}
+                            title="Clear history"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="crumb-history-list">
+                        {history.length === 0 ? (
+                          <div className="crumb-history-empty">
+                            No pages visited yet
+                          </div>
+                        ) : (
+                          history.map(item => {
+                            if (!item || !item.id) return null;
+                            const isCurrent = activeNode?.id === item.id;
+                            const itemName = item.name || 'Untitled';
+                            const itemType = item.type || 'Folder';
+                            return (
+                              <button
+                                key={`${item.id}-${item.timestamp || 0}`}
+                                type="button"
+                                className={`crumb-history-item ${isCurrent ? 'is-current' : ''}`}
+                                onClick={() => handleSelectHistoryItem(item)}
+                              >
+                                <CoverArt
+                                  src={item.cover_url}
+                                  alt={itemName}
+                                  size={22}
+                                  type={itemType === 'Artist' ? 'artist' : itemType === 'Folder' ? 'folder' : 'album'}
+                                  seed={itemName}
+                                  rounded={itemType === 'Artist' ? 'full' : 4}
+                                />
+                                <div className="crumb-history-item-meta">
+                                  <span className="crumb-history-item-name">{itemName}</span>
+                                  <div className="crumb-history-item-sub">
+                                    <span>{itemType}</span>
+                                    <span>·</span>
+                                    <span>{fmtTimeAgo(item.timestamp)}</span>
+                                    {isCurrent && (
+                                      <>
+                                        <span>·</span>
+                                        <span style={{ color: '#4ade80', fontWeight: 600 }}>Active</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <span
                   className="crumb-link"
                   onClick={() => tree[0] && selectNode(tree[0])}
@@ -1157,29 +1179,74 @@ export const App: React.FC = () => {
                     )}
                   </React.Fragment>
                 ))}
-              </>
-            )}
+              </nav>
+            </div>
+          ) : (
+            <div className="header-context-feed">
+              <span className="feed-live-beacon">
+                <span className="beacon-ping" />
+                <span className="beacon-dot" />
+              </span>
+              <span className="feed-context-title">Community Stream</span>
+              <span className="feed-context-divider">·</span>
+              <span className="feed-context-stat">1.8k Collectors Online</span>
+            </div>
+          )}
+        </div>
+
+        {/* Center: Primary Navigation (Library / Feed) with Seamless Connection to Main Page */}
+        <div className="header-center">
+          <nav className="header-primary-nav" aria-label="Main Navigation">
+            <button
+              type="button"
+              className={`nav-tab-btn ${currentPage === 'library' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('library')}
+              aria-label="Switch to Music Library"
+              title="Music Library (Folders, Artists, Albums)"
+            >
+              {currentPage === 'library' && <span className="nav-tab-top-accent" />}
+              <Library size={15} />
+              <span>Library</span>
+              {currentPage === 'library' && <span className="nav-tab-seamless-bridge" />}
+            </button>
+
+            <button
+              type="button"
+              className={`nav-tab-btn ${currentPage === 'feed' ? 'active' : ''}`}
+              onClick={() => setCurrentPage('feed')}
+              aria-label="Switch to Community Social Feed"
+              title="Social Music Feed (Crate Digs, Reviews, Recommendations)"
+            >
+              {currentPage === 'feed' && <span className="nav-tab-top-accent" />}
+              <Rss size={15} />
+              <span>Feed</span>
+              <span className="feed-tab-badge">LIVE</span>
+              {currentPage === 'feed' && <span className="nav-tab-seamless-bridge" />}
+            </button>
           </nav>
         </div>
 
-        {/* Center: Search Command Bar in the middle */}
-        <div className="header-center">
-          <button className="cmd" onClick={() => setCommandPaletteOpen(true)}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <Search size={14} style={{ color: 'var(--mu)' }} />
-              <span>Search or jump to…</span>
+        {/* Right: Global Search & Social Activity Controls */}
+        <div className="header-right">
+          <button
+            className="cmd header-search-cmd"
+            onClick={() => setCommandPaletteOpen(true)}
+            title="Command Palette & Fast Search (⌘K)"
+          >
+            <span className="search-cmd-inner">
+              <Search size={14} className="search-cmd-icon" />
+              <span className="search-cmd-label">Search music, artists, feed…</span>
             </span>
             <span className="mono">⌘K</span>
           </button>
-        </div>
 
-        {/* Right: Social & Profile Actions with Primary Nav (Library / Feed) */}
-        <SocialWidgets
-          tree={tree}
-          activeNode={activeNode}
-          currentPage={currentPage}
-          onPageChange={setCurrentPage}
-        />
+          <SocialWidgets
+            tree={tree}
+            activeNode={activeNode}
+            currentPage={currentPage}
+            onPageChange={setCurrentPage}
+          />
+        </div>
       </header>
 
       {/* Main Workspace with Seamless Page Connection */}

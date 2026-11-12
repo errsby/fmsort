@@ -119,15 +119,16 @@ textarea:focus {
   border-color: #52525b;
 }
 
-header {
+header,
+.app-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 8px 16px;
+  padding: 0 16px;
+  height: 50px;
   border-bottom: 1px solid var(--bd);
   background: var(--pn);
-  min-height: 50px;
   position: relative;
   z-index: 25;
 }
@@ -137,25 +138,184 @@ header {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  flex: 1.2;
+  height: 100%;
+}
+
+/* Header Brand / App Identity */
+.header-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 7px;
+  margin-left: -5px;
+  border-radius: 7px;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.header-brand:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.brand-icon-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.25));
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.25);
+}
+
+.brand-disc-icon {
+  color: #60a5fa;
+  animation: discSpin 16s linear infinite;
+}
+
+@keyframes discSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.header-brand:hover .brand-disc-icon {
+  animation-duration: 4s;
+  color: #93c5fd;
+}
+
+.brand-live-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+  border: 1.5px solid #121215;
+}
+
+.brand-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #f4f4f5;
+  background: linear-gradient(180deg, #ffffff 30%, #a1a1aa 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.brand-badge {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(34, 197, 94, 0.14);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  text-transform: uppercase;
+}
+
+/* Subtle Vertical Separator */
+.header-vsep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.12);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* Contextual Navigation (Library vs Feed) */
+.header-context-library {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   flex: 1;
+}
+
+.header-mobile-sidebar-btn {
+  display: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid var(--bd);
+  color: var(--mu);
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.header-mobile-sidebar-btn:hover {
+  background: var(--hv);
+  color: var(--fg);
+  border-color: #3f3f46;
+}
+
+@media (max-width: 860px) {
+  .header-mobile-sidebar-btn {
+    display: inline-flex;
+  }
+}
+
+.header-context-feed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #d4d4d8;
+  padding-left: 4px;
+  animation: fadeInContext 0.2s ease;
+}
+
+@keyframes fadeInContext {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.feed-context-title {
+  font-weight: 600;
+  color: #f4f4f5;
+  letter-spacing: -0.01em;
+}
+
+.feed-context-divider {
+  color: #52525b;
+}
+
+.feed-context-stat {
+  font-size: 11px;
+  color: #a1a1aa;
 }
 
 .header-center {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  flex: 1.6;
-  min-width: 180px;
-  max-width: 440px;
+  flex: 1;
+  min-width: 200px;
+  max-width: 380px;
   margin: 0 auto;
+  height: 100%;
 }
 
 .header-right {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 8px;
-  flex: 1;
+  gap: 10px;
+  flex: 1.2;
+  height: 100%;
 }
 
 .cmd {
@@ -179,6 +339,73 @@ header {
   background: var(--hv);
   border-color: #3f3f46;
   color: var(--fg);
+}
+
+.header-search-cmd {
+  max-width: 250px;
+  height: 32px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.search-cmd-inner {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.search-cmd-icon {
+  color: var(--mu);
+  flex-shrink: 0;
+}
+
+.search-cmd-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+
+@media (max-width: 1024px) {
+  .search-cmd-label {
+    display: none;
+  }
+  .header-search-cmd {
+    max-width: 65px;
+    padding: 0 8px;
+  }
+}
+
+.header-social-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.avatar-online-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #22c55e;
+  border: 2px solid #121215;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
+}
+
+.feed-tab-badge {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  margin-left: 2px;
 }
 
 .btn-icon {
@@ -1978,12 +2205,11 @@ tr.t:hover .cover-art-wrapper {
 
 .header-primary-nav {
   display: inline-flex;
-  align-items: center;
-  gap: 2px;
+  align-items: flex-end;
+  gap: 3px;
   position: relative;
-  height: 38px;
-  align-self: flex-end;
-  margin-bottom: -9px; /* Reaches flush down to meet header bottom border */
+  height: 100%;
+  margin-bottom: -1px; /* Reaches flush down to meet and dissolve header bottom border */
   z-index: 30;
 }
 
@@ -1991,7 +2217,7 @@ tr.t:hover .cover-art-wrapper {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 8px 14px 11px;
+  padding: 0 16px;
   height: 38px;
   background: transparent;
   border: 1px solid transparent;
@@ -2017,7 +2243,7 @@ tr.t:hover .cover-art-wrapper {
   color: #ffffff;
   font-weight: 600;
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-bottom: 2px solid #09090b; /* Fully dissolves header's bottom border */
+  border-bottom: 1px solid #09090b; /* Dissolves header's bottom border */
   z-index: 35;
   box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.45);
 }

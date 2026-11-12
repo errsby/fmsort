@@ -8,8 +8,9 @@ import {
   Database,
   ShieldCheck,
   Disc,
-  Library,
-  Rss,
+  Heart,
+  MessageCircle,
+  Radio,
 } from 'lucide-react';
 import type { LibraryNode } from '../types';
 import { flattenTracks } from '../utils';
@@ -17,16 +18,17 @@ import { flattenTracks } from '../utils';
 interface SocialProps {
   tree: LibraryNode[];
   activeNode: LibraryNode | null;
-  currentPage: 'library' | 'feed';
-  onPageChange: (page: 'library' | 'feed') => void;
+  currentPage?: 'library' | 'feed';
+  onPageChange?: (page: 'library' | 'feed') => void;
 }
 
 export const SocialWidgets: React.FC<SocialProps> = ({
   tree,
-  currentPage,
+  currentPage = 'library',
   onPageChange,
 }) => {
   const [activeMenu, setActiveMenu] = React.useState<'notifications' | 'profile' | null>(null);
+  const [unreadCount, setUnreadCount] = React.useState(3);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close popover when clicking outside
@@ -65,71 +67,32 @@ export const SocialWidgets: React.FC<SocialProps> = ({
   }, [tree]);
 
   return (
-    <div className="header-right" ref={menuRef} style={{ position: 'relative' }}>
-      {/* Primary Page Navigation Tabs: Library & Feed */}
-      <div className="header-primary-nav" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={currentPage === 'library'}
-          className={`nav-tab-btn ${currentPage === 'library' ? 'active' : ''}`}
-          onClick={() => onPageChange('library')}
-          title="Switch to Library Workspace"
-        >
-          <Library size={14} className="nav-tab-icon" />
-          <span className="nav-tab-text">Library</span>
-          {currentPage === 'library' && (
-            <>
-              <span className="nav-tab-top-accent" />
-              <span className="nav-tab-seamless-bridge" />
-            </>
-          )}
-        </button>
-
-        <button
-          type="button"
-          role="tab"
-          aria-selected={currentPage === 'feed'}
-          className={`nav-tab-btn ${currentPage === 'feed' ? 'active' : ''}`}
-          onClick={() => onPageChange('feed')}
-          title="Switch to Community Feed"
-        >
-          <Rss size={14} className="nav-tab-icon" />
-          <span className="nav-tab-text">Feed</span>
-          <span className="feed-live-beacon" title="Live stream active">
-            <span className="beacon-ping" />
-            <span className="beacon-dot" />
-          </span>
-          {currentPage === 'feed' && (
-            <>
-              <span className="nav-tab-top-accent" />
-              <span className="nav-tab-seamless-bridge" />
-            </>
-          )}
-        </button>
-      </div>
-
+    <div className="header-social-controls" ref={menuRef}>
       {/* Notifications Button */}
       <button
         type="button"
-        className={`btn-icon ${activeMenu === 'notifications' ? 'active' : ''}`}
-        title="Notifications"
-        aria-label="Notifications"
-        onClick={() => setActiveMenu(activeMenu === 'notifications' ? null : 'notifications')}
+        className={`btn-icon header-notif-btn ${activeMenu === 'notifications' ? 'active' : ''}`}
+        title="Social & Music Activity Notifications"
+        aria-label="Activity Notifications"
+        onClick={() => {
+          setActiveMenu(activeMenu === 'notifications' ? null : 'notifications');
+          if (activeMenu !== 'notifications') setUnreadCount(0);
+        }}
       >
-        <Bell size={16} />
-        <span className="unread-dot" />
+        <Bell size={15} />
+        {unreadCount > 0 && <span className="unread-dot" />}
       </button>
 
-      {/* User Profile Avatar */}
+      {/* User Profile Avatar with Online Status */}
       <button
         type="button"
-        className="avatar-btn"
-        title="User Profile & Account"
-        aria-label="User Profile & Account"
+        className="avatar-btn header-avatar-btn"
+        title="User Profile & Community Status"
+        aria-label="User Profile"
         onClick={() => setActiveMenu(activeMenu === 'profile' ? null : 'profile')}
       >
         <span>MC</span>
+        <span className="avatar-online-dot" />
       </button>
 
       {/* Notifications Popover */}
@@ -137,42 +100,79 @@ export const SocialWidgets: React.FC<SocialProps> = ({
         <div className="popover-menu notif-popover">
           <div className="popover-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, fontSize: 13 }}>
-              <Bell size={15} style={{ color: '#38bdf8' }} />
-              <span>Notifications</span>
+              <Bell size={14} style={{ color: '#38bdf8' }} />
+              <span>Community Notifications</span>
             </div>
-            <span style={{ fontSize: 11, color: 'var(--mu)' }}>2 unread</span>
+            <span className="badge-pill">Live Activity</span>
           </div>
 
           <div className="popover-body">
             <div className="notif-item unread">
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                <ShieldCheck size={14} style={{ color: '#38bdf8' }} />
-                <strong style={{ fontSize: 12 }}>Discogs Server Credentials Active</strong>
+                <Heart size={13} style={{ color: '#f43f5e' }} />
+                <strong style={{ fontSize: 12 }}>Elena Rostova liked your review</strong>
               </div>
               <p className="notif-desc">
-                Your Developer App is connected. 17.5M+ physical releases and vinyl pressings are searchable.
+                &ldquo;Live at Bush Hall is pure magic on vinyl &amp; hi-res.&rdquo;
               </p>
-              <div className="notif-time">Just now</div>
+              <div className="notif-time">5m ago · Feed Activity</div>
             </div>
 
             <div className="notif-item unread">
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                <Database size={14} style={{ color: '#4ade80' }} />
-                <strong style={{ fontSize: 12 }}>Local Database Initialized</strong>
+                <Disc size={13} style={{ color: '#fbbf24' }} />
+                <strong style={{ fontSize: 12 }}>Marcus Chen shared a new pressing</strong>
               </div>
               <p className="notif-desc">
-                SQLite WAL persistence is active. Your library operates with zero latency.
+                Daft Punk — Homework (1997 French 2xLP Pressing) logged to collection.
+              </p>
+              <div className="notif-time">45m ago · Crate Dig</div>
+            </div>
+
+            <div className="notif-item">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <Sparkles size={13} style={{ color: '#a855f7' }} />
+                <strong style={{ fontSize: 12 }}>Record Store Day 2026 Preview</strong>
+              </div>
+              <p className="notif-desc">
+                420+ exclusive limited editions announced for independent record stores.
+              </p>
+              <div className="notif-time">2h ago · Release Radar</div>
+            </div>
+
+            <div className="notif-item">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <Database size={13} style={{ color: '#4ade80' }} />
+                <strong style={{ fontSize: 12 }}>Local Catalog Synchronized</strong>
+              </div>
+              <p className="notif-desc">
+                SQLite WAL database is active with zero latency. Discogs metadata verified.
               </p>
               <div className="notif-time">Today</div>
             </div>
           </div>
 
           <div className="popover-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 11, color: 'var(--mu)' }}>All systems operational</span>
+            {onPageChange && (
+              <button
+                type="button"
+                className="notif-footer-link"
+                onClick={() => {
+                  onPageChange('feed');
+                  setActiveMenu(null);
+                }}
+              >
+                <span>View Full Feed</span>
+                <span aria-hidden="true">→</span>
+              </button>
+            )}
             <button
               type="button"
               style={{ border: 'none', background: 'transparent', color: '#93c5fd', fontSize: 11, cursor: 'pointer', padding: 0 }}
-              onClick={() => setActiveMenu(null)}
+              onClick={() => {
+                setUnreadCount(0);
+                setActiveMenu(null);
+              }}
             >
               Mark all as read
             </button>
@@ -188,8 +188,12 @@ export const SocialWidgets: React.FC<SocialProps> = ({
               <span>MC</span>
             </div>
             <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>Music Collector</div>
-              <div style={{ fontSize: 11, color: 'var(--mu)' }}>@collector_hq</div>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>Marcus Chen</div>
+              <div style={{ fontSize: 11, color: '#a1a1aa' }}>@marcus_collector</div>
+              <div className="profile-status-row">
+                <span className="online-beacon-dot" />
+                <span>Online &amp; Cataloging</span>
+              </div>
             </div>
           </div>
 
@@ -204,39 +208,43 @@ export const SocialWidgets: React.FC<SocialProps> = ({
               <span className="stat-lbl">Tracks</span>
             </div>
             <div className="stat-card">
-              <span className="stat-val">Hi-Res</span>
+              <span className="stat-val">Lossless</span>
               <span className="stat-lbl">Audio Mode</span>
             </div>
           </div>
 
           <div className="profile-options">
+            {onPageChange && (
+              <div
+                className="profile-row interactive"
+                onClick={() => {
+                  onPageChange('feed');
+                  setActiveMenu(null);
+                }}
+              >
+                <Radio size={14} style={{ color: '#38bdf8' }} />
+                <span>Open Community Feed</span>
+              </div>
+            )}
             <div className="profile-row">
               <User size={14} style={{ color: 'var(--mu)' }} />
-              <span>Profile & Account Settings</span>
+              <span>Profile &amp; Account Settings</span>
             </div>
             <div className="profile-row">
               <Disc size={14} style={{ color: 'var(--mu)' }} />
-              <span>Collector Preferences & Formats</span>
+              <span>Collector Preferences &amp; Formats</span>
             </div>
             <div className="profile-row">
-              <ShieldCheck size={14} style={{ color: 'var(--mu)' }} />
-              <span>Connected APIs (Discogs & Deezer)</span>
-            </div>
-            <div className="profile-row" style={{ color: '#93c5fd' }}>
-              <Check size={14} />
-              <span>Theme: Dark Studio (Geist)</span>
+              <Database size={14} style={{ color: 'var(--mu)' }} />
+              <span>Library Storage &amp; SQLite Backups</span>
             </div>
           </div>
 
-          <div className="popover-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 11, color: 'var(--mu)' }}>FMSort Studio v1.0</span>
-            <button
-              type="button"
-              style={{ border: 'none', background: 'transparent', color: '#f87171', fontSize: 11, cursor: 'pointer', padding: 0 }}
-              onClick={() => setActiveMenu(null)}
-            >
-              Sign out
-            </button>
+          <div className="popover-footer">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--mu)' }}>
+              <ShieldCheck size={13} style={{ color: '#4ade80' }} />
+              <span>Local Database Active · v1.0.0</span>
+            </div>
           </div>
         </div>
       )}
