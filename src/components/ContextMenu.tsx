@@ -26,7 +26,7 @@ import {
 
 export type ContextTarget =
   | { type: 'track'; track: Track; isMulti?: boolean; count?: number }
-  | { type: 'node'; node: LibraryNode }
+  | { type: 'node'; node: LibraryNode; isMulti?: boolean; count?: number; selectedNodes?: LibraryNode[] }
   | { type: 'table'; activeNode: LibraryNode | null }
   | { type: 'sidebar' };
 
@@ -49,12 +49,15 @@ interface Props {
   onBatchDeleteTracks?: (trackIds: number[]) => void;
   // Node actions
   onSelectNode?: (node: LibraryNode) => void;
+  onImportArtistDiscography?: (nodes: LibraryNode[]) => void;
   onAddMusicToNode?: (node: LibraryNode) => void;
   onAddTrackToNode?: (node: LibraryNode) => void;
   onNewContainerInside?: (node: LibraryNode, type: string) => void;
   onEditNode?: (node: LibraryNode) => void;
   onDeleteNode?: (node: LibraryNode) => void;
+  onBatchDeleteNodes?: (nodes: LibraryNode[]) => void;
   onRefreshArtwork?: (node: LibraryNode) => void;
+  onBatchRefreshArtwork?: (nodes: LibraryNode[]) => void;
   onResolveNodeIsrcs?: (node: LibraryNode) => void;
   // Global actions
   onOpenImport?: () => void;
@@ -77,12 +80,15 @@ export const ContextMenu: React.FC<Props> = ({
   onDeleteTrack,
   onBatchDeleteTracks,
   onSelectNode,
+  onImportArtistDiscography,
   onAddMusicToNode,
   onAddTrackToNode,
   onNewContainerInside,
   onEditNode,
   onDeleteNode,
+  onBatchDeleteNodes,
   onRefreshArtwork,
+  onBatchRefreshArtwork,
   onResolveNodeIsrcs,
   onOpenImport,
   onOpenTuneImport,
@@ -372,9 +378,104 @@ export const ContextMenu: React.FC<Props> = ({
       );
     }
 
-    // 2. Node (Folder, Album, Artist, Playlist)
+    // 2. Node (Folder, Album, Artist, Playlist) - Single or Multi-Selection
     if (target.type === 'node') {
-      const { node } = target;
+      const { node, isMulti, count = 1, selectedNodes = [node] } = target;
+      const artistNodes = selectedNodes.filter(n => n.type === 'Artist');
+      const artistCount = artistNodes.length;
+
+      // Multi-Container Selection Actions
+      if (isMulti && count > 1) {
+        return (
+          <>
+            {/* Header Preview for Multiple Containers */}
+            <div className="ctx-header">
+              <div
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 6,
+                  background: 'rgba(99, 102, 241, 0.2)',
+                  border: '1px solid rgba(99, 102, 241, 0.4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#a5b4fc',
+                  flexShrink: 0,
+                }}
+              >
+                <Layers size={16} />
+              </div>
+              <div className="ctx-header-meta">
+                <div className="ctx-header-title">{count} Containers Selected</div>
+                <div className="ctx-header-sub">
+                  {artistCount > 0 && (
+                    <span className="active-hero-badge" style={{ fontSize: 9 }}>
+                      {artistCount} ARTIST{artistCount > 1 ? 'S' : ''}
+                    </span>
+                  )}
+                  <span> · Batch actions</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="ctx-divider" />
+
+            {/* Batch Artist Full Discography Import */}
+            {artistCount > 0 && (
+              <button
+                type="button"
+                className="ctx-item"
+                onClick={() => {
+                  onClose();
+                  onImportArtistDiscography?.(artistNodes);
+                }}
+              >
+                <Layers size={14} style={{ color: '#818cf8' }} />
+                <span className="ctx-item-label" style={{ fontWeight: 500 }}>
+                  {artistCount === 1 ? 'Import Complete Discography' : `Import Complete Discographies (${artistCount} Artists)`}
+                </span>
+                <span className="ctx-item-badge" style={{ background: '#312e81', color: '#c7d2fe', border: '1px solid #4338ca' }}>
+                  Auto-Subfolders
+                </span>
+              </button>
+            )}
+
+            {/* Batch Refresh Artwork */}
+            {artistCount > 0 && (
+              <button
+                type="button"
+                className="ctx-item"
+                onClick={() => {
+                  onClose();
+                  onBatchRefreshArtwork?.(artistNodes);
+                }}
+              >
+                <ImageIcon size={14} />
+                <span className="ctx-item-label">Refresh Discogs Artwork ({artistCount})</span>
+              </button>
+            )}
+
+            <div className="ctx-divider" />
+
+            {/* Batch Delete Containers */}
+            <button
+              type="button"
+              className="ctx-item danger"
+              onClick={() => {
+                onClose();
+                onBatchDeleteNodes?.(selectedNodes);
+              }}
+            >
+              <Trash2 size={14} />
+              <span className="ctx-item-label">Delete {count} Containers</span>
+              <span className="ctx-item-shortcut">⌫</span>
+            </button>
+          </>
+        );
+      }
+
+      // Single Node Actions
       const isFolder = node.type === 'Folder';
       const isAlbum = node.type === 'Album';
       const isArtist = node.type === 'Artist';
@@ -401,6 +502,24 @@ export const ContextMenu: React.FC<Props> = ({
           </div>
 
           <div className="ctx-divider" />
+
+          {/* New Artist Complete Discography Import */}
+          {isArtist && (
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onClose();
+                onImportArtistDiscography?.([node]);
+              }}
+            >
+              <Layers size={14} style={{ color: '#818cf8' }} />
+              <span className="ctx-item-label" style={{ fontWeight: 500 }}>Import Complete Discography</span>
+              <span className="ctx-item-badge" style={{ background: '#312e81', color: '#c7d2fe', border: '1px solid #4338ca' }}>
+                Auto-Subfolders
+              </span>
+            </button>
+          )}
 
           <button
             type="button"

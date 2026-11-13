@@ -32,6 +32,7 @@ import {
   searchDiscogsArtists,
   getDiscogsReleaseDetails,
   getDiscogsBiggerArtwork,
+  getDiscogsArtistReleases,
 } from './discogs';
 import {
   searchDeezerReleases,
@@ -378,6 +379,191 @@ const server = Bun.serve({
 
         const updatedTree = getFullTree();
         return json({ success: true, destNodeId: newArtistNode.id, tree: updatedTree });
+      }
+
+      // 11c. Import Full Artist Discography: POST /api/artists/import-discography
+      if (path === '/api/artists/import-discography' && method === 'POST') {
+        const body = await req.json();
+        const { artistNodeId, artistNodeIds, artistName } = body;
+
+        let targetIds: string[] = [];
+        if (Array.isArray(artistNodeIds) && artistNodeIds.length > 0) {
+          targetIds = artistNodeIds;
+        } else if (artistNodeId) {
+          targetIds = [artistNodeId];
+        }
+
+        if (targetIds.length === 0) {
+          return errorJson('Missing artist node id');
+        }
+
+        let totalAlbumsImported = 0;
+        let totalTracksImported = 0;
+        let artistsProcessed = 0;
+
+        for (const nodeId of targetIds) {
+          const artistNode = db.query('SELECT * FROM nodes WHERE id = ?').get(nodeId) as any;
+          if (!artistNode) continue;
+
+          const targetName = (artistName && targetIds.length === 1 ? artistName : artistNode.name).trim();
+          if (!targetName) continue;
+
+          artistsProcessed++;
+
+          // 1. Fetch artist albums from Deezer
+          let albumsToImport: {
+            title: string;
+            cover: string;
+            year: number;
+            tracks: { title: string; duration: number; isrc: string; preview: string }[];
+          }[] = [];
+
+          try {
+            const dzArtRes = await fetch(`https://api.deezer.com/search/artist?q=${encodeURIComponent(targetName)}&limit=1`, {
+              headers: { 'User-Agent': 'FMSort/1.0.0' }
+            });
+            if (dzArtRes.ok) {
+              const dzArtJson = await dzArtRes.json();
+              const dzArtist = dzArtJson?.data?.[0];
+              if (dzArtist && dzArtist.id) {
+                // Update artist node cover if missing
+                if (!artistNode.cover_url && (dzArtist.picture_xl || dzArtist.picture_medium || dzArtist.picture)) {
+                  updateNode(artistNode.id, { cover_url: dzArtist.picture_xl || dzArtist.picture_medium || dzArtist.picture });
+                }
+
+                // Fetch artist albums (limit up to 100)
+                const dzAlbumsRes = await fetch(`https://api.deezer.com/artist/${dzArtist.id}/albums?limit=100`, {
+                  headers: { 'User-Agent': 'FMSort/1.0.0' }
+                });
+                if (dzAlbumsRes.ok) {
+                  const dzAlbumsJson = await dzAlbumsRes.json();
+                  const dzAlbums = Array.isArray(dzAlbumsJson?.data) ? dzAlbumsJson.data : [];
+
+                  // Concurrently fetch tracklists in chunks of 5
+                  const chunkSize = 5;
+                  for (let i = 0; i < dzAlbums.length; i += chunkSize) {
+                    const chunk = dzAlbums.slice(i, i + chunkSize);
+                    const chunkResults = await Promise.all(
+                      chunk.map(async (alb: any) => {
+                        try {
+                          const tRes = await fetch(`https://api.deezer.com/album/${alb.id}/tracks`, {
+                            headers: { 'User-Agent': 'FMSort/1.0.0' }
+                          });
+                          if (!tRes.ok) return null;
+                          const tJson = await tRes.json();
+                          const tracks = Array.isArray(tJson?.data) ? tJson.data : [];
+                          const year = alb.release_date ? parseInt(alb.release_date.slice(0, 4), 10) || 0 : 0;
+                          return {
+                            title: alb.title,
+                            cover: alb.cover_big || alb.cover_medium || alb.cover || '',
+                            year,
+                            tracks: tracks.map((tr: any) => ({
+                              title: tr.title,
+                              duration: tr.duration || 0,
+                              isrc: tr.isrc || '',
+                              preview: tr.preview || '',
+                            })),
+                          };
+                        } catch {
+                          return null;
+                        }
+                      })
+                    );
+                    for (const r of chunkResults) {
+                      if (r) albumsToImport.push(r);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (err: any) {
+            console.warn('[Import Discography] Deezer fetch error:', err?.message);
+          }
+
+          // 2. Discogs fallback if Deezer had 0 albums and Discogs is configured
+          if (albumsToImport.length === 0 && isDiscogsConfigured()) {
+            try {
+              const dArtists = await searchDiscogsArtists(targetName);
+              if (dArtists.length > 0) {
+                const dArtist = dArtists[0];
+                if (!artistNode.cover_url && dArtist.thumb) {
+                  updateNode(artistNode.id, { cover_url: dArtist.thumb });
+                }
+                const dReleases = await getDiscogsArtistReleases(dArtist.id);
+                for (const rel of dReleases) {
+                  albumsToImport.push({
+                    title: rel.title,
+                    cover: rel.thumb || rel.cover_image || '',
+                    year: rel.year || 0,
+                    tracks: [],
+                  });
+                }
+              }
+            } catch (err: any) {
+              console.warn('[Import Discography] Discogs fallback error:', err?.message);
+            }
+          }
+
+          // 3. Database operations: create Album nodes under artistNode.id and populate tracks
+          db.transaction(() => {
+            for (const alb of albumsToImport) {
+              if (!alb.title) continue;
+
+              // Check if Album node already exists with same title under this artist
+              let albumNode = db.query(
+                'SELECT * FROM nodes WHERE parent_id = ? AND type = "Album" AND LOWER(name) = LOWER(?)'
+              ).get(artistNode.id, alb.title) as any;
+
+              if (!albumNode) {
+                albumNode = createNode({
+                  parent_id: artistNode.id,
+                  type: 'Album',
+                  name: alb.title,
+                  cover_url: alb.cover || '',
+                });
+                totalAlbumsImported++;
+              }
+
+              for (let tIdx = 0; tIdx < alb.tracks.length; tIdx++) {
+                const tr = alb.tracks[tIdx];
+                const existingTrack = db.query(
+                  'SELECT id FROM tracks WHERE node_id = ? AND LOWER(title) = LOWER(?)'
+                ).get(albumNode.id, tr.title);
+
+                if (!existingTrack) {
+                  createTrack({
+                    node_id: albumNode.id,
+                    t: tr.title,
+                    a: targetName,
+                    al: alb.title,
+                    y: alb.year || 0,
+                    f: 'Digital Track',
+                    c: '—',
+                    cat: '—',
+                    bc: '—',
+                    mbid: '',
+                    isrc: tr.isrc || '',
+                    len: tr.duration || 0,
+                    bpm: 0,
+                    key: '',
+                    sort_order: tIdx + 1,
+                    cover_url: alb.cover || '',
+                  });
+                  totalTracksImported++;
+                }
+              }
+            }
+          })();
+        }
+
+        const updatedTree = getFullTree();
+        return json({
+          success: true,
+          importedAlbums: totalAlbumsImported,
+          importedTracks: totalTracksImported,
+          artistsProcessed,
+          tree: updatedTree,
+        });
       }
 
       // 11b. Import single track: POST /api/tracks/import-single

@@ -396,6 +396,29 @@ export async function importSingleTrack(data: {
   return res.json();
 }
 
+export async function importArtistDiscography(data: {
+  artistNodeId?: string;
+  artistNodeIds?: string[];
+  artistName?: string;
+}): Promise<{
+  success: boolean;
+  importedAlbums: number;
+  importedTracks: number;
+  artistsProcessed: number;
+  tree: LibraryNode[];
+}> {
+  const res = await fetch(`${API_BASE}/artists/import-discography`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to import artist discography');
+  }
+  return res.json();
+}
+
 export async function fetchReleaseTracklist(
   source: 'deezer' | 'discogs' | 'musicbrainz',
   id: string | number

@@ -13,6 +13,7 @@ import {
   fetchDiscogsArtwork,
   enrichAllIsrcs,
   importUniversalRelease,
+  importArtistDiscography,
   fetchArtistProfile,
   type SuggestedProject,
   type ArtistProfileData,
@@ -183,11 +184,24 @@ export const App: React.FC = () => {
 
   // Universal drag & drop state (tracks, folders, albums, artists)
   const [draggingTrackIds, setDraggingTrackIds] = useState<number[]>([]);
+  const [draggingNodeIds, setDraggingNodeIds] = useState<string[]>([]);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [dropTargetNodeId, setDropTargetNodeId] = useState<string | null>(null);
 
-  // Single-item selection state for containers (albums, artists, folders)
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Multi-item selection state for containers (artists, albums, folders)
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+
+  const setSelectedNodeId = (id: string | null) => {
+    if (!id) {
+      setSelectedNodeIds(new Set());
+    } else {
+      setSelectedNodeIds(new Set([id]));
+    }
+  };
+
+  const selectedNodeId = useMemo(() => {
+    return selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null;
+  }, [selectedNodeIds]);
 
   // Togglable Library Tree Dropdown under (../)
   const [treeDropdownOpen, setTreeDropdownOpen] = useState(false);
@@ -575,9 +589,19 @@ export const App: React.FC = () => {
   };
 
   const handleNodeContextMenu = (e: React.MouseEvent, node: LibraryNode) => {
-    if (e.shiftKey) return;
     e.preventDefault();
     e.stopPropagation();
+
+    const isMulti = selectedNodeIds.has(node.id) && selectedNodeIds.size > 1;
+    let activeSelection = selectedNodeIds;
+    if (!selectedNodeIds.has(node.id) && !isMulti) {
+      activeSelection = new Set([node.id]);
+      setSelectedNodeIds(activeSelection);
+    }
+
+    const currentSelectedNodes = Array.from(activeSelection)
+      .map(id => findNodeById(tree, id))
+      .filter((n): n is LibraryNode => Boolean(n));
 
     setContextMenu({
       isOpen: true,
@@ -586,6 +610,9 @@ export const App: React.FC = () => {
       target: {
         type: 'node',
         node,
+        isMulti,
+        count: isMulti ? activeSelection.size : 1,
+        selectedNodes: currentSelectedNodes,
       },
     });
   };
@@ -685,6 +712,55 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleBatchDeleteNodesAction = async (nodesToDelete: LibraryNode[]) => {
+    if (nodesToDelete.length === 0) return;
+    if (!confirm(`Delete ${nodesToDelete.length} selected containers and all their contents?`)) return;
+    try {
+      await Promise.all(nodesToDelete.map(n => deleteNode(n.id)));
+      showToast(`Deleted ${nodesToDelete.length} containers`);
+      setSelectedNodeIds(new Set());
+      await loadTree();
+    } catch {
+      showToast('Failed to delete containers');
+    }
+  };
+
+  const handleImportArtistDiscographyAction = async (targetNodes: LibraryNode[]) => {
+    const artists = targetNodes.filter(n => n.type === 'Artist');
+    if (artists.length === 0) return;
+
+    if (artists.length === 1) {
+      showToast(`Importing complete discography for "${artists[0].name}"...`);
+    } else {
+      showToast(`Importing complete discographies for ${artists.length} artists...`);
+    }
+
+    try {
+      const res = await importArtistDiscography({
+        artistNodeIds: artists.map(a => a.id),
+      });
+
+      if (res.importedAlbums > 0) {
+        showToast(`Imported ${res.importedAlbums} albums & ${res.importedTracks} tracks for ${artists.length === 1 ? `"${artists[0].name}"` : `${res.artistsProcessed} artists`}!`);
+      } else {
+        showToast(`Discography up-to-date. No new releases found.`);
+      }
+
+      // Auto-expand the artist nodes so user immediately sees the new subfolders!
+      setOpenNodes(prev => {
+        const next = { ...prev };
+        artists.forEach(a => {
+          next[a.id] = true;
+        });
+        return next;
+      });
+
+      await loadTree(activeNodeId || undefined);
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to import discography');
+    }
+  };
+
   const handleRefreshArtworkAction = async (node: LibraryNode) => {
     showToast(`Searching Discogs for ${node.name}...`);
     try {
@@ -699,6 +775,25 @@ export const App: React.FC = () => {
     } catch {
       showToast('Failed to refresh artwork');
     }
+  };
+
+  const handleBatchRefreshArtworkAction = async (nodes: LibraryNode[]) => {
+    if (nodes.length === 0) return;
+    showToast(`Searching Discogs artwork for ${nodes.length} containers...`);
+    let updated = 0;
+    for (const node of nodes) {
+      try {
+        const art = await fetchDiscogsArtwork(node.name, node.type === 'Artist' ? 'artist' : 'release');
+        if (art && art.cover_image) {
+          await updateNode(node.id, { cover_url: art.cover_image });
+          updated++;
+        }
+      } catch {
+        // Continue with others
+      }
+    }
+    showToast(`Updated artwork for ${updated} / ${nodes.length} containers`);
+    await loadTree(activeNodeId || undefined);
   };
 
   const handleResolveNodeIsrcsAction = async (node: LibraryNode) => {
@@ -772,6 +867,7 @@ export const App: React.FC = () => {
     const ids = selectedTrackIds.has(track.id) ? Array.from(selectedTrackIds) : [track.id];
     setDraggingTrackIds(ids);
     setDraggingNodeId(null);
+    setDraggingNodeIds([]);
     e.dataTransfer.setData('text/fmsort-type', 'tracks');
     e.dataTransfer.setData('text/fmsort-tracks', JSON.stringify(ids));
     e.dataTransfer.effectAllowed = 'move';
@@ -779,9 +875,15 @@ export const App: React.FC = () => {
 
   const handleNodeDragStart = (e: React.DragEvent, node: LibraryNode) => {
     e.stopPropagation();
+    const ids = selectedNodeIds.has(node.id) ? Array.from(selectedNodeIds) : [node.id];
+    if (!selectedNodeIds.has(node.id)) {
+      setSelectedNodeIds(new Set([node.id]));
+    }
+    setDraggingNodeIds(ids);
     setDraggingNodeId(node.id);
     setDraggingTrackIds([]);
     e.dataTransfer.setData('text/fmsort-type', 'node');
+    e.dataTransfer.setData('text/fmsort-nodes', JSON.stringify(ids));
     e.dataTransfer.setData('text/fmsort-node', node.id);
     e.dataTransfer.effectAllowed = 'move';
   };
@@ -789,14 +891,18 @@ export const App: React.FC = () => {
   const handleDragEnd = () => {
     setDraggingTrackIds([]);
     setDraggingNodeId(null);
+    setDraggingNodeIds([]);
     setDropTargetNodeId(null);
   };
 
   const handleNodeDragOver = (e: React.DragEvent, targetNode: LibraryNode) => {
-    if (draggingNodeId && (draggingNodeId === targetNode.id || isDescendant(tree, draggingNodeId, targetNode.id))) {
+    const isSelfOrDescendant = draggingNodeIds.some(
+      id => id === targetNode.id || isDescendant(tree, id, targetNode.id)
+    );
+    if (isSelfOrDescendant) {
       return;
     }
-    if (draggingTrackIds.length > 0 || draggingNodeId) {
+    if (draggingTrackIds.length > 0 || draggingNodeIds.length > 0 || draggingNodeId) {
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
@@ -831,18 +937,27 @@ export const App: React.FC = () => {
       return;
     }
 
-    // 2. Moving a container (Folder, Album, Artist, etc.) into this container
-    if (draggingNodeId && draggingNodeId !== targetNode.id) {
-      if (isDescendant(tree, draggingNodeId, targetNode.id)) {
+    // 2. Moving containers (Folder, Album, Artist, etc.) into this container
+    const idsToMove = draggingNodeIds.length > 0 ? draggingNodeIds : draggingNodeId ? [draggingNodeId] : [];
+    if (idsToMove.length > 0) {
+      const validIds = idsToMove.filter(
+        id => id !== targetNode.id && !isDescendant(tree, id, targetNode.id)
+      );
+      if (validIds.length === 0) {
         showToast('Cannot move a container into its own subfolder');
+        setDraggingNodeIds([]);
         setDraggingNodeId(null);
         return;
       }
       try {
-        await updateNode(draggingNodeId, { parent_id: targetNode.id });
-        const draggedNode = findNodeById(tree, draggingNodeId);
-        showToast(`Moved "${draggedNode?.name || 'Container'}" into "${targetNode.name}"`);
+        await Promise.all(validIds.map(id => updateNode(id, { parent_id: targetNode.id })));
+        const label = validIds.length === 1
+          ? `"${findNodeById(tree, validIds[0])?.name || 'Container'}"`
+          : `${validIds.length} containers`;
+        showToast(`Moved ${label} into "${targetNode.name}"`);
+        setDraggingNodeIds([]);
         setDraggingNodeId(null);
+        setSelectedNodeIds(new Set());
         await loadTree(activeNode?.id);
       } catch (err: any) {
         showToast(err?.message || 'Failed to move container');
@@ -852,7 +967,7 @@ export const App: React.FC = () => {
   };
 
   const handleUncategorizedDragOver = (e: React.DragEvent) => {
-    if (draggingNodeId || draggingTrackIds.length > 0) {
+    if (draggingNodeIds.length > 0 || draggingNodeId || draggingTrackIds.length > 0) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       setDropTargetNodeId('uncategorized');
@@ -870,16 +985,21 @@ export const App: React.FC = () => {
   };
 
   const handleUncategorizedDrop = async (e: React.DragEvent) => {
-    if (draggingNodeId) {
+    const idsToMove = draggingNodeIds.length > 0 ? draggingNodeIds : draggingNodeId ? [draggingNodeId] : [];
+    if (idsToMove.length > 0) {
       e.preventDefault();
       e.stopPropagation();
       setDropTargetNodeId(null);
 
-      const draggedNode = findNodeById(tree, draggingNodeId);
       try {
-        await updateNode(draggingNodeId, { parent_id: null });
-        showToast(`Moved "${draggedNode?.name || 'Container'}" to Uncategorized (Root)`);
+        await Promise.all(idsToMove.map(id => updateNode(id, { parent_id: null })));
+        const label = idsToMove.length === 1
+          ? `"${findNodeById(tree, idsToMove[0])?.name || 'Container'}"`
+          : `${idsToMove.length} containers`;
+        showToast(`Moved ${label} to Uncategorized (Root)`);
+        setDraggingNodeIds([]);
         setDraggingNodeId(null);
+        setSelectedNodeIds(new Set());
         await loadTree(activeNode?.id);
       } catch (err: any) {
         showToast(err?.message || 'Failed to move container to uncategorized');
@@ -906,7 +1026,7 @@ export const App: React.FC = () => {
 
   const handleTrackClick = (track: Track, e: React.MouseEvent) => {
     e.stopPropagation();
-    setSelectedNodeId(null);
+    setSelectedNodeIds(new Set());
     if (e.shiftKey || e.metaKey || e.ctrlKey) {
       setSelectedTrackIds(prev => {
         const next = new Set(prev);
@@ -932,9 +1052,24 @@ export const App: React.FC = () => {
   ) => {
     e.stopPropagation();
     setSelectedTrackIds(new Set());
-    setSelectedNodeId(node.id);
-    if (hasSubItems) {
-      toggleSectionCollapse(node.id, isCollapsed);
+
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      setSelectedNodeIds(prev => {
+        const next = new Set(prev);
+        if (next.has(node.id)) next.delete(node.id);
+        else next.add(node.id);
+        return next;
+      });
+    } else {
+      setSelectedNodeIds(prev => {
+        if (prev.size === 1 && prev.has(node.id)) {
+          return new Set();
+        }
+        return new Set([node.id]);
+      });
+      if (hasSubItems) {
+        toggleSectionCollapse(node.id, isCollapsed);
+      }
     }
   };
 
@@ -975,9 +1110,9 @@ export const App: React.FC = () => {
 
       // Deselect All on Escape
       if (e.key === 'Escape') {
-        if (selectedNodeId || selectedTrackIds.size > 0) {
+        if (selectedNodeIds.size > 0 || selectedTrackIds.size > 0) {
           e.preventDefault();
-          setSelectedNodeId(null);
+          setSelectedNodeIds(new Set());
           setSelectedTrackIds(new Set());
         }
         return;
@@ -1003,31 +1138,40 @@ export const App: React.FC = () => {
       }
 
       // Container (Node) Shortcuts
-      if (selectedNode) {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          selectNode(selectedNode);
-          return;
-        }
-        if (e.key === 'e' || e.key === 'E') {
-          e.preventDefault();
-          setNodeToEdit(selectedNode);
-          setNodeEditOpen(true);
-          return;
-        }
-        if (e.key === 'r' || e.key === 'R') {
-          e.preventDefault();
-          handleResolveNodeIsrcsAction(selectedNode);
-          return;
-        }
-        if (e.key === 'a' || e.key === 'A') {
-          e.preventDefault();
-          setNewTrackOpen(true);
-          return;
+      if (selectedNodeIds.size > 0) {
+        if (selectedNode) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            selectNode(selectedNode);
+            return;
+          }
+          if (e.key === 'e' || e.key === 'E') {
+            e.preventDefault();
+            setNodeToEdit(selectedNode);
+            setNodeEditOpen(true);
+            return;
+          }
+          if (e.key === 'r' || e.key === 'R') {
+            e.preventDefault();
+            handleResolveNodeIsrcsAction(selectedNode);
+            return;
+          }
+          if (e.key === 'a' || e.key === 'A') {
+            e.preventDefault();
+            setNewTrackOpen(true);
+            return;
+          }
         }
         if (e.key === 'Backspace' || e.key === 'Delete') {
           e.preventDefault();
-          handleDeleteNodeAction(selectedNode);
+          if (selectedNodeIds.size === 1 && selectedNode) {
+            handleDeleteNodeAction(selectedNode);
+          } else {
+            const nodesToDelete = Array.from(selectedNodeIds)
+              .map(id => findNodeById(tree, id))
+              .filter((n): n is LibraryNode => Boolean(n));
+            handleBatchDeleteNodesAction(nodesToDelete);
+          }
           return;
         }
       }
@@ -1073,6 +1217,7 @@ export const App: React.FC = () => {
     };
   }, [
     selectedNodeId,
+    selectedNodeIds,
     selectedNode,
     selectedTrackIds,
     firstSelectedTrack,
@@ -1159,15 +1304,29 @@ export const App: React.FC = () => {
     const hasChildren = n.children && n.children.length > 0;
     const isOpen = openNodes[n.id] ?? false;
     const isActive = activeNode?.id === n.id;
+    const isSelected = selectedNodeIds.has(n.id);
     const isTarget = dropTargetNodeId === n.id;
-    const isDragging = draggingNodeId === n.id;
+    const isDragging = draggingNodeIds.includes(n.id) || draggingNodeId === n.id;
 
     return (
       <React.Fragment key={n.id}>
         <div
-          className={`n ${isActive ? 'on' : ''} ${isTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
+          className={`n ${isActive ? 'on' : ''} ${isSelected ? 'is-selected' : ''} ${isTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
           style={{ paddingLeft: `${6 + depth * 14}px` }}
-          onClick={() => selectNode(n)}
+          onClick={(e) => {
+            if (e.shiftKey || e.metaKey || e.ctrlKey) {
+              e.stopPropagation();
+              setSelectedTrackIds(new Set());
+              setSelectedNodeIds(prev => {
+                const next = new Set(prev);
+                if (next.has(n.id)) next.delete(n.id);
+                else next.add(n.id);
+                return next;
+              });
+            } else {
+              selectNode(n);
+            }
+          }}
           onContextMenu={e => handleNodeContextMenu(e, n)}
           draggable={true}
           onDragStart={e => handleNodeDragStart(e, n)}
@@ -1305,9 +1464,9 @@ export const App: React.FC = () => {
         const hasSubItems = (child.children && child.children.length > 0) || childTracks.length > 0;
         const isCollapsed = hasSubItems ? isSectionCollapsed(child, depth) : true;
         const backdropImg = child.cover_url || child.tracks?.[0]?.cover_url || null;
-        const isNodeSelected = selectedNodeId === child.id;
+        const isNodeSelected = selectedNodeIds.has(child.id);
         const isDropTarget = dropTargetNodeId === child.id;
-        const isDragging = draggingNodeId === child.id;
+        const isDragging = draggingNodeIds.includes(child.id) || draggingNodeId === child.id;
 
         // Unified container item (Folder, Album, Artist, Playlist) with hero design and consistent selection
         nodesOut.push(
@@ -2168,6 +2327,7 @@ export const App: React.FC = () => {
         onDeleteTrack={handleDeleteTrackAction}
         onBatchDeleteTracks={handleBatchDeleteTracksAction}
         onSelectNode={node => selectNode(node)}
+        onImportArtistDiscography={handleImportArtistDiscographyAction}
         onAddMusicToNode={node => {
           setSelectedNodeId(node.id);
           setSearchInitialQuery('');
@@ -2187,7 +2347,9 @@ export const App: React.FC = () => {
           setNodeEditOpen(true);
         }}
         onDeleteNode={handleDeleteNodeAction}
+        onBatchDeleteNodes={handleBatchDeleteNodesAction}
         onRefreshArtwork={handleRefreshArtworkAction}
+        onBatchRefreshArtwork={handleBatchRefreshArtworkAction}
         onResolveNodeIsrcs={handleResolveNodeIsrcsAction}
         onOpenImport={() => {
           const target = selectedNode ? selectedNode.id : 'uncategorized';
