@@ -113,7 +113,9 @@ export async function searchMusicBrainzReleases(query: string): Promise<MbReleas
   const cleanQ = query.trim();
   if (!cleanQ) return [];
 
-  const url = `https://musicbrainz.org/ws/2/release/?query=${encodeURIComponent(cleanQ)}&fmt=json&limit=25`;
+  const isBarcode = /^\d{8,14}$/.test(cleanQ);
+  const mbQuery = isBarcode ? `barcode:${cleanQ}` : cleanQ;
+  const url = `https://musicbrainz.org/ws/2/release/?query=${encodeURIComponent(mbQuery)}&fmt=json&limit=25`;
   const data = await fetchWithRateLimit<any>(url);
 
   if (!data || !Array.isArray(data.releases)) {

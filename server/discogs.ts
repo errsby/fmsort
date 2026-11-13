@@ -194,8 +194,25 @@ export async function searchDiscogsReleases(query: string): Promise<DiscogsRelea
   const cleanQ = query.trim();
   if (!cleanQ) return [];
 
-  const url = `https://api.discogs.com/database/search?q=${encodeURIComponent(cleanQ)}&type=release&per_page=30`;
-  const data = await fetchDiscogsWithRateLimit<any>(url, authHeader);
+  const isBarcode = /^\d{8,14}$/.test(cleanQ);
+  const searchParam = isBarcode ? `barcode=${encodeURIComponent(cleanQ)}` : `q=${encodeURIComponent(cleanQ)}`;
+  let url = `https://api.discogs.com/database/search?${searchParam}&type=release&per_page=30`;
+  let data = await fetchDiscogsWithRateLimit<any>(url, authHeader);
+
+  if ((!data || !Array.isArray(data.results) || data.results.length === 0)) {
+    if (isBarcode) {
+      // Fallback to general query if barcode specific filter returned 0
+      url = `https://api.discogs.com/database/search?q=${encodeURIComponent(cleanQ)}&type=release&per_page=30`;
+      data = await fetchDiscogsWithRateLimit<any>(url, authHeader);
+    } else {
+      // Try catno query in case query is a catalog number
+      url = `https://api.discogs.com/database/search?catno=${encodeURIComponent(cleanQ)}&type=release&per_page=30`;
+      const catnoData = await fetchDiscogsWithRateLimit<any>(url, authHeader).catch(() => null);
+      if (catnoData && Array.isArray(catnoData.results) && catnoData.results.length > 0) {
+        data = catnoData;
+      }
+    }
+  }
 
   if (!data || !Array.isArray(data.results)) {
     return [];

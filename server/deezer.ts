@@ -60,6 +60,7 @@ export interface DeezerTrackSummary {
 
 /**
  * Searches Deezer catalog for individual tracks matching query.
+ * Supports song titles, artist names, and direct 12-character ISRC codes.
  */
 export async function searchDeezerTracks(query: string): Promise<DeezerTrackSummary[]> {
   const q = query.trim();
@@ -68,6 +69,39 @@ export async function searchDeezerTracks(query: string): Promise<DeezerTrackSumm
   const cached = cache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return cached.data;
+  }
+
+  // 1. Direct ISRC lookup if query matches 12-character ISRC format
+  const cleanIsrc = q.replace(/[- ]/g, '').toUpperCase();
+  if (/^[A-Z]{2}[A-Z0-9]{3}\d{7}$/.test(cleanIsrc)) {
+    try {
+      const isrcUrl = `https://api.deezer.com/track/isrc:${encodeURIComponent(cleanIsrc)}`;
+      const isrcRes = await fetch(isrcUrl, {
+        headers: {
+          'User-Agent': 'FMSort/1.0.0 ( https://github.com/err/fmsort )',
+          'Accept': 'application/json',
+        },
+      });
+      if (isrcRes.ok) {
+        const t = await isrcRes.json();
+        if (t && t.id && !t.error) {
+          const directTrack: DeezerTrackSummary = {
+            id: t.id,
+            title: t.title || t.title_short || 'Untitled',
+            artist: t.artist?.name || 'Unknown Artist',
+            album: t.album?.title || 'Singles & Releases',
+            duration: t.duration || 0,
+            cover: t.album?.cover_medium || t.album?.cover || t.artist?.picture_medium || '',
+            preview: t.preview || '',
+            isrc: t.isrc || cleanIsrc,
+          };
+          cache.set(cacheKey, { data: [directTrack], timestamp: Date.now() });
+          return [directTrack];
+        }
+      }
+    } catch (err: any) {
+      console.warn('[Deezer ISRC search error]', err?.message);
+    }
   }
 
   try {
@@ -151,6 +185,39 @@ const CACHE_TTL_MS = 1000 * 60 * 30; // 30 mins
 export async function searchDeezerReleases(query: string): Promise<DeezerReleaseSummary[]> {
   const cleanQ = query.trim();
   if (!cleanQ) return [];
+
+  // Check if query is an authentic ISRC code
+  const isrcClean = cleanQ.replace(/[- ]/g, '').toUpperCase();
+  if (/^[A-Z]{2}[A-Z0-9]{3}\d{7}$/.test(isrcClean)) {
+    try {
+      const isrcUrl = `https://api.deezer.com/track/isrc:${encodeURIComponent(isrcClean)}`;
+      const isrcRes = await fetch(isrcUrl, {
+        headers: {
+          'User-Agent': 'FMSort/1.0.0 ( https://github.com/err/fmsort )',
+          'Accept': 'application/json',
+        },
+      });
+      if (isrcRes.ok) {
+        const t = await isrcRes.json();
+        if (t && t.album && t.album.id) {
+          const albumItem: DeezerReleaseSummary = {
+            id: t.album.id,
+            title: t.album.title || 'Untitled Album',
+            artist: t.artist?.name || 'Unknown Artist',
+            year: 0,
+            format: 'Digital Release',
+            catalog_no: '—',
+            barcode: '—',
+            country: '',
+            label: '',
+            thumb: t.album.cover_medium || t.album.cover || '',
+            track_count: 0,
+          };
+          return [albumItem];
+        }
+      }
+    } catch {}
+  }
 
   const url = `https://api.deezer.com/search/album?q=${encodeURIComponent(cleanQ)}&limit=25`;
   const cached = cache.get(url);

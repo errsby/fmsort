@@ -37,12 +37,7 @@ import {
   ChevronDown,
   ChevronRight,
   Folder,
-  SlidersHorizontal,
   X,
-  CornerDownLeft,
-  ArrowUpDown,
-  KeyRound,
-  Radio,
 } from 'lucide-react';
 
 interface Props {
@@ -66,7 +61,7 @@ export const HybridSearchModal: React.FC<Props> = ({
   initialQuery,
   initialTargetNodeId,
 }) => {
-  // Search provider & token state
+  // Provider fixed to unified hybrid search
   const [provider, setProvider] = useState<SearchProvider>('hybrid');
   const [hasDiscogsToken, setHasDiscogsToken] = useState<boolean | null>(null);
   const [tokenInput, setTokenInput] = useState<string>('');
@@ -103,17 +98,18 @@ export const HybridSearchModal: React.FC<Props> = ({
   const [loading, setLoading] = useState(false);
   const [discogsProgressiveLoading, setDiscogsProgressiveLoading] = useState(false);
 
-  // Destination & options
+  // Destination crate & custom dropdown
+  const [targetNodeId, setTargetNodeId] = useState<string>('');
+  const [destDropdownOpen, setDestDropdownOpen] = useState(false);
   const [importingKey, setImportingKey] = useState<string | null>(null);
   const [addedArtists, setAddedArtists] = useState<Set<string>>(new Set());
-  const [targetNodeId, setTargetNodeId] = useState<string>('');
-  const [createAlbumContainer, setCreateAlbumContainer] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Refs
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const resultsContainerRef = useRef<HTMLDivElement>(null);
+  const destDropdownRef = useRef<HTMLDivElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -127,7 +123,7 @@ export const HybridSearchModal: React.FC<Props> = ({
 
   const targetNodeName = useMemo(() => {
     if (!targetNodeId || targetNodeId === 'uncategorized' || targetNodeId === 'root') {
-      return 'Uncategorized (Root)';
+      return '[Root] Uncategorized';
     }
     const found = allContainers.find(c => c.id === targetNodeId);
     return found ? found.name : 'Selected Crate';
@@ -141,6 +137,18 @@ export const HybridSearchModal: React.FC<Props> = ({
       setHasDiscogsToken(false);
     }
   };
+
+  // Close destination dropdown on outside click
+  useEffect(() => {
+    if (!destDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (destDropdownRef.current && !destDropdownRef.current.contains(e.target as Node)) {
+        setDestDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [destDropdownOpen]);
 
   // Audio cleanup on unmount
   useEffect(() => {
@@ -156,6 +164,7 @@ export const HybridSearchModal: React.FC<Props> = ({
     if (isOpen) {
       const defaultTarget = initialTargetNodeId || currentNode?.id || allTreeNodes?.[0]?.id || allContainers[0]?.id || 'uncategorized';
       setTargetNodeId(defaultTarget);
+      setDestDropdownOpen(false);
       setQuery(initialQuery || '');
       setArtistResults([]);
       setAlbumResults([]);
@@ -188,6 +197,7 @@ export const HybridSearchModal: React.FC<Props> = ({
         audioRef.current.pause();
       }
       setPlayingTrackId(null);
+      setDestDropdownOpen(false);
     }
   }, [isOpen, currentNode, allTreeNodes, initialQuery, initialTargetNodeId]);
 
@@ -224,89 +234,30 @@ export const HybridSearchModal: React.FC<Props> = ({
       abortControllerRef.current = controller;
 
       try {
-        if (provider === 'hybrid') {
-          await streamHybridSearch(
-            trimmed,
-            (res) => {
-              if (!res) return;
-              setArtistResults(res.artists || []);
-              if (res.tracks && Array.isArray(res.tracks)) {
-                setTrackResults(res.tracks);
-              }
-              if (res.albums && Array.isArray(res.albums) && res.albums.length > 0) {
-                setAlbumResults(res.albums);
-              } else if (res.releases && Array.isArray(res.releases)) {
-                setAlbumResults(groupRawReleases(res.releases));
-              } else {
-                setAlbumResults([]);
-              }
-              setCounts(res.counts || null);
-              if (typeof res.discogsConfigured === 'boolean') {
-                setHasDiscogsToken(res.discogsConfigured);
-              }
-              setLoading(false);
-              setDiscogsProgressiveLoading(Boolean(res.discogsLoading));
-            },
-            controller.signal
-          );
-        } else if (provider === 'discogs') {
-          const res = await searchDiscogs(trimmed);
-          setArtistResults([]);
-          setTrackResults([]);
-          setAlbumResults(
-            groupRawReleases(
-              (res || []).map(d => ({
-                source: 'discogs' as const,
-                id: d.id,
-                title: d.title,
-                artist: d.artist,
-                year: d.year,
-                format: d.format,
-                catalog_no: d.catalog_no,
-                barcode: d.barcode,
-                country: d.country,
-                label: d.label,
-                thumb: d.thumb,
-              }))
-            )
-          );
-          setLoading(false);
-        } else if (provider === 'deezer') {
-          const res = await searchHybrid(trimmed);
-          setArtistResults((res.artists || []).filter(a => a.source === 'deezer'));
-          setTrackResults(res.tracks || []);
-          if (res.albums && Array.isArray(res.albums) && res.albums.length > 0) {
-            setAlbumResults(res.albums.filter(a => (a.sources || []).includes('deezer')));
-          } else {
-            setAlbumResults(
-              groupRawReleases((res.releases || []).filter(r => r.source === 'deezer'))
-            );
-          }
-          setLoading(false);
-        } else if (provider === 'musicbrainz') {
-          const res = await searchMusicBrainz(trimmed);
-          setArtistResults([]);
-          setTrackResults([]);
-          setAlbumResults(
-            groupRawReleases(
-              (res || []).map(m => ({
-                source: 'musicbrainz' as const,
-                id: m.id,
-                title: m.title,
-                artist: m.artist,
-                year: m.year,
-                format: m.format,
-                catalog_no: m.catalog_no,
-                barcode: m.barcode,
-                country: m.country,
-                label: m.label,
-                thumb: '',
-                track_count: m.track_count,
-              }))
-            )
-          );
-          setLoading(false);
-        }
+        await streamHybridSearch(
+          trimmed,
+          (res) => {
+            if (!res) return;
+            setArtistResults(res.artists || []);
+            if (res.tracks && Array.isArray(res.tracks)) {
+              setTrackResults(res.tracks);
+            }
+            if (res.albums && Array.isArray(res.albums) && res.albums.length > 0) {
+              setAlbumResults(res.albums);
+            } else if (res.releases && Array.isArray(res.releases)) {
+              setAlbumResults(groupRawReleases(res.releases));
+            } else {
+              setAlbumResults([]);
+            }
+            setCounts(res.counts || null);
+            if (typeof res.discogsConfigured === 'boolean') {
+              setHasDiscogsToken(res.discogsConfigured);
+            }
+            setLoading(false);
+            setDiscogsProgressiveLoading(Boolean(res.discogsLoading));
+          },
+          controller.signal
+        );
       } catch (err: any) {
         if (err.name === 'AbortError') return;
         if (err.message === 'NO_TOKEN') {
@@ -326,7 +277,7 @@ export const HybridSearchModal: React.FC<Props> = ({
         abortControllerRef.current = null;
       }
     };
-  }, [query, isOpen, provider]);
+  }, [query, isOpen]);
 
   // Filtered albums according to active filter
   const filteredAlbums = useMemo(() => {
@@ -401,7 +352,6 @@ export const HybridSearchModal: React.FC<Props> = ({
   // Format version labels without platform branding
   const formatVersionLabel = useCallback((ver: ReleaseVersion): string => {
     let label = ver.badgeLabel || '';
-    // Strip platform names like "DEEZER · " or "DISCOGS · "
     label = label.replace(/^(deezer|discogs|musicbrainz)\s*[·-]\s*/i, '');
     if (label && label !== 'Standard Release' && label !== 'Standard Version') {
       return label;
@@ -521,6 +471,7 @@ export const HybridSearchModal: React.FC<Props> = ({
     }
   };
 
+  // Import single track directly into destination crate without album folder wrapper
   const handleAddTrack = async (track: UnifiedTrackSummary) => {
     if (!targetNodeId || !track) return;
     const key = `track-${track.id}`;
@@ -536,7 +487,7 @@ export const HybridSearchModal: React.FC<Props> = ({
         coverUrl: track.cover,
         isrc: track.isrc,
         targetNodeId,
-        createAlbumContainer,
+        createAlbumContainer: false, // Individual tracks do not need album folders!
       });
       setAddedTrackIds(prev => new Set(prev).add(track.id));
       onImportSuccess(res.destNodeId);
@@ -557,7 +508,7 @@ export const HybridSearchModal: React.FC<Props> = ({
         version.source,
         version.id,
         targetNodeId,
-        createAlbumContainer,
+        true, // Albums create/use their album container
         version.thumb
       );
       onImportSuccess(destNodeId);
@@ -608,7 +559,11 @@ export const HybridSearchModal: React.FC<Props> = ({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault();
-      onClose();
+      if (destDropdownOpen) {
+        setDestDropdownOpen(false);
+      } else {
+        onClose();
+      }
       return;
     }
 
@@ -639,6 +594,8 @@ export const HybridSearchModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
+  const hasSearched = query.trim().length > 0;
+
   return (
     <>
       {/* Background Overlay */}
@@ -662,7 +619,7 @@ export const HybridSearchModal: React.FC<Props> = ({
               alignItems: 'center',
               gap: 12,
               background: '#111115',
-              borderBottom: '1px solid #22222a',
+              borderBottom: (hasSearched || error || discogsProgressiveLoading || isEditingToken) ? '1px solid #22222a' : 'none',
             }}
           >
             <Search size={18} style={{ color: '#818cf8', flexShrink: 0 }} />
@@ -671,7 +628,7 @@ export const HybridSearchModal: React.FC<Props> = ({
               ref={inputRef}
               type="text"
               className="music-cmd-search-input"
-              placeholder="Search tracks, albums, artists, vinyl catalog numbers, barcodes..."
+              placeholder="Search tracks, albums, artists, catalog numbers, barcodes, ISRCs..."
               value={query}
               onChange={e => {
                 setQuery(e.target.value);
@@ -718,22 +675,20 @@ export const HybridSearchModal: React.FC<Props> = ({
           </div>
 
           {/* ============================================================ */}
-          {/* SUB-BAR: FILTER CHIPS & DESTINATION CONTROL                  */}
+          {/* SUB-BAR: FILTER CHIPS (ONLY SHOWN AFTER SEARCHING)           */}
           {/* ============================================================ */}
-          <div
-            style={{
-              padding: '8px 16px',
-              background: '#0d0d11',
-              borderBottom: '1px solid #1c1c22',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 12,
-              flexWrap: 'wrap',
-            }}
-          >
-            {/* Filter Category Chips */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {hasSearched && (
+            <div
+              style={{
+                padding: '8px 16px',
+                background: '#0d0d11',
+                borderBottom: '1px solid #1c1c22',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                flexWrap: 'wrap',
+              }}
+            >
               <button
                 type="button"
                 className={`search-filter-pill ${activeFilter === 'all' ? 'active' : ''}`}
@@ -821,84 +776,10 @@ export const HybridSearchModal: React.FC<Props> = ({
                 </button>
               )}
             </div>
-
-            {/* Catalog Source Picker & Destination Container */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              {/* Catalog Source Selector (No platform branding labels!) */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--mu)' }}>
-                <span>Source:</span>
-                <select
-                  value={provider}
-                  onChange={e => setProvider(e.target.value as SearchProvider)}
-                  style={{
-                    fontSize: 11,
-                    padding: '2px 6px',
-                    background: '#16161b',
-                    border: '1px solid #282832',
-                    borderRadius: 4,
-                    color: 'var(--fg)',
-                  }}
-                >
-                  <option value="hybrid">All Catalogs (Unified)</option>
-                  <option value="discogs">Vinyl &amp; Physical Pressings</option>
-                  <option value="deezer">Digital Streaming Catalog</option>
-                  <option value="musicbrainz">Open Music Database</option>
-                </select>
-              </label>
-
-              {/* Destination Crate Selector */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--mu)' }}>
-                <Folder size={12} style={{ color: '#818cf8' }} />
-                <span>To:</span>
-                <select
-                  value={targetNodeId}
-                  onChange={e => setTargetNodeId(e.target.value)}
-                  style={{
-                    fontSize: 11,
-                    padding: '2px 6px',
-                    background: '#16161b',
-                    border: '1px solid #282832',
-                    borderRadius: 4,
-                    color: 'var(--fg)',
-                    maxWidth: 160,
-                  }}
-                >
-                  <option value="uncategorized">[Root] Uncategorized</option>
-                  {allContainers.map(c => (
-                    <option key={c.id} value={c.id}>
-                      [{c.type || 'Folder'}] {c.name || 'Untitled'}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              {/* Create Album Container Checkbox */}
-              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--mu)', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={createAlbumContainer}
-                  onChange={e => setCreateAlbumContainer(e.target.checked)}
-                />
-                <span>Album folder</span>
-              </label>
-            </div>
-          </div>
-
-          {/* Discogs Token Configuration Header if unconfigured */}
-          {!hasDiscogsToken && (
-            <div style={{ background: '#181512', borderBottom: '1px solid #3d240e', padding: '6px 16px', fontSize: 11, color: '#fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span>Vinyl catalog access available. Configure access token for high-rate pressings.</span>
-              <button
-                type="button"
-                onClick={() => setIsEditingToken(!isEditingToken)}
-                style={{ background: 'transparent', border: 'none', color: '#f59e0b', cursor: 'pointer', textDecoration: 'underline', fontSize: 11 }}
-              >
-                {isEditingToken ? 'Hide' : 'Configure Access Token'}
-              </button>
-            </div>
           )}
 
-          {isEditingToken && (
+          {/* Discogs Token Configuration Header if unconfigured and user opens settings */}
+          {!hasDiscogsToken && isEditingToken && (
             <div style={{ padding: '10px 16px', background: '#141419', borderBottom: '1px solid #24242e' }}>
               <form onSubmit={handleSaveToken} style={{ display: 'flex', gap: 8 }}>
                 <input
@@ -941,199 +822,193 @@ export const HybridSearchModal: React.FC<Props> = ({
           />
 
           {/* ============================================================ */}
-          {/* RESULTS LIST AREA (CMD+K SPOTLIGHT STYLE)                    */}
+          {/* RESULTS LIST AREA (ONLY SHOWN AFTER SEARCHING)               */}
           {/* ============================================================ */}
-          <div
-            ref={resultsContainerRef}
-            style={{
-              flex: 1,
-              overflowY: 'auto',
-              padding: '12px 16px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14,
-              minHeight: 280,
-              maxHeight: '62vh',
-            }}
-          >
-            {/* Empty State */}
-            {!loading && visibleTracks.length === 0 && filteredAlbums.length === 0 && visibleArtists.length === 0 && (
-              <div style={{ textAlign: 'center', color: 'var(--mu)', padding: '48px 16px', fontSize: 13 }}>
-                {query.trim() === '' ? (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                    <Search size={24} style={{ color: '#3f3f46' }} />
-                    <p style={{ margin: 0 }}>Start typing to search songs, albums, artists, or vinyl pressings.</p>
-                  </div>
-                ) : (
-                  <p style={{ margin: 0 }}>No results found matching &ldquo;{query}&rdquo;.</p>
-                )}
-              </div>
-            )}
-
-            {/* ============================================================ */}
-            {/* SECTION 1: TRACKS                                            */}
-            {/* ============================================================ */}
-            {visibleTracks.length > 0 && (
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: '#a1a1aa',
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                    marginBottom: 6,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                  }}
-                >
-                  <Music size={12} style={{ color: '#818cf8' }} />
-                  <span>Tracks ({visibleTracks.length})</span>
+          {hasSearched && (
+            <div
+              ref={resultsContainerRef}
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '12px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 14,
+                minHeight: 180,
+                maxHeight: '62vh',
+              }}
+            >
+              {/* Empty State when no results found */}
+              {!loading && visibleTracks.length === 0 && filteredAlbums.length === 0 && visibleArtists.length === 0 && (
+                <div style={{ textAlign: 'center', color: 'var(--mu)', padding: '36px 16px', fontSize: 13 }}>
+                  No results found matching &ldquo;{query}&rdquo;.
                 </div>
+              )}
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {visibleTracks.map((track, trackIdx) => {
-                    const isSelected = selectableItems[selectedIndex]?.type === 'track' && selectableItems[selectedIndex]?.id === track.id;
-                    const isAdded = addedTrackIds.has(track.id);
-                    const isImporting = importingKey === `track-${track.id}`;
-                    const isPlaying = playingTrackId === track.id;
+              {/* ============================================================ */}
+              {/* SECTION 1: TRACKS                                            */}
+              {/* ============================================================ */}
+              {visibleTracks.length > 0 && (
+                <div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: '#a1a1aa',
+                      letterSpacing: '0.06em',
+                      textTransform: 'uppercase',
+                      marginBottom: 6,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                    }}
+                  >
+                    <Music size={12} style={{ color: '#818cf8' }} />
+                    <span>Tracks ({visibleTracks.length})</span>
+                  </div>
 
-                    return (
-                      <div
-                        key={`track-${track.id}`}
-                        className={`music-cmd-item ${isSelected ? 'selected' : ''}`}
-                        onClick={() => setSelectedIndex(trackIdx)}
-                      >
-                        {/* Cover Art with Play Button */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {visibleTracks.map((track, trackIdx) => {
+                      const isSelected = selectableItems[selectedIndex]?.type === 'track' && selectableItems[selectedIndex]?.id === track.id;
+                      const isAdded = addedTrackIds.has(track.id);
+                      const isImporting = importingKey === `track-${track.id}`;
+                      const isPlaying = playingTrackId === track.id;
+
+                      return (
                         <div
-                          style={{ position: 'relative', width: 40, height: 40, flexShrink: 0, cursor: track.preview ? 'pointer' : 'default' }}
-                          onClick={e => {
-                            e.stopPropagation();
-                            if (track.preview) togglePlayPreview(track);
-                          }}
-                          title={track.preview ? (isPlaying ? 'Pause preview' : 'Play 30s preview') : 'No preview'}
+                          key={`track-${track.id}`}
+                          className={`music-cmd-item ${isSelected ? 'selected' : ''}`}
+                          onClick={() => setSelectedIndex(trackIdx)}
                         >
-                          <CoverArt
-                            src={track.cover}
-                            alt={track.title}
-                            size={40}
-                            type="album"
-                            seed={track.title || track.artist}
-                            rounded={4}
-                          />
-                          {track.preview && (
-                            <div
-                              style={{
-                                position: 'absolute',
-                                inset: 0,
-                                background: isPlaying ? 'rgba(0, 0, 0, 0.55)' : 'rgba(0, 0, 0, 0.25)',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                borderRadius: 4,
-                              }}
-                            >
-                              {isPlaying ? (
-                                <Pause size={16} style={{ color: '#818cf8', fill: '#818cf8' }} />
-                              ) : (
-                                <Play size={14} style={{ color: '#ffffff', fill: '#ffffff', marginLeft: 2 }} />
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Track Info */}
-                        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <strong style={{ fontSize: 13, color: isPlaying ? '#a5b4fc' : 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' }}>
-                              {track.title}
-                            </strong>
-                            {track.duration > 0 && (
-                              <span style={{ fontSize: 11, color: 'var(--mu)', fontFamily: 'var(--font-mono, monospace)' }}>
-                                {fmtDuration(track.duration)}
-                              </span>
-                            )}
-                            {track.isrc && (
-                              <span
-                                style={{
-                                  fontSize: 9,
-                                  padding: '1px 5px',
-                                  borderRadius: 3,
-                                  background: '#14532d',
-                                  color: '#86efac',
-                                  fontWeight: 600,
-                                }}
-                                title={`ISRC: ${track.isrc}`}
-                              >
-                                ISRC
-                              </span>
-                            )}
-                            {getFormatBadge('Digital')}
-                          </div>
-
-                          <div style={{ fontSize: 11, color: 'var(--mu)', display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            <span style={{ color: '#d4d4d8', cursor: 'pointer' }} onClick={() => setQuery(track.artist)} title="Search artist">
-                              {track.artist}
-                            </span>
-                            <span>·</span>
-                            <span>{track.album || 'Single'}</span>
-                          </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-                          {track.preview && (
-                            <button
-                              type="button"
-                              onClick={e => {
-                                e.stopPropagation();
-                                togglePlayPreview(track);
-                              }}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                fontSize: 11,
-                                padding: '3px 8px',
-                                background: isPlaying ? '#312e81' : 'transparent',
-                                border: isPlaying ? '1px solid #6366f1' : '1px solid #272730',
-                                color: isPlaying ? '#e0e7ff' : 'var(--fg)',
-                                borderRadius: 4,
-                                cursor: 'pointer',
-                              }}
-                              title={isPlaying ? 'Pause audio preview' : 'Listen to 30-second audio preview'}
-                            >
-                              {isPlaying ? <Pause size={11} /> : <Play size={11} />}
-                              <span>{isPlaying ? 'Playing' : 'Preview'}</span>
-                            </button>
-                          )}
-
-                          <button
-                            type="button"
-                            className={isAdded ? '' : 'p'}
-                            disabled={isImporting || isAdded}
+                          {/* Cover Art with Play Button */}
+                          <div
+                            style={{ position: 'relative', width: 40, height: 40, flexShrink: 0, cursor: track.preview ? 'pointer' : 'default' }}
                             onClick={e => {
                               e.stopPropagation();
-                              handleAddTrack(track);
+                              if (track.preview) togglePlayPreview(track);
                             }}
-                            style={{ fontSize: 11, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                            title={`Add "${track.title}" to ${targetNodeName}`}
+                            title={track.preview ? (isPlaying ? 'Pause preview' : 'Play 30s preview') : 'No preview'}
                           >
-                            {isAdded ? (
-                              <>
-                                <Check size={12} style={{ color: '#4ade80' }} />
-                                <span style={{ color: '#4ade80' }}>Added</span>
-                              </>
-                            ) : isImporting ? (
-                              <>
-                                <Loader2 size={12} className="spin" />
-                                <span>Adding...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Plus size={12} />
-                                <span>Add Track</span>
+                            <CoverArt
+                              src={track.cover}
+                              alt={track.title}
+                              size={40}
+                              type="album"
+                              seed={track.title || track.artist}
+                              rounded={4}
+                            />
+                            {track.preview && (
+                              <div
+                                style={{
+                                  position: 'absolute',
+                                  inset: 0,
+                                  background: isPlaying ? 'rgba(0, 0, 0, 0.55)' : 'rgba(0, 0, 0, 0.25)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderRadius: 4,
+                                }}
+                              >
+                                {isPlaying ? (
+                                  <Pause size={16} style={{ color: '#818cf8', fill: '#818cf8' }} />
+                                ) : (
+                                  <Play size={14} style={{ color: '#ffffff', fill: '#ffffff', marginLeft: 2 }} />
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Track Info */}
+                          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <strong style={{ fontSize: 13, color: isPlaying ? '#a5b4fc' : 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' }}>
+                                {track.title}
+                              </strong>
+                              {track.duration > 0 && (
+                                <span style={{ fontSize: 11, color: 'var(--mu)', fontFamily: 'var(--font-mono, monospace)' }}>
+                                  {fmtDuration(track.duration)}
+                                </span>
+                              )}
+                              {track.isrc && (
+                                <span
+                                  style={{
+                                    fontSize: 9,
+                                    padding: '1px 5px',
+                                    borderRadius: 3,
+                                    background: '#14532d',
+                                    color: '#86efac',
+                                    fontWeight: 600,
+                                  }}
+                                  title={`ISRC: ${track.isrc}`}
+                                >
+                                  ISRC
+                                </span>
+                              )}
+                              {getFormatBadge('Digital')}
+                            </div>
+
+                            <div style={{ fontSize: 11, color: 'var(--mu)', display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              <span style={{ color: '#d4d4d8', cursor: 'pointer' }} onClick={() => setQuery(track.artist)} title="Search artist">
+                                {track.artist}
+                              </span>
+                              <span>·</span>
+                              <span>{track.album || 'Single'}</span>
+                            </div>
+                          </div>
+
+                          {/* Actions */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                            {track.preview && (
+                              <button
+                                type="button"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  togglePlayPreview(track);
+                                }}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontSize: 11,
+                                  padding: '3px 8px',
+                                  background: isPlaying ? '#312e81' : 'transparent',
+                                  border: isPlaying ? '1px solid #6366f1' : '1px solid #272730',
+                                  color: isPlaying ? '#e0e7ff' : 'var(--fg)',
+                                  borderRadius: 4,
+                                  cursor: 'pointer',
+                                }}
+                                title={isPlaying ? 'Pause audio preview' : 'Listen to 30-second audio preview'}
+                              >
+                                {isPlaying ? <Pause size={11} /> : <Play size={11} />}
+                                <span>{isPlaying ? 'Playing' : 'Preview'}</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              className={isAdded ? '' : 'p'}
+                              disabled={isImporting || isAdded}
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleAddTrack(track);
+                              }}
+                              style={{ fontSize: 11, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                              title={`Add "${track.title}" to ${targetNodeName}`}
+                            >
+                              {isAdded ? (
+                                <>
+                                  <Check size={12} style={{ color: '#4ade80' }} />
+                                  <span style={{ color: '#4ade80' }}>Added</span>
+                                </>
+                              ) : isImporting ? (
+                                <>
+                                  <Loader2 size={12} className="spin" />
+                                  <span>Adding...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Plus size={12} />
+                                  <span>Add Track</span>
                               </>
                             )}
                           </button>
@@ -1352,7 +1227,7 @@ export const HybridSearchModal: React.FC<Props> = ({
                               <>
                                 <div style={{ fontSize: 11, color: 'var(--mu)', display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
                                   <span>Tracks ({albumTracklists[albumId].length}):</span>
-                                  <span>Click &ldquo;+ Add&rdquo; to add individual songs to your crate</span>
+                                  <span>Click &ldquo;+ Add&rdquo; to add individual songs directly to your crate</span>
                                 </div>
                                 {albumTracklists[albumId].map((t, tIdx) => {
                                   const isTrackAdded = addedTrackIds.has(t.id);
@@ -1421,7 +1296,7 @@ export const HybridSearchModal: React.FC<Props> = ({
                                         disabled={isImportingThisTrack || isTrackAdded}
                                         onClick={() => handleAddTrack({ ...t, cover: t.cover || activeVersion.thumb || album.thumb })}
                                         style={{ fontSize: 10, padding: '2px 8px', flexShrink: 0 }}
-                                        title={`Add "${t.title}" to ${targetNodeName}`}
+                                        title={`Add "${t.title}" directly to ${targetNodeName}`}
                                       >
                                         {isTrackAdded ? (
                                           <span style={{ color: '#4ade80' }}>Added ✓</span>
@@ -1535,15 +1410,16 @@ export const HybridSearchModal: React.FC<Props> = ({
               </div>
             )}
           </div>
+          )}
 
           {/* ============================================================ */}
-          {/* FOOTER BAR (KEYBOARD HINTS & CURRENT TARGET)                 */}
+          {/* FOOTER BAR: KEYBOARD HINTS & CUSTOM DESTINATION DROPDOWN     */}
           {/* ============================================================ */}
           <div
             style={{
               padding: '8px 16px',
               background: '#09090c',
-              borderTop: '1px solid #1c1c22',
+              borderTop: (hasSearched || error || discogsProgressiveLoading || isEditingToken) ? '1px solid #1c1c22' : 'none',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
@@ -1553,6 +1429,7 @@ export const HybridSearchModal: React.FC<Props> = ({
               gap: 8,
             }}
           >
+            {/* Keyboard Shortcuts */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <span className="music-cmd-kbd">↑</span>
@@ -1571,11 +1448,140 @@ export const HybridSearchModal: React.FC<Props> = ({
               </span>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>Destination:</span>
-              <span style={{ color: '#a5b4fc', fontWeight: 500, background: 'rgba(99, 102, 241, 0.1)', padding: '1px 6px', borderRadius: 4, border: '1px solid rgba(99, 102, 241, 0.2)' }}>
-                {targetNodeName}
-              </span>
+            {/* Custom Interactive Destination Dropdown Menu */}
+            <div style={{ position: 'relative' }} ref={destDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setDestDropdownOpen(!destDropdownOpen)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  background: 'rgba(99, 102, 241, 0.1)',
+                  border: '1px solid rgba(99, 102, 241, 0.25)',
+                  color: '#c7d2fe',
+                  borderRadius: 5,
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+                title="Click to select which crate or folder to import into"
+              >
+                <Folder size={12} style={{ color: '#818cf8' }} />
+                <span>Destination:</span>
+                <span style={{ color: '#ffffff', fontWeight: 600 }}>{targetNodeName}</span>
+                <ChevronDown
+                  size={11}
+                  style={{
+                    transform: destDropdownOpen ? 'rotate(180deg)' : 'none',
+                    transition: 'transform 0.15s ease',
+                  }}
+                />
+              </button>
+
+              {/* Floating Custom Selection Popup */}
+              {destDropdownOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 'calc(100% + 6px)',
+                    right: 0,
+                    width: 290,
+                    maxHeight: 270,
+                    overflowY: 'auto',
+                    background: '#121217',
+                    border: '1px solid #2e2e3a',
+                    borderRadius: 8,
+                    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.75)',
+                    zIndex: 60,
+                    padding: 4,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 2,
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: 10,
+                      color: 'var(--mu)',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                      borderBottom: '1px solid #1f1f26',
+                      marginBottom: 2,
+                    }}
+                  >
+                    Select Destination Crate
+                  </div>
+
+                  <div
+                    className={`cl ${targetNodeId === 'uncategorized' ? 'on' : ''}`}
+                    onClick={() => {
+                      setTargetNodeId('uncategorized');
+                      setDestDropdownOpen(false);
+                    }}
+                    style={{ padding: '6px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Folder size={12} style={{ color: 'var(--mu)' }} />
+                      <span>[Root] Uncategorized</span>
+                    </div>
+                  </div>
+
+                  {allContainers.map(c => {
+                    const path = findNodePath(allTreeNodes, c.id);
+                    const pathString = path ? path.map(p => p.name).join(' / ') : c.name;
+                    const isSelected = targetNodeId === c.id;
+
+                    return (
+                      <div
+                        key={c.id}
+                        className={`cl ${isSelected ? 'on' : ''}`}
+                        onClick={() => {
+                          setTargetNodeId(c.id);
+                          setDestDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: '6px 8px',
+                          borderRadius: 4,
+                          cursor: 'pointer',
+                          fontSize: 11,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, overflow: 'hidden' }}>
+                          <Folder size={12} style={{ color: isSelected ? '#818cf8' : 'var(--mu)', flexShrink: 0 }} />
+                          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                            <span
+                              style={{
+                                fontWeight: isSelected ? 600 : 400,
+                                color: isSelected ? '#ffffff' : 'var(--fg)',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {c.name}
+                            </span>
+                            {path && path.length > 1 && (
+                              <span style={{ fontSize: 9, color: 'var(--mu)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {pathString}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="ty" style={{ fontSize: 9, flexShrink: 0, marginLeft: 6 }}>
+                          {c.type || 'Folder'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </ErrorBoundary>
