@@ -112,6 +112,17 @@ function isDescendant(tree: LibraryNode[], parentId: string, candidateChildId: s
   return (parentNode.children || []).some(check);
 }
 
+function flattenVisibleTree(nodes: LibraryNode[], openMap: Record<string, boolean>): LibraryNode[] {
+  const result: LibraryNode[] = [];
+  for (const n of nodes) {
+    result.push(n);
+    if (openMap[n.id] && n.children && n.children.length > 0) {
+      result.push(...flattenVisibleTree(n.children, openMap));
+    }
+  }
+  return result;
+}
+
 export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<'library' | 'feed'>('library');
   const [tree, setTree] = useState<LibraryNode[]>([]);
@@ -210,6 +221,8 @@ export const App: React.FC = () => {
 
   const addMusicRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
+  const lastSelectedNodeIdRef = useRef<string | null>(null);
+  const lastSelectedTrackIdRef = useRef<number | null>(null);
 
   const selectNode = (node: LibraryNode, pushHistory = true) => {
     setActiveNodeId(node.id);
@@ -220,7 +233,8 @@ export const App: React.FC = () => {
       return next;
     });
     setSelectedTrackIds(new Set());
-    setSelectedNodeId(null);
+    setSelectedNodeIds(new Set([node.id]));
+    lastSelectedNodeIdRef.current = node.id;
     setTreeDropdownOpen(false);
     setCollapsedSections({});
 
@@ -813,6 +827,24 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleBatchResolveNodeIsrcsAction = async (nodes: LibraryNode[]) => {
+    if (nodes.length === 0) return;
+    const allTracks = nodes.flatMap(n => flattenTracks(n));
+    const missing = allTracks.filter(t => !t.isrc || t.isrc === '—').map(t => t.id);
+    if (missing.length === 0) {
+      showToast(`All tracks in the ${nodes.length} selected containers already have ISRCs`);
+      return;
+    }
+    showToast(`Resolving ${missing.length} missing ISRCs across ${nodes.length} containers...`);
+    try {
+      const res = await enrichAllIsrcs(missing);
+      showToast(`Resolved ${res.updatedCount} ISRCs`);
+      await loadTree(activeNodeId || undefined);
+    } catch {
+      showToast('Failed to resolve ISRCs');
+    }
+  };
+
   const toggleNodeExpansion = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setOpenNodes(prev => ({ ...prev, [id]: !prev[id] }));
@@ -1027,6 +1059,31 @@ export const App: React.FC = () => {
   const handleTrackClick = (track: Track, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedNodeIds(new Set());
+
+    const visibleTracks = activeFlatTracks;
+
+    // Shift-click contiguous range selection across tracks
+    if (e.shiftKey && lastSelectedTrackIdRef.current !== null && visibleTracks.length > 0) {
+      const lastIdx = visibleTracks.findIndex(t => t.id === lastSelectedTrackIdRef.current);
+      const currIdx = visibleTracks.findIndex(t => t.id === track.id);
+
+      if (lastIdx !== -1 && currIdx !== -1) {
+        const start = Math.min(lastIdx, currIdx);
+        const end = Math.max(lastIdx, currIdx);
+        const rangeTracks = visibleTracks.slice(start, end + 1);
+        const rangeIds = rangeTracks.map(t => t.id);
+
+        setSelectedTrackIds(prev => {
+          const next = (e.metaKey || e.ctrlKey) ? new Set(prev) : new Set<number>();
+          rangeIds.forEach(id => next.add(id));
+          return next;
+        });
+        return;
+      }
+    }
+
+    lastSelectedTrackIdRef.current = track.id;
+
     if (e.shiftKey || e.metaKey || e.ctrlKey) {
       setSelectedTrackIds(prev => {
         const next = new Set(prev);
@@ -1053,6 +1110,30 @@ export const App: React.FC = () => {
     e.stopPropagation();
     setSelectedTrackIds(new Set());
 
+    // Sibling range selection across visible child albums / containers
+    const visibleSiblingNodes = activeNode?.children || [];
+
+    if (e.shiftKey && lastSelectedNodeIdRef.current && visibleSiblingNodes.length > 0) {
+      const lastIdx = visibleSiblingNodes.findIndex(n => n.id === lastSelectedNodeIdRef.current);
+      const currIdx = visibleSiblingNodes.findIndex(n => n.id === node.id);
+
+      if (lastIdx !== -1 && currIdx !== -1) {
+        const start = Math.min(lastIdx, currIdx);
+        const end = Math.max(lastIdx, currIdx);
+        const rangeNodes = visibleSiblingNodes.slice(start, end + 1);
+        const rangeIds = rangeNodes.map(n => n.id);
+
+        setSelectedNodeIds(prev => {
+          const next = (e.metaKey || e.ctrlKey) ? new Set(prev) : new Set<string>();
+          rangeIds.forEach(id => next.add(id));
+          return next;
+        });
+        return;
+      }
+    }
+
+    lastSelectedNodeIdRef.current = node.id;
+
     if (e.shiftKey || e.metaKey || e.ctrlKey) {
       setSelectedNodeIds(prev => {
         const next = new Set(prev);
@@ -1061,13 +1142,9 @@ export const App: React.FC = () => {
         return next;
       });
     } else {
-      setSelectedNodeIds(prev => {
-        if (prev.size === 1 && prev.has(node.id)) {
-          return new Set();
-        }
-        return new Set([node.id]);
-      });
-      if (hasSubItems) {
+      const wasAlreadySelectedOnly = selectedNodeIds.size === 1 && selectedNodeIds.has(node.id);
+      setSelectedNodeIds(new Set([node.id]));
+      if (wasAlreadySelectedOnly && hasSubItems) {
         toggleSectionCollapse(node.id, isCollapsed);
       }
     }
@@ -1105,6 +1182,24 @@ export const App: React.FC = () => {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
         filterInputRef.current?.focus();
+        return;
+      }
+
+      // Select All on ⌘A / Ctrl+A
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        const hasChildren = activeNode?.children && activeNode.children.length > 0;
+        const hasTracks = activeFlatTracks.length > 0;
+
+        if (hasChildren && (selectedNodeIds.size > 0 || selectedTrackIds.size === 0)) {
+          setSelectedTrackIds(new Set());
+          setSelectedNodeIds(new Set(activeNode.children.map(c => c.id)));
+          showToast(`Selected all ${activeNode.children.length} containers`);
+        } else if (hasTracks) {
+          setSelectedNodeIds(new Set());
+          setSelectedTrackIds(new Set(activeFlatTracks.map(t => t.id)));
+          showToast(`Selected all ${activeFlatTracks.length} tracks`);
+        }
         return;
       }
 
@@ -1314,6 +1409,26 @@ export const App: React.FC = () => {
           className={`n ${isActive ? 'on' : ''} ${isSelected ? 'is-selected' : ''} ${isTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
           style={{ paddingLeft: `${6 + depth * 14}px` }}
           onClick={(e) => {
+            if (e.shiftKey && lastSelectedNodeIdRef.current) {
+              e.stopPropagation();
+              setSelectedTrackIds(new Set());
+              const flatVisible = flattenVisibleTree(tree, openNodes);
+              const lastIdx = flatVisible.findIndex(item => item.id === lastSelectedNodeIdRef.current);
+              const currIdx = flatVisible.findIndex(item => item.id === n.id);
+              if (lastIdx !== -1 && currIdx !== -1) {
+                const start = Math.min(lastIdx, currIdx);
+                const end = Math.max(lastIdx, currIdx);
+                const rangeIds = flatVisible.slice(start, end + 1).map(item => item.id);
+                setSelectedNodeIds(prev => {
+                  const next = (e.metaKey || e.ctrlKey) ? new Set(prev) : new Set<string>();
+                  rangeIds.forEach(id => next.add(id));
+                  return next;
+                });
+                return;
+              }
+            }
+            lastSelectedNodeIdRef.current = n.id;
+
             if (e.shiftKey || e.metaKey || e.ctrlKey) {
               e.stopPropagation();
               setSelectedTrackIds(new Set());
@@ -1533,6 +1648,12 @@ export const App: React.FC = () => {
 
                   <span className="folder-item-type-plain">{child.type}</span>
                   <span className="folder-item-name">{child.name}</span>
+                  {isNodeSelected && (
+                    <span className="folder-item-selected-badge">
+                      <Check size={11} strokeWidth={3} />
+                      Selected
+                    </span>
+                  )}
                   {isDropTarget && (
                     <span className="drop-target-badge">
                       {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : `Move into "${child.name}"`}
@@ -2351,6 +2472,7 @@ export const App: React.FC = () => {
         onRefreshArtwork={handleRefreshArtworkAction}
         onBatchRefreshArtwork={handleBatchRefreshArtworkAction}
         onResolveNodeIsrcs={handleResolveNodeIsrcsAction}
+        onBatchResolveNodeIsrcs={handleBatchResolveNodeIsrcsAction}
         onOpenImport={() => {
           const target = selectedNode ? selectedNode.id : 'uncategorized';
           setSearchInitialQuery('');

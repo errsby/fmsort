@@ -59,6 +59,7 @@ interface Props {
   onRefreshArtwork?: (node: LibraryNode) => void;
   onBatchRefreshArtwork?: (nodes: LibraryNode[]) => void;
   onResolveNodeIsrcs?: (node: LibraryNode) => void;
+  onBatchResolveNodeIsrcs?: (nodes: LibraryNode[]) => void;
   // Global actions
   onOpenImport?: () => void;
   onOpenTuneImport?: (node?: LibraryNode | null) => void;
@@ -90,6 +91,7 @@ export const ContextMenu: React.FC<Props> = ({
   onRefreshArtwork,
   onBatchRefreshArtwork,
   onResolveNodeIsrcs,
+  onBatchResolveNodeIsrcs,
   onOpenImport,
   onOpenTuneImport,
   onOpenNewTrack,
@@ -383,6 +385,10 @@ export const ContextMenu: React.FC<Props> = ({
       const { node, isMulti, count = 1, selectedNodes = [node] } = target;
       const artistNodes = selectedNodes.filter(n => n.type === 'Artist');
       const artistCount = artistNodes.length;
+      const albumNodes = selectedNodes.filter(n => n.type === 'Album');
+      const albumCount = albumNodes.length;
+      const folderNodes = selectedNodes.filter(n => n.type === 'Folder');
+      const folderCount = folderNodes.length;
 
       // Multi-Container Selection Actions
       if (isMulti && count > 1) {
@@ -408,10 +414,20 @@ export const ContextMenu: React.FC<Props> = ({
               </div>
               <div className="ctx-header-meta">
                 <div className="ctx-header-title">{count} Containers Selected</div>
-                <div className="ctx-header-sub">
+                <div className="ctx-header-sub" style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {albumCount > 0 && (
+                    <span className="active-hero-badge" style={{ fontSize: 9, background: '#312e81', color: '#c7d2fe', border: '1px solid #4338ca' }}>
+                      {albumCount} ALBUM{albumCount > 1 ? 'S' : ''}
+                    </span>
+                  )}
                   {artistCount > 0 && (
-                    <span className="active-hero-badge" style={{ fontSize: 9 }}>
+                    <span className="active-hero-badge" style={{ fontSize: 9, background: '#064e3b', color: '#a7f3d0', border: '1px solid #059669' }}>
                       {artistCount} ARTIST{artistCount > 1 ? 'S' : ''}
+                    </span>
+                  )}
+                  {folderCount > 0 && (
+                    <span className="active-hero-badge" style={{ fontSize: 9, background: '#78350f', color: '#fde68a', border: '1px solid #d97706' }}>
+                      {folderCount} FOLDER{folderCount > 1 ? 'S' : ''}
                     </span>
                   )}
                   <span> · Batch actions</span>
@@ -441,20 +457,31 @@ export const ContextMenu: React.FC<Props> = ({
               </button>
             )}
 
-            {/* Batch Refresh Artwork */}
-            {artistCount > 0 && (
-              <button
-                type="button"
-                className="ctx-item"
-                onClick={() => {
-                  onClose();
-                  onBatchRefreshArtwork?.(artistNodes);
-                }}
-              >
-                <ImageIcon size={14} />
-                <span className="ctx-item-label">Refresh Discogs Artwork ({artistCount})</span>
-              </button>
-            )}
+            {/* Batch Refresh Artwork (Supported for all containers including Albums & Artists) */}
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onClose();
+                onBatchRefreshArtwork?.(selectedNodes);
+              }}
+            >
+              <ImageIcon size={14} />
+              <span className="ctx-item-label">Refresh Discogs Artwork ({count})</span>
+            </button>
+
+            {/* Batch Resolve Missing ISRCs for Albums / Containers */}
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onClose();
+                onBatchResolveNodeIsrcs?.(selectedNodes);
+              }}
+            >
+              <Sparkles size={14} style={{ color: '#38bdf8' }} />
+              <span className="ctx-item-label">Resolve Missing ISRCs ({count} Containers)</span>
+            </button>
 
             <div className="ctx-divider" />
 
