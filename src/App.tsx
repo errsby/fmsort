@@ -184,7 +184,7 @@ export const App: React.FC = () => {
   const addMusicRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
 
-  const selectNode = (node: LibraryNode) => {
+  const selectNode = (node: LibraryNode, pushHistory = true) => {
     setActiveNodeId(node.id);
     const path = findNodePath(tree, node.id) || [];
     setOpenNodes(prev => {
@@ -196,6 +196,14 @@ export const App: React.FC = () => {
     setSelectedNodeId(null);
     setTreeDropdownOpen(false);
     setCollapsedSections({});
+
+    if (pushHistory) {
+      window.history.pushState(
+        { nodeId: node.id, time: Date.now() },
+        '',
+        window.location.pathname
+      );
+    }
   };
 
   const activeNode = useMemo(() => {
@@ -273,14 +281,26 @@ export const App: React.FC = () => {
     try {
       const data = await fetchTree();
       setTree(data);
+
+      // Check if browser has an existing history state to restore (e.g. on Back/Forward or refresh)
+      const historyNodeId = window.history.state?.nodeId;
+      if (historyNodeId && findNodeById(data, historyNodeId)) {
+        setActiveNodeId(historyNodeId);
+        return;
+      }
+
       if (preferredNodeId !== undefined) {
         if (preferredNodeId === '' || preferredNodeId === 'root') {
-          setActiveNodeId(data.length > 0 ? data[0].id : '');
+          const id = data.length > 0 ? data[0].id : '';
+          setActiveNodeId(id);
+          window.history.replaceState({ nodeId: id }, '', window.location.pathname);
         } else if (findNodeById(data, preferredNodeId)) {
           setActiveNodeId(preferredNodeId);
+          window.history.replaceState({ nodeId: preferredNodeId }, '', window.location.pathname);
         }
       } else if (!activeNodeId && data.length > 0) {
         setActiveNodeId(data[0].id);
+        window.history.replaceState({ nodeId: data[0].id }, '', window.location.pathname);
       }
     } catch (err) {
       console.error('Failed to load library:', err);
@@ -288,6 +308,28 @@ export const App: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // Browser Back/Forward navigation without URL slugs
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const targetId = e.state?.nodeId;
+      if (targetId) {
+        const targetNode = findNodeById(tree, targetId);
+        if (targetNode) {
+          selectNode(targetNode, false);
+          return;
+        }
+      }
+      if (tree.length > 0) {
+        selectNode(tree[0], false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [tree]);
 
   useEffect(() => {
     loadTree();
@@ -819,23 +861,140 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleNodeClick = (node: LibraryNode, e: React.MouseEvent) => {
+  const handleNodeClick = (
+    node: LibraryNode,
+    hasSubItems: boolean,
+    isCollapsed: boolean,
+    e: React.MouseEvent
+  ) => {
     e.stopPropagation();
     setSelectedTrackIds(new Set());
-    setSelectedNodeId(prev => (prev === node.id ? null : node.id));
-  };
-
-  const handleBatchDelete = async () => {
-    if (selectedTrackIds.size === 0) return;
-    if (!confirm(`Are you sure you want to delete ${selectedTrackIds.size} selected tracks?`)) return;
-    try {
-      await deleteTracksBatch(Array.from(selectedTrackIds));
-      setSelectedTrackIds(new Set());
-      await loadTree(activeNodeId);
-    } catch (err) {
-      alert('Failed to delete tracks');
+    setSelectedNodeId(node.id);
+    if (hasSubItems) {
+      toggleSectionCollapse(node.id, isCollapsed);
     }
   };
+
+  // Keyboard keybinds for selected items without right-clicking
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (
+        importModalOpen ||
+        commandPaletteOpen ||
+        newContainerOpen ||
+        newTrackOpen ||
+        moveTracksOpen ||
+        nodeEditOpen ||
+        backupOpen ||
+        columnMenuOpen
+      ) {
+        return;
+      }
+
+      // Deselect All on Escape
+      if (e.key === 'Escape') {
+        if (selectedNodeId || selectedTrackIds.size > 0) {
+          e.preventDefault();
+          setSelectedNodeId(null);
+          setSelectedTrackIds(new Set());
+        }
+        return;
+      }
+
+      // Container (Node) Shortcuts
+      if (selectedNode) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          selectNode(selectedNode);
+          return;
+        }
+        if (e.key === 'e' || e.key === 'E') {
+          e.preventDefault();
+          setNodeToEdit(selectedNode);
+          setNodeEditOpen(true);
+          return;
+        }
+        if (e.key === 'r' || e.key === 'R') {
+          e.preventDefault();
+          handleResolveNodeIsrcsAction(selectedNode);
+          return;
+        }
+        if (e.key === 'a' || e.key === 'A') {
+          e.preventDefault();
+          setNewTrackOpen(true);
+          return;
+        }
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+          e.preventDefault();
+          handleDeleteNodeAction(selectedNode);
+          return;
+        }
+      }
+
+      // Track Shortcuts
+      if (selectedTrackIds.size > 0) {
+        if (e.key === 'Enter' || e.key === 'e' || e.key === 'E') {
+          if (firstSelectedTrack) {
+            e.preventDefault();
+            setActiveTrack(firstSelectedTrack);
+          }
+          return;
+        }
+        if (e.key === 'r' || e.key === 'R') {
+          e.preventDefault();
+          if (selectedTrackIds.size === 1 && firstSelectedTrack) {
+            handleResolveIsrcAction(firstSelectedTrack);
+          } else {
+            handleBatchResolveIsrcAction();
+          }
+          return;
+        }
+        if (e.key === 'm' || e.key === 'M') {
+          e.preventDefault();
+          setMoveTracksOpen(true);
+          return;
+        }
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+          e.preventDefault();
+          if (selectedTrackIds.size === 1 && firstSelectedTrack) {
+            handleDeleteTrackAction(firstSelectedTrack);
+          } else {
+            handleBatchDeleteTracksAction();
+          }
+          return;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    selectedNodeId,
+    selectedNode,
+    selectedTrackIds,
+    firstSelectedTrack,
+    importModalOpen,
+    commandPaletteOpen,
+    newContainerOpen,
+    newTrackOpen,
+    moveTracksOpen,
+    nodeEditOpen,
+    backupOpen,
+    columnMenuOpen,
+  ]);
 
   // Helper to sort tracks
   const sortTracks = (tracks: Track[]): Track[] => {
@@ -1073,7 +1232,7 @@ export const App: React.FC = () => {
               onDragOver={e => handleNodeDragOver(e, child)}
               onDragLeave={e => handleNodeDragLeave(e, child)}
               onDrop={e => handleNodeDrop(e, child)}
-              onClick={e => handleNodeClick(child, e)}
+              onClick={e => handleNodeClick(child, hasSubItems, isCollapsed, e)}
               onDoubleClick={() => selectNode(child)}
               onContextMenu={e => handleNodeContextMenu(e, child)}
             >
@@ -1180,7 +1339,7 @@ export const App: React.FC = () => {
               onDragOver={e => handleNodeDragOver(e, child)}
               onDragLeave={e => handleNodeDragLeave(e, child)}
               onDrop={e => handleNodeDrop(e, child)}
-              onClick={e => handleNodeClick(child, e)}
+              onClick={e => handleNodeClick(child, hasSubItems, isCollapsed, e)}
               onDoubleClick={() => selectNode(child)}
               onContextMenu={e => handleNodeContextMenu(e, child)}
             >
@@ -1399,134 +1558,6 @@ export const App: React.FC = () => {
                 </div>
               )}
             </div>
-
-            {/* Contextual Item Controls Bar (for selected Node or selected Tracks) */}
-            {selectedNode ? (
-              <div className="item-controls-bar">
-                <span className="item-controls-badge">{selectedNode.type}</span>
-                <span className="item-controls-title" title={selectedNode.name}>
-                  {selectedNode.name}
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-                  <button
-                    type="button"
-                    className="p"
-                    style={{ fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                    onClick={() => selectNode(selectedNode)}
-                    title={`Open ${selectedNode.name}`}
-                  >
-                    <FolderOpen size={12} />
-                    <span>Open</span>
-                  </button>
-                  <button
-                    type="button"
-                    style={{ fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                    onClick={() => {
-                      setNodeToEdit(selectedNode);
-                      setNodeEditOpen(true);
-                    }}
-                    title="Container Settings"
-                  >
-                    <Settings size={12} />
-                    <span>Settings</span>
-                  </button>
-                  <button
-                    type="button"
-                    style={{ fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
-                    onClick={() => {
-                      setNewTrackOpen(true);
-                    }}
-                    title="Add track to this container"
-                  >
-                    <Plus size={12} />
-                    <span>Add Track</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    style={{ fontSize: 11, padding: '3px 10px' }}
-                    onClick={() => handleDeleteNodeAction(selectedNode)}
-                    title="Delete this container"
-                  >
-                    Delete
-                  </button>
-                  <button
-                    type="button"
-                    style={{ fontSize: 11, padding: '3px 8px' }}
-                    onClick={() => setSelectedNodeId(null)}
-                    title="Deselect"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ) : selectedTrackIds.size > 0 ? (
-              <div className="item-controls-bar">
-                <span className="item-controls-badge">
-                  {selectedTrackIds.size === 1 ? 'Track' : 'Tracks'}
-                </span>
-                <span className="item-controls-title">
-                  {selectedTrackIds.size === 1 && firstSelectedTrack
-                    ? `${firstSelectedTrack.t} — ${firstSelectedTrack.a}`
-                    : `${selectedTrackIds.size} tracks selected`}
-                </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
-                  {selectedTrackIds.size === 1 && firstSelectedTrack && (
-                    <>
-                      <button
-                        type="button"
-                        className="p"
-                        style={{ fontSize: 11, padding: '3px 10px' }}
-                        onClick={() => setActiveTrack(firstSelectedTrack)}
-                      >
-                        Edit Track
-                      </button>
-                      <button
-                        type="button"
-                        style={{ fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                        onClick={() => handleResolveIsrcAction(firstSelectedTrack)}
-                      >
-                        <Sparkles size={11} />
-                        <span>Resolve ISRC</span>
-                      </button>
-                    </>
-                  )}
-                  {selectedTrackIds.size > 1 && (
-                    <button
-                      type="button"
-                      style={{ fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                      onClick={handleBatchResolveIsrcAction}
-                    >
-                      <Sparkles size={11} />
-                      <span>Resolve ISRCs</span>
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    style={{ fontSize: 11, padding: '3px 10px' }}
-                    onClick={() => setMoveTracksOpen(true)}
-                  >
-                    Move…
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    style={{ fontSize: 11, padding: '3px 10px' }}
-                    onClick={selectedTrackIds.size === 1 && firstSelectedTrack ? () => handleDeleteTrackAction(firstSelectedTrack) : handleBatchDeleteTracksAction}
-                  >
-                    Delete
-                  </button>
-                  <button
-                    type="button"
-                    style={{ fontSize: 11, padding: '3px 8px' }}
-                    onClick={() => setSelectedTrackIds(new Set())}
-                    title="Deselect"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            ) : null}
 
             {/* Table or Artist Projects Suggestions for Artists without Subitems */}
             {isArtistWithoutSubitems ? (

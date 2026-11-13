@@ -208,6 +208,7 @@ export const ContextMenu: React.FC<Props> = ({
             >
               <Sparkles size={14} style={{ color: '#60a5fa' }} />
               <span className="ctx-item-label">Resolve Missing ISRCs</span>
+              <span className="ctx-item-shortcut">R</span>
             </button>
 
             <div className="ctx-divider" />
@@ -222,6 +223,7 @@ export const ContextMenu: React.FC<Props> = ({
             >
               <Trash2 size={14} />
               <span className="ctx-item-label">Delete {count} Tracks</span>
+              <span className="ctx-item-shortcut">⌫</span>
             </button>
           </>
         );
@@ -360,6 +362,7 @@ export const ContextMenu: React.FC<Props> = ({
           >
             <Trash2 size={14} />
             <span className="ctx-item-label">Delete Track</span>
+            <span className="ctx-item-shortcut">⌫</span>
           </button>
         </>
       );
@@ -405,6 +408,7 @@ export const ContextMenu: React.FC<Props> = ({
           >
             <ExternalLink size={14} />
             <span className="ctx-item-label">Open Container</span>
+            <span className="ctx-item-shortcut">Enter</span>
           </button>
 
           <button
@@ -429,6 +433,7 @@ export const ContextMenu: React.FC<Props> = ({
           >
             <Plus size={14} />
             <span className="ctx-item-label">Add Track Manually...</span>
+            <span className="ctx-item-shortcut">A</span>
           </button>
 
           <div className="ctx-divider" />
@@ -471,6 +476,7 @@ export const ContextMenu: React.FC<Props> = ({
           >
             <Pencil size={14} />
             <span className="ctx-item-label">Rename / Edit Container...</span>
+            <span className="ctx-item-shortcut">E</span>
           </button>
 
           {(isAlbum || isArtist) && (
@@ -497,6 +503,7 @@ export const ContextMenu: React.FC<Props> = ({
               >
                 <Sparkles size={14} style={{ color: '#60a5fa' }} />
                 <span className="ctx-item-label">Resolve All ISRCs</span>
+                <span className="ctx-item-shortcut">R</span>
               </button>
             </>
           )}
@@ -514,6 +521,7 @@ export const ContextMenu: React.FC<Props> = ({
           >
             <Trash2 size={14} />
             <span className="ctx-item-label">Delete Container</span>
+            <span className="ctx-item-shortcut">⌫</span>
           </button>
         </>
       );
