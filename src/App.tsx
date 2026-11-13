@@ -270,6 +270,7 @@ export const App: React.FC = () => {
     });
     setSelectedTrackIds(new Set());
     setTreeDropdownOpen(false);
+    setCollapsedSections({});
   };
 
   const activeNode = useMemo(() => {
@@ -704,8 +705,20 @@ export const App: React.FC = () => {
     setOpenNodes(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const toggleSectionCollapse = (id: string) => {
-    setCollapsedSections(prev => ({ ...prev, [id]: !prev[id] }));
+  const isSectionCollapsed = (child: LibraryNode, depth: number): boolean => {
+    if (child.id in collapsedSections) {
+      return collapsedSections[child.id];
+    }
+    // Subfolders within items (depth > 0) are closed by default
+    if (depth > 0) return true;
+    // Subfolders inside the container (type === 'Folder') are closed by default
+    if (child.type === 'Folder') return true;
+    // All other container items (Albums, Artists, Playlists, etc.) at depth 0 are opened by default
+    return false;
+  };
+
+  const toggleSectionCollapse = (id: string, currentlyCollapsed: boolean) => {
+    setCollapsedSections(prev => ({ ...prev, [id]: !currentlyCollapsed }));
   };
 
   const toggleTrackSelect = (id: number) => {
@@ -1158,7 +1171,7 @@ export const App: React.FC = () => {
       n.children.forEach(child => {
         const childTracks = flattenTracks(child);
         const hasSubItems = (child.children && child.children.length > 0) || childTracks.length > 0;
-        const isCollapsed = hasSubItems ? (collapsedSections[child.id] ?? false) : true;
+        const isCollapsed = hasSubItems ? isSectionCollapsed(child, depth) : true;
         const backdropImg = child.cover_url || child.tracks?.[0]?.cover_url || null;
 
         if (child.type === 'Album' || child.type === 'Artist' || child.type === 'Playlist') {
@@ -1169,7 +1182,7 @@ export const App: React.FC = () => {
               className={`folder-item-hero-row ${!hasSubItems ? 'is-empty' : ''} ${dropTargetNodeId === child.id ? 'is-drop-target' : ''}`}
               data-context-type="node"
               data-node-id={child.id}
-              onClick={hasSubItems ? () => toggleSectionCollapse(child.id) : () => selectNode(child)}
+              onClick={hasSubItems ? () => toggleSectionCollapse(child.id, isCollapsed) : () => selectNode(child)}
               onContextMenu={e => handleNodeContextMenu(e, child)}
               onDragOver={e => handleChildRowDragOver(e, child)}
               onDragLeave={e => handleChildRowDragLeave(e, child)}
@@ -1272,7 +1285,7 @@ export const App: React.FC = () => {
               className={`h ${dropTargetNodeId === child.id ? 'is-drop-target' : ''}`}
               data-context-type="node"
               data-node-id={child.id}
-              onClick={hasSubItems ? () => toggleSectionCollapse(child.id) : () => selectNode(child)}
+              onClick={hasSubItems ? () => toggleSectionCollapse(child.id, isCollapsed) : () => selectNode(child)}
               onContextMenu={e => handleNodeContextMenu(e, child)}
               onDragOver={e => handleChildRowDragOver(e, child)}
               onDragLeave={e => handleChildRowDragLeave(e, child)}
