@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import type { LibraryNode } from '../types';
-import { getAllNodes } from '../utils';
 import { updateNode, deleteNode } from '../api';
 import { CoverArt, getDiceBearUrl } from './CoverArt';
 import type { FunkyVariant } from './CoverArt';
-import { Sparkles } from 'lucide-react';
+import { FolderPickerDropdown } from './FolderPickerDropdown';
+import { Sparkles, FolderEdit } from 'lucide-react';
 
 interface Props {
   node: LibraryNode | null;
@@ -14,20 +14,6 @@ interface Props {
   onUpdated: (newActiveId?: string) => void;
 }
 
-const COMMON_TYPES = [
-  'Folder',
-  'Label',
-  'Artist',
-  'Album',
-  'Playlist',
-  'Genre',
-  'Section',
-  'Era',
-  'Box Set',
-  'Compilation',
-  'Mixtape',
-];
-
 export const NodeEditModal: React.FC<Props> = ({
   node,
   isOpen,
@@ -36,8 +22,7 @@ export const NodeEditModal: React.FC<Props> = ({
   onUpdated,
 }) => {
   const [name, setName] = useState('');
-  const [type, setType] = useState('Folder');
-  const [parentId, setParentId] = useState<string>('');
+  const [parentId, setParentId] = useState<string | null>(null);
   const [coverUrl, setCoverUrl] = useState('');
   const [variant, setVariant] = useState<FunkyVariant | 'auto'>('auto');
   const [saving, setSaving] = useState(false);
@@ -46,8 +31,7 @@ export const NodeEditModal: React.FC<Props> = ({
   useEffect(() => {
     if (node) {
       setName(node.name);
-      setType(node.type);
-      setParentId(node.parent_id || '');
+      setParentId(node.parent_id || null);
       setCoverUrl(node.cover_url || '');
       setVariant('auto');
       setError(null);
@@ -56,22 +40,10 @@ export const NodeEditModal: React.FC<Props> = ({
 
   if (!isOpen || !node) return null;
 
-  // Filter out the node itself and its descendants from candidate parents to prevent circular loops
-  const allContainers = getAllNodes(allTreeNodes);
-  const getDescendantIds = (n: LibraryNode, set = new Set<string>()): Set<string> => {
-    set.add(n.id);
-    for (const c of n.children || []) {
-      getDescendantIds(c, set);
-    }
-    return set;
-  };
-  const invalidParents = getDescendantIds(node);
-  const eligibleParents = allContainers.filter(c => !invalidParents.has(c.id));
-
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError('Container name cannot be empty');
+      setError('Folder name cannot be empty');
       return;
     }
     setSaving(true);
@@ -79,31 +51,31 @@ export const NodeEditModal: React.FC<Props> = ({
     try {
       await updateNode(node.id, {
         name: name.trim(),
-        type,
+        type: 'Folder',
         parent_id: parentId || null,
         cover_url: coverUrl.trim() || undefined,
       });
       onUpdated(node.id);
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'Failed to update container');
+      setError(err?.message || 'Failed to update folder');
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async () => {
-    const confirmMsg = `Are you sure you want to delete container "${node.name}"?\n(Child crates and tracks inside will be reassigned or deleted)`;
+    const confirmMsg = `Are you sure you want to delete folder "${node.name}"?\n(Child folders and tracks inside will be deleted)`;
     if (!window.confirm(confirmMsg)) return;
 
     setSaving(true);
     setError(null);
     try {
       await deleteNode(node.id);
-      onUpdated(undefined); // signal to reset or select root
+      onUpdated(node.parent_id || undefined);
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'Failed to delete container');
+      setError(err?.message || 'Failed to delete folder');
     } finally {
       setSaving(false);
     }
@@ -112,18 +84,21 @@ export const NodeEditModal: React.FC<Props> = ({
   return (
     <>
       <div className="ov on" onClick={onClose} />
-      <div className="dlg on" role="dialog" aria-label="Edit Container">
+      <div className="dlg on" role="dialog" aria-label="Edit Folder">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 16 }}>Manage Container Settings</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FolderEdit size={18} style={{ color: '#818cf8' }} />
+            <h2 style={{ margin: 0, fontSize: 16 }}>Edit Folder / Crate</h2>
+          </div>
           <button onClick={onClose} style={{ padding: '2px 8px' }}>✕</button>
         </div>
 
         {error && <div style={{ color: '#f87171', marginBottom: 12, fontSize: 12 }}>{error}</div>}
 
         <form onSubmit={handleSave} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Container Name first for instant live feedback */}
+          {/* Folder Name */}
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mu)' }}>
-            Container Name
+            Folder Name
             <input
               type="text"
               value={name}
@@ -137,25 +112,25 @@ export const NodeEditModal: React.FC<Props> = ({
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               <CoverArt
                 src={coverUrl}
-                alt={name}
+                alt={name || 'Folder'}
                 size={52}
-                type={type === 'Artist' ? 'artist' : type === 'Playlist' ? 'playlist' : type === 'Folder' ? 'folder' : 'album'}
-                seed={name}
+                type="folder"
+                seed={name || 'Crate'}
                 variant={variant}
-                rounded={type === 'Artist' ? 'full' : 6}
+                rounded={6}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
                   <span style={{ fontSize: 11, fontWeight: 600, color: '#f4f4f5' }}>
-                    {coverUrl ? 'Custom Image / DiceBear API' : 'Funky Text-Generated Thumbnail'}
+                    {coverUrl ? 'Custom Image URL' : 'Text-Generated Thumbnail'}
                   </span>
                   <span style={{ fontSize: 10, color: 'var(--mu)' }}>
-                    {coverUrl ? 'API URL set' : 'Live morph on typing'}
+                    {coverUrl ? 'Custom' : 'Live morph on typing'}
                   </span>
                 </div>
                 <input
                   type="url"
-                  placeholder="Paste artwork URL or use funky generators below..."
+                  placeholder="Paste artwork URL or use generators below..."
                   value={coverUrl}
                   onChange={e => setCoverUrl(e.target.value)}
                   style={{ width: '100%', fontSize: 11, padding: '4px 8px' }}
@@ -166,7 +141,7 @@ export const NodeEditModal: React.FC<Props> = ({
             {/* Quick Generator & Variant Preset Toolbar */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', paddingTop: 6, borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
               <span style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-                Funky Style:
+                Style:
               </span>
               <select
                 value={variant}
@@ -202,7 +177,7 @@ export const NodeEditModal: React.FC<Props> = ({
                 {coverUrl && (
                   <button
                     type="button"
-                    title="Reset to live local SVG thumbnail"
+                    title="Reset to local SVG thumbnail"
                     onClick={() => setCoverUrl('')}
                     style={{ fontSize: 10, padding: '2px 6px', height: 24, color: 'var(--mu)', background: 'transparent', border: '1px solid var(--bd)' }}
                   >
@@ -213,31 +188,18 @@ export const NodeEditModal: React.FC<Props> = ({
             </div>
           </div>
 
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mu)' }}>
-            Container Type
-            <select value={type} onChange={e => setType(e.target.value)}>
-              {COMMON_TYPES.map(t => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-              {!COMMON_TYPES.includes(type) && (
-                <option value={type}>{type} (Custom)</option>
-              )}
-            </select>
-          </label>
-
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mu)' }}>
-            Parent Container
-            <select value={parentId} onChange={e => setParentId(e.target.value)}>
-              <option value="">(Root / Top Level)</option>
-              {eligibleParents.map(c => (
-                <option key={c.id} value={c.id}>
-                  [{c.type}] {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {/* Custom Parent Folder Picker Submenu (Excluding self and descendants) */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12, color: 'var(--mu)' }}>Parent Folder</span>
+            <FolderPickerDropdown
+              selectedFolderId={parentId}
+              onSelectFolder={setParentId}
+              allTreeNodes={allTreeNodes}
+              excludeNodeId={node.id}
+              allowRoot={true}
+              placeholder="Select parent folder..."
+            />
+          </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
             <button
@@ -246,7 +208,7 @@ export const NodeEditModal: React.FC<Props> = ({
               disabled={saving}
               onClick={handleDelete}
             >
-              Delete Container
+              Delete Folder
             </button>
 
             <div style={{ display: 'flex', gap: 8 }}>

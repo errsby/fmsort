@@ -72,6 +72,8 @@ import {
   FileText,
   FolderInput,
   Copy,
+  Pin,
+  PinOff,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -150,6 +152,14 @@ export const App: React.FC = () => {
   const workspacesDockRef = useRef<HTMLDivElement>(null);
   const dragHoverTimeoutRef = useRef<any>(null);
   const [isWorkspaceDropTarget, setIsWorkspaceDropTarget] = useState<string | null>(null);
+  const [pinnedCrateIds, setPinnedCrateIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('fmsort_pinned_crates');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [tree, setTree] = useState<LibraryNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeNodeId, setActiveNodeId] = useState<string>('');
@@ -293,7 +303,7 @@ export const App: React.FC = () => {
 
     if (pushHistory) {
       window.history.pushState(
-        { nodeId: node.id, time: Date.now() },
+        { nodeId: node.id, workspaceId: activeWorkspaceId, time: Date.now() },
         '',
         window.location.pathname
       );
@@ -385,6 +395,56 @@ export const App: React.FC = () => {
     return list;
   }, [tree]);
 
+  const togglePinCrate = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setPinnedCrateIds(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+      try {
+        localStorage.setItem('fmsort_pinned_crates', JSON.stringify(next));
+      } catch {}
+      const node = findNodeById(tree, id);
+      showToast(next.includes(id) ? `Pinned "${node?.name || 'folder'}" to submenu` : `Unpinned "${node?.name || 'folder'}"`);
+      return next;
+    });
+  };
+
+  const moveCrateOrder = async (nodeId: string, direction: 'up' | 'down', e: React.MouseEvent) => {
+    e.stopPropagation();
+    const node = findNodeById(tree, nodeId);
+    if (!node) return;
+    const parent = node.parent_id ? findNodeById(tree, node.parent_id) : null;
+    const siblings = parent ? (parent.children || []) : tree;
+    const idx = siblings.findIndex(s => s.id === nodeId);
+    if (idx === -1) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= siblings.length) return;
+
+    const other = siblings[targetIdx];
+    try {
+      await Promise.all([
+        updateNode(node.id, { sort_order: targetIdx }),
+        updateNode(other.id, { sort_order: idx }),
+      ]);
+      await loadTree(activeNodeId);
+      showToast(`Moved "${node.name}" ${direction}`);
+    } catch {
+      showToast('Failed to reorder folder');
+    }
+  };
+
+  const movePinnedOrder = (idx: number, targetIdx: number) => {
+    if (targetIdx < 0 || targetIdx >= pinnedCrateIds.length) return;
+    setPinnedCrateIds(prev => {
+      const copy = [...prev];
+      const [removed] = copy.splice(idx, 1);
+      copy.splice(targetIdx, 0, removed);
+      try {
+        localStorage.setItem('fmsort_pinned_crates', JSON.stringify(copy));
+      } catch {}
+      return copy;
+    });
+  };
+
   const openInNewWorkspace = (node: LibraryNode, switchTo: boolean = true) => {
     const existing = workspaces.find(ws => ws.nodeId === node.id);
     if (existing) {
@@ -405,6 +465,9 @@ export const App: React.FC = () => {
     if (switchTo) {
       setActiveWorkspaceId(newWsId);
       setActiveNodeId(node.id);
+      setSelectedTrackIds(new Set());
+      setSelectedNodeIds(new Set());
+      window.history.replaceState({ nodeId: node.id, workspaceId: newWsId }, '', window.location.pathname);
     }
     showToast(`Opened "${node.name}" in new workspace`);
   };
@@ -415,7 +478,8 @@ export const App: React.FC = () => {
     setActiveWorkspaceId(ws.id);
     setActiveNodeId(ws.nodeId);
     setSelectedTrackIds(new Set());
-    setSelectedNodeId(null);
+    setSelectedNodeIds(new Set());
+    window.history.replaceState({ nodeId: ws.nodeId, workspaceId: ws.id }, '', window.location.pathname);
   };
 
   const closeWorkspace = (wsId: string, e?: React.MouseEvent) => {
@@ -437,13 +501,14 @@ export const App: React.FC = () => {
       const nextWs = remaining[newIdx];
       setActiveWorkspaceId(nextWs.id);
       setActiveNodeId(nextWs.nodeId);
+      window.history.replaceState({ nodeId: nextWs.nodeId, workspaceId: nextWs.id }, '', window.location.pathname);
     }
   };
 
   const handleWorkspaceChipDragOver = (e: React.DragEvent, wsId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = 'copy';
     setIsWorkspaceDropTarget(wsId);
   };
 
@@ -454,7 +519,7 @@ export const App: React.FC = () => {
     if (dragHoverTimeoutRef.current) clearTimeout(dragHoverTimeoutRef.current);
     dragHoverTimeoutRef.current = setTimeout(() => {
       switchWorkspace(wsId);
-    }, 650);
+    }, 300);
   };
 
   const handleWorkspaceChipDragLeave = (e: React.DragEvent) => {
@@ -464,68 +529,15 @@ export const App: React.FC = () => {
     setIsWorkspaceDropTarget(null);
   };
 
-  const handleWorkspaceChipDrop = async (e: React.DragEvent, targetNode: LibraryNode | null) => {
+  const handleWorkspaceChipDrop = (e: React.DragEvent, wsId: string) => {
     e.preventDefault();
     e.stopPropagation();
     if (dragHoverTimeoutRef.current) clearTimeout(dragHoverTimeoutRef.current);
     setIsWorkspaceDropTarget(null);
-    if (!targetNode) return;
-
-    // 1. Moving tracks across workspaces
-    let trackIds = draggingTrackIds;
-    if (!trackIds.length) {
-      try {
-        const raw = e.dataTransfer.getData('text/fmsort-tracks');
-        if (raw) trackIds = JSON.parse(raw);
-      } catch {}
-    }
-    if (!trackIds.length && selectedTrackIds.size > 0) {
-      trackIds = Array.from(selectedTrackIds);
-    }
-
-    if (trackIds.length > 0) {
-      try {
-        showToast(`Moving ${trackIds.length} track${trackIds.length > 1 ? 's' : ''} to "${targetNode.name}"...`);
-        await moveTracksBatch(trackIds, targetNode.id);
-        showToast(`Moved ${trackIds.length} track${trackIds.length > 1 ? 's' : ''} to "${targetNode.name}"`);
-        setSelectedTrackIds(new Set());
-        setDraggingTrackIds([]);
-        await loadTree(activeNodeId);
-      } catch (err: any) {
-        console.error('Failed to move tracks to workspace:', err);
-        showToast(err.message || 'Failed to move tracks');
-      }
-      return;
-    }
-
-    // 2. Moving containers (folders, albums, artists) across workspaces
-    let nodeIds = draggingNodeIds.length ? draggingNodeIds : (draggingNodeId ? [draggingNodeId] : []);
-    if (!nodeIds.length) {
-      try {
-        const raw = e.dataTransfer.getData('text/fmsort-nodes');
-        if (raw) nodeIds = JSON.parse(raw);
-      } catch {}
-    }
-
-    if (nodeIds.length > 0) {
-      const validIds = nodeIds.filter(id => id !== targetNode.id && !isDescendant(tree, id, targetNode.id));
-      if (validIds.length === 0) {
-        showToast('Cannot move a container into itself or its own subfolder');
-        return;
-      }
-      try {
-        await Promise.all(validIds.map(id => updateNode(id, { parent_id: targetNode.id })));
-        showToast(`Moved ${validIds.length} container(s) to "${targetNode.name}"`);
-        setDraggingNodeIds([]);
-        setDraggingNodeId(null);
-        setSelectedNodeIds(new Set());
-        await loadTree(activeNodeId);
-      } catch (err: any) {
-        console.error('Failed to move container to workspace:', err);
-        showToast(err.message || 'Failed to move container');
-      }
-      return;
-    }
+    switchWorkspace(wsId);
+    const targetWs = workspaces.find(w => w.id === wsId);
+    const targetNode = targetWs ? findNodeById(tree, targetWs.nodeId) : null;
+    showToast(`Opened "${targetNode?.name || 'Workspace'}" — drop into any folder, album, or table row`);
   };
 
   const handleWorkspaceChipMouseEnter = (node: LibraryNode | null, e: React.MouseEvent<HTMLDivElement>) => {
@@ -564,32 +576,38 @@ export const App: React.FC = () => {
       const data = await fetchTree();
       setTree(data);
 
-      // Check if browser has an existing history state to restore (e.g. on Back/Forward or refresh)
-      const historyNodeId = window.history.state?.nodeId;
-      if (historyNodeId && findNodeById(data, historyNodeId)) {
-        setActiveNodeId(historyNodeId);
-        setWorkspaces(prev => {
-          if (prev.length === 1 && !prev[0].nodeId) {
-            return [{ ...prev[0], nodeId: historyNodeId, history: [historyNodeId], historyIndex: 0 }];
+      let targetId = '';
+      if (preferredNodeId && findNodeById(data, preferredNodeId)) {
+        targetId = preferredNodeId;
+      } else if (activeNodeId && findNodeById(data, activeNodeId)) {
+        targetId = activeNodeId;
+      } else {
+        const curWs = workspaces.find(w => w.id === activeWorkspaceId);
+        if (curWs && curWs.nodeId && findNodeById(data, curWs.nodeId)) {
+          targetId = curWs.nodeId;
+        } else {
+          const historyNodeId = window.history.state?.nodeId;
+          if (historyNodeId && findNodeById(data, historyNodeId)) {
+            targetId = historyNodeId;
+          } else if (data.length > 0) {
+            targetId = data[0].id;
           }
-          return prev;
-        });
-        return;
+        }
       }
 
-      const initialId = preferredNodeId && findNodeById(data, preferredNodeId)
-        ? preferredNodeId
-        : (data.length > 0 ? data[0].id : '');
-
-      if (initialId) {
-        setActiveNodeId(initialId);
-        setWorkspaces(prev => {
-          if (prev.length === 1 && !prev[0].nodeId) {
-            return [{ ...prev[0], nodeId: initialId, history: [initialId], historyIndex: 0 }];
+      if (targetId) {
+        setActiveNodeId(targetId);
+        setWorkspaces(prev => prev.map(ws => {
+          if (ws.id === activeWorkspaceId) {
+            return {
+              ...ws,
+              nodeId: targetId,
+              history: ws.history.length === 0 ? [targetId] : ws.history,
+            };
           }
-          return prev;
-        });
-        window.history.replaceState({ nodeId: initialId }, '', window.location.pathname);
+          return ws;
+        }));
+        window.history.replaceState({ nodeId: targetId, workspaceId: activeWorkspaceId }, '', window.location.pathname);
       }
     } catch (err) {
       console.error('Failed to load library:', err);
@@ -601,6 +619,10 @@ export const App: React.FC = () => {
   // Browser Back/Forward navigation without URL slugs
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
+      const targetWsId = e.state?.workspaceId;
+      if (targetWsId && workspaces.some(w => w.id === targetWsId)) {
+        setActiveWorkspaceId(targetWsId);
+      }
       const targetId = e.state?.nodeId;
       if (targetId) {
         const targetNode = findNodeById(tree, targetId);
@@ -618,7 +640,7 @@ export const App: React.FC = () => {
     return () => {
       window.removeEventListener('popstate', handlePopState);
     };
-  }, [tree]);
+  }, [tree, workspaces]);
 
   useEffect(() => {
     loadTree();
@@ -1820,7 +1842,90 @@ export const App: React.FC = () => {
     });
   };
 
-  // Render tree node recursively
+  // Helper to sort container nodes (folders)
+  const sortNodes = (nodes: LibraryNode[]): LibraryNode[] => {
+    if (!sortConfig) return nodes;
+    const { key, direction } = sortConfig;
+    const mult = direction === 'asc' ? 1 : -1;
+
+    return [...nodes].sort((a, b) => {
+      let va: any = '';
+      let vb: any = '';
+
+      switch (key) {
+        case 'title':
+        case 'album':
+          va = a.name.toLowerCase();
+          vb = b.name.toLowerCase();
+          break;
+        case 'artist': {
+          const artA = a.tracks?.[0]?.a || a.name;
+          const artB = b.tracks?.[0]?.a || b.name;
+          va = artA.toLowerCase();
+          vb = artB.toLowerCase();
+          break;
+        }
+        case 'year': {
+          const ya = a.tracks?.[0]?.y || 0;
+          const yb = b.tracks?.[0]?.y || 0;
+          return (ya - yb) * mult;
+        }
+        case 'format':
+          va = a.type.toLowerCase();
+          vb = b.type.toLowerCase();
+          break;
+        case 'cat':
+          va = (a.tracks?.[0]?.c || '').toLowerCase();
+          vb = (b.tracks?.[0]?.c || '').toLowerCase();
+          break;
+        case 'len': {
+          const la = flattenTracks(a).reduce((sum, t) => sum + (t.len || 0), 0);
+          const lb = flattenTracks(b).reduce((sum, t) => sum + (t.len || 0), 0);
+          return (la - lb) * mult;
+        }
+        default:
+          va = a.name.toLowerCase();
+          vb = b.name.toLowerCase();
+          break;
+      }
+
+      if (va > vb) return 1 * mult;
+      if (va < vb) return -1 * mult;
+      return 0;
+    });
+  };
+
+  // Deep search predicate for tracks across title, artist, album, cat, barcode, MBID, ISRC, etc.
+  const trackMatches = (t: Track, query: string): boolean => {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    return Boolean(
+      (t.t && t.t.toLowerCase().includes(q)) ||
+      (t.a && t.a.toLowerCase().includes(q)) ||
+      (t.al && t.al.toLowerCase().includes(q)) ||
+      (t.c && t.c.toLowerCase().includes(q)) ||
+      (t.bc && t.bc.toLowerCase().includes(q)) ||
+      (t.mb && t.mb.toLowerCase().includes(q)) ||
+      (t.isrc && t.isrc.toLowerCase().includes(q)) ||
+      (t.f && t.f.toLowerCase().includes(q)) ||
+      (t.key && t.key.toLowerCase().includes(q)) ||
+      (t.y ? String(t.y).includes(q) : false) ||
+      (t.bpm ? String(t.bpm).includes(q) : false)
+    );
+  };
+
+  // Deep recursive search predicate for folders at any depth
+  const nodeMatchesSearch = (node: LibraryNode, query: string): boolean => {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    if (node.name && node.name.toLowerCase().includes(q)) return true;
+    if (node.type && node.type.toLowerCase().includes(q)) return true;
+    if (node.tracks && node.tracks.some(t => trackMatches(t, q))) return true;
+    if (node.children && node.children.some(child => nodeMatchesSearch(child, q))) return true;
+    return false;
+  };
+
+  // Render tree node recursively in navigation submenu
   const renderTreeNode = (n: LibraryNode, depth: number) => {
     const hasChildren = n.children && n.children.length > 0;
     const isOpen = openNodes[n.id] ?? false;
@@ -1828,6 +1933,7 @@ export const App: React.FC = () => {
     const isSelected = selectedNodeIds.has(n.id);
     const isTarget = dropTargetNodeId === n.id;
     const isDragging = draggingNodeIds.includes(n.id) || draggingNodeId === n.id;
+    const isPinned = pinnedCrateIds.includes(n.id);
 
     return (
       <React.Fragment key={n.id}>
@@ -1891,27 +1997,54 @@ export const App: React.FC = () => {
             {hasChildren ? '›' : ''}
           </span>
           <CoverArt
-            src={n.cover_url || (n.type !== 'Folder' ? n.tracks?.[0]?.cover_url : null)}
+            src={n.cover_url || null}
             alt={n.name}
             size={18}
-            type={n.type === 'Artist' ? 'artist' : n.type === 'Playlist' ? 'playlist' : n.type === 'Folder' ? 'folder' : 'album'}
+            type="folder"
             seed={n.name}
-            rounded={n.type === 'Artist' ? 'full' : 3}
+            rounded={3}
           />
-          <span className="ty">{n.type}</span>
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{n.name}</span>
-          <button
-            type="button"
-            className="node-more-btn"
-            title={`Manage ${n.name}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              setNodeToEdit(n);
-              setNodeEditOpen(true);
-            }}
-          >
-            <MoreHorizontal size={13} />
-          </button>
+
+          {/* Quick pin & reorder buttons on hover */}
+          <div className="tree-node-actions" onClick={e => e.stopPropagation()}>
+            <button
+              type="button"
+              className={`tree-pin-btn ${isPinned ? 'pinned' : ''}`}
+              title={isPinned ? 'Unpin from submenu' : 'Pin to top of submenu'}
+              onClick={e => togglePinCrate(n.id, e)}
+            >
+              <Pin size={11} />
+            </button>
+            <button
+              type="button"
+              className="tree-reorder-btn"
+              title="Move folder up"
+              onClick={e => moveCrateOrder(n.id, 'up', e)}
+            >
+              <ChevronUp size={12} />
+            </button>
+            <button
+              type="button"
+              className="tree-reorder-btn"
+              title="Move folder down"
+              onClick={e => moveCrateOrder(n.id, 'down', e)}
+            >
+              <ChevronDown size={12} />
+            </button>
+            <button
+              type="button"
+              className="node-more-btn"
+              title={`Manage ${n.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setNodeToEdit(n);
+                setNodeEditOpen(true);
+              }}
+            >
+              <MoreHorizontal size={13} />
+            </button>
+          </div>
         </div>
         {isOpen && hasChildren && n.children.map(c => renderTreeNode(c, depth + 1))}
       </React.Fragment>
@@ -1924,19 +2057,15 @@ export const App: React.FC = () => {
     const colSpan = activeCols.length + 1;
     const nodesOut: React.ReactNode[] = [];
 
+    const q = filterText.trim().toLowerCase();
+
     // Filter tracks if filterText is active
     let nodeTracks = n.tracks || [];
-    if (filterText.trim()) {
-      const ft = filterText.toLowerCase();
-      nodeTracks = nodeTracks.filter(
-        t =>
-          t.t.toLowerCase().includes(ft) ||
-          t.a.toLowerCase().includes(ft) ||
-          t.al.toLowerCase().includes(ft) ||
-          t.c.toLowerCase().includes(ft) ||
-          t.bc.toLowerCase().includes(ft) ||
-          t.mb.toLowerCase().includes(ft)
-      );
+    if (q) {
+      const containerMatchedDirectly = n.name.toLowerCase().includes(q) || n.type.toLowerCase().includes(q);
+      if (!containerMatchedDirectly) {
+        nodeTracks = nodeTracks.filter(t => trackMatches(t, q));
+      }
     }
 
     const sorted = sortTracks(nodeTracks);
@@ -2008,10 +2137,16 @@ export const App: React.FC = () => {
 
     // Sub-containers aligned with table rows and structured in tree layout
     if (n.children && n.children.length > 0) {
-      n.children.forEach(child => {
+      let nodeChildren = n.children;
+      if (q) {
+        nodeChildren = nodeChildren.filter(child => nodeMatchesSearch(child, q));
+      }
+      nodeChildren = sortNodes(nodeChildren);
+
+      nodeChildren.forEach(child => {
         const childTracks = flattenTracks(child);
         const hasSubItems = (child.children && child.children.length > 0) || childTracks.length > 0;
-        const isCollapsed = hasSubItems ? isSectionCollapsed(child, depth) : true;
+        const isCollapsed = q ? false : (hasSubItems ? isSectionCollapsed(child, depth) : true);
         const isNodeSelected = selectedNodeIds.has(child.id);
         const isDropTarget = dropTargetNodeId === child.id;
         const isDragging = draggingNodeIds.includes(child.id) || draggingNodeId === child.id;
@@ -2081,13 +2216,6 @@ export const App: React.FC = () => {
                       <span className="ttl container-ttl">
                         {child.name}
                       </span>
-
-                      {/* Drop Target Badge */}
-                      {isDropTarget && (
-                        <span className="drop-target-badge">
-                          {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : `Move into "${child.name}"`}
-                        </span>
-                      )}
                     </div>
                   </td>
                 );
@@ -2482,6 +2610,49 @@ export const App: React.FC = () => {
                     {(() => {
                       const rows = renderSections(activeNode, 0);
                       if (rows.length === 0) {
+                        if (filterText.trim()) {
+                          const query = filterText.trim().toLowerCase();
+                          const matchesInLibrary = allLibraryTracks.filter(t => trackMatches(t, query)).length;
+                          return (
+                            <tr>
+                              <td
+                                colSpan={COLUMNS.filter(c => visibleColumns[c.key]).length + 1}
+                                style={{ padding: '60px 20px', color: 'var(--mu)', textAlign: 'center' }}
+                              >
+                                <div style={{ maxWidth: 420, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                  <Search size={32} style={{ color: '#71717a', marginBottom: 12 }} />
+                                  <div style={{ fontWeight: 600, fontSize: 14, color: '#f4f4f5', marginBottom: 4 }}>
+                                    No results for &ldquo;{filterText}&rdquo; in {activeNode.name}
+                                  </div>
+                                  <p style={{ fontSize: 12, margin: '0 0 16px', lineHeight: 1.4, color: '#a1a1aa' }}>
+                                    {matchesInLibrary > 0
+                                      ? `Found ${matchesInLibrary} matching track(s) in other crates in your library.`
+                                      : 'No tracks or folders match your query.'}
+                                  </p>
+                                  <div style={{ display: 'flex', gap: 8 }}>
+                                    <button
+                                      type="button"
+                                      className="p"
+                                      onClick={() => setFilterText('')}
+                                    >
+                                      <span>Clear Filter</span>
+                                    </button>
+                                    {matchesInLibrary > 0 && tree.length > 0 && activeNode.id !== tree[0].id && (
+                                      <button
+                                        type="button"
+                                        className="btn-ghost"
+                                        onClick={() => selectNode(tree[0])}
+                                      >
+                                        <span>Search in Library Root</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        }
+
                         if (activeNode.type === 'Folder') {
                           return (
                             <tr>
@@ -2597,6 +2768,197 @@ export const App: React.FC = () => {
         )}
           </main>
 
+          {/* Floating Workspaces Switcher - Invisible floating container directly above footer bar */}
+          <div className="floating-workspaces-container">
+            <div className="floating-workspaces-dock-wrapper" ref={workspacesDockRef}>
+              <div className="footer-workspaces-dock">
+                {workspaces.map((ws, wsIdx) => {
+                  const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
+                  const isActive = ws.id === activeWorkspaceId;
+                  const isTarget = isWorkspaceDropTarget === ws.id;
+
+                  return (
+                    <div
+                      key={ws.id}
+                      className={`workspace-chip ${isActive ? 'active' : ''} ${isTarget ? 'is-drop-target' : ''}`}
+                      onClick={() => switchWorkspace(ws.id)}
+                      onAuxClick={e => {
+                        if (e.button === 1) {
+                          e.preventDefault();
+                          closeWorkspace(ws.id);
+                        }
+                      }}
+                      onMouseEnter={e => handleWorkspaceChipMouseEnter(wsNode, e)}
+                      onMouseLeave={handleWorkspaceChipMouseLeave}
+                      onDragEnter={e => handleWorkspaceChipDragEnter(e, ws.id)}
+                      onDragOver={e => handleWorkspaceChipDragOver(e, ws.id)}
+                      onDragLeave={handleWorkspaceChipDragLeave}
+                      onDrop={e => handleWorkspaceChipDrop(e, ws.id)}
+                      title={`Switch to "${wsNode?.name || 'Workspace'}" (⌘${wsIdx + 1}) · Drag here to switch workspace`}
+                    >
+                      <span className="workspace-chip-icon">
+                        <CoverArt
+                          src={wsNode?.cover_url || null}
+                          alt={wsNode?.name || ''}
+                          size={14}
+                          type="folder"
+                          seed={wsNode?.name || ''}
+                          rounded={3}
+                        />
+                      </span>
+
+                      <span className="workspace-chip-title">
+                        {wsNode?.name || 'Untitled Crate'}
+                      </span>
+
+                      {workspaces.length > 1 && (
+                        <button
+                          type="button"
+                          className="workspace-chip-close"
+                          onClick={e => closeWorkspace(ws.id, e)}
+                          title="Close Workspace (Middle-click or ×)"
+                          aria-label="Close workspace"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* New Workspace (+) Button & Popover */}
+              <div className="workspace-add-container" ref={workspaceAddContainerRef}>
+                <button
+                  type="button"
+                  className={`workspace-add-btn ${workspacePickerOpen ? 'active' : ''}`}
+                  onClick={() => setWorkspacePickerOpen(prev => !prev)}
+                  title="Open New Workspace (+ / ⌘T)"
+                  aria-label="Open New Workspace"
+                >
+                  <Plus size={15} strokeWidth={2.4} />
+                </button>
+
+                {/* Upward Workspace Picker Popover */}
+                {workspacePickerOpen && (
+                  <div className="workspace-picker-popover footer-popover" ref={workspacePickerRef}>
+                    <div className="workspace-picker-header">
+                      <div className="workspace-picker-header-title">
+                        <FolderPlus size={13} style={{ color: '#818cf8' }} />
+                        <span>Open Workspace</span>
+                      </div>
+                      <span className="workspace-picker-shortcut">⌘T</span>
+                    </div>
+
+                    {/* Quick Open Root Crate or Duplicate View */}
+                    <div className="workspace-picker-quick-actions">
+                      {tree.length > 0 && (
+                        <button
+                          type="button"
+                          className="workspace-picker-quick-btn"
+                          onClick={() => {
+                            openInNewWorkspace(tree[0]);
+                            setWorkspacePickerOpen(false);
+                            setWorkspacePickerSearch('');
+                          }}
+                        >
+                          <Folder size={12} style={{ color: '#38bdf8' }} />
+                          <span>Library Root ({tree[0].name})</span>
+                        </button>
+                      )}
+                      {activeNode && (
+                        <button
+                          type="button"
+                          className="workspace-picker-quick-btn"
+                          onClick={() => {
+                            const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                            setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
+                            setActiveWorkspaceId(newWsId);
+                            setWorkspacePickerOpen(false);
+                            setWorkspacePickerSearch('');
+                            showToast(`Duplicated workspace for "${activeNode.name}"`);
+                          }}
+                        >
+                          <Copy size={12} style={{ color: '#a78bfa' }} />
+                          <span>Duplicate Active ({activeNode.name})</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="ctx-divider" style={{ margin: '6px 0' }} />
+
+                    <input
+                      type="search"
+                      className="workspace-picker-search"
+                      placeholder="Search folders to open..."
+                      value={workspacePickerSearch}
+                      onChange={e => setWorkspacePickerSearch(e.target.value)}
+                      autoFocus
+                    />
+                    <div className="workspace-picker-list">
+                      {allContainers
+                        .filter(c => !workspacePickerSearch.trim() || c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
+                        .map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="workspace-picker-item"
+                            onClick={() => {
+                              openInNewWorkspace(c);
+                              setWorkspacePickerOpen(false);
+                              setWorkspacePickerSearch('');
+                            }}
+                          >
+                            <CoverArt
+                              src={c.cover_url || null}
+                              alt={c.name}
+                              size={18}
+                              type="folder"
+                              seed={c.name}
+                              rounded={3}
+                            />
+                            <span className="workspace-picker-item-title">{c.name}</span>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Hover Preview Card Tooltip */}
+            {hoverPreviewNode && hoverPreviewPos && (
+              <div
+                className="workspace-preview-popover"
+                style={{ left: hoverPreviewPos.left }}
+              >
+                <div className="workspace-preview-media">
+                  <CoverArt
+                    src={hoverPreviewNode.cover_url || null}
+                    alt={hoverPreviewNode.name}
+                    size={44}
+                    type="folder"
+                    seed={hoverPreviewNode.name}
+                    rounded={6}
+                  />
+                </div>
+                <div className="workspace-preview-info">
+                  <h4 className="workspace-preview-title">{hoverPreviewNode.name}</h4>
+                  <div className="workspace-preview-meta">
+                    <span>{flattenTracks(hoverPreviewNode).length} tracks</span>
+                    {hoverPreviewNode.children && hoverPreviewNode.children.length > 0 && (
+                      <>
+                        <span>·</span>
+                        <span>{hoverPreviewNode.children.length} subfolders</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="workspace-preview-hint">Click to switch · Middle-click to close</div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Integrated UI Footer — Docked at bottom of main viewport (does NOT extend into sidebar) */}
           <footer className="integrated-footer">
             {/* Left: Library Tree Dropdown (../) + Breadcrumbs (without dropdown arrows) */}
@@ -2643,6 +3005,82 @@ export const App: React.FC = () => {
                         </button>
                       </div>
                     </div>
+
+                    {/* Pinned Folders Section */}
+                    {pinnedCrateIds.length > 0 && !menuSearch.trim() && (
+                      <div className="crumb-menu-pinned-section">
+                        <div className="crumb-menu-section-header">
+                          <div className="crumb-menu-section-title">
+                            <Pin size={12} style={{ color: '#f59e0b' }} />
+                            <span>Pinned Folders</span>
+                          </div>
+                          <span className="crumb-menu-section-badge">{pinnedCrateIds.length}</span>
+                        </div>
+                        <div className="crumb-menu-pinned-list">
+                          {pinnedCrateIds
+                            .map(id => findNodeById(tree, id))
+                            .filter((n): n is LibraryNode => Boolean(n))
+                            .map((pn, pIdx) => (
+                              <div
+                                key={pn.id}
+                                className={`crumb-menu-pinned-item ${activeNodeId === pn.id ? 'active' : ''}`}
+                                onClick={() => {
+                                  selectNode(pn);
+                                  setTreeDropdownOpen(false);
+                                }}
+                                title={`Go to ${pn.name}`}
+                              >
+                                <CoverArt
+                                  src={pn.cover_url || null}
+                                  alt={pn.name}
+                                  size={16}
+                                  type="folder"
+                                  seed={pn.name}
+                                  rounded={3}
+                                />
+                                <span className="crumb-menu-pinned-name">{pn.name}</span>
+                                <div className="crumb-menu-pinned-actions">
+                                  {pIdx > 0 && (
+                                    <button
+                                      type="button"
+                                      className="crumb-menu-reorder-btn"
+                                      title="Move Up"
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        movePinnedOrder(pIdx, pIdx - 1);
+                                      }}
+                                    >
+                                      ↑
+                                    </button>
+                                  )}
+                                  {pIdx < pinnedCrateIds.length - 1 && (
+                                    <button
+                                      type="button"
+                                      className="crumb-menu-reorder-btn"
+                                      title="Move Down"
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        movePinnedOrder(pIdx, pIdx + 1);
+                                      }}
+                                    >
+                                      ↓
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    className="crumb-menu-unpin-btn"
+                                    title="Unpin folder"
+                                    onClick={e => togglePinCrate(pn.id, e)}
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                        <div className="ctx-divider" style={{ margin: '6px 0' }} />
+                      </div>
+                    )}
 
                     {/* Menu Section Header */}
                     <div className="crumb-menu-section-header">
@@ -2746,202 +3184,6 @@ export const App: React.FC = () => {
               </nav>
             </div>
 
-            {/* Option 3: Running Workspaces Dock (macOS / Taskbar Style) */}
-            <div className="footer-dock-divider" />
-
-            <div className="footer-workspaces-dock-wrapper" ref={workspacesDockRef}>
-              <div className="footer-workspaces-dock">
-                {workspaces.map((ws, wsIdx) => {
-                  const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
-                  const isActive = ws.id === activeWorkspaceId;
-                  const isTarget = isWorkspaceDropTarget === ws.id;
-
-                  return (
-                    <div
-                      key={ws.id}
-                      className={`workspace-chip ${isActive ? 'active' : ''} ${isTarget ? 'is-drop-target' : ''}`}
-                      onClick={() => switchWorkspace(ws.id)}
-                      onAuxClick={e => {
-                        if (e.button === 1) {
-                          e.preventDefault();
-                          closeWorkspace(ws.id);
-                        }
-                      }}
-                      onMouseEnter={e => handleWorkspaceChipMouseEnter(wsNode, e)}
-                      onMouseLeave={handleWorkspaceChipMouseLeave}
-                      onDragEnter={e => handleWorkspaceChipDragEnter(e, ws.id)}
-                      onDragOver={e => handleWorkspaceChipDragOver(e, ws.id)}
-                      onDragLeave={handleWorkspaceChipDragLeave}
-                      onDrop={e => handleWorkspaceChipDrop(e, wsNode)}
-                      title={`Switch to "${wsNode?.name || 'Workspace'}" (⌘${wsIdx + 1})`}
-                    >
-                      <span className="workspace-chip-icon">
-                        <CoverArt
-                          src={wsNode?.type === 'Folder' ? null : (wsNode?.cover_url || wsNode?.tracks?.[0]?.cover_url || null)}
-                          alt={wsNode?.name || ''}
-                          size={14}
-                          type={wsNode?.type === 'Artist' ? 'artist' : wsNode?.type === 'Playlist' ? 'playlist' : wsNode?.type === 'Folder' ? 'folder' : 'album'}
-                          seed={wsNode?.name || ''}
-                          rounded={wsNode?.type === 'Artist' ? 'full' : 3}
-                        />
-                      </span>
-
-                      <span className="workspace-chip-title">
-                        {wsNode?.name || 'Untitled Crate'}
-                      </span>
-
-                      {workspaces.length > 1 && (
-                        <button
-                          type="button"
-                          className="workspace-chip-close"
-                          onClick={e => closeWorkspace(ws.id, e)}
-                          title="Close Workspace (Middle-click or ×)"
-                          aria-label="Close workspace"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* New Workspace (+) Button & Popover - Outside the scrollable dock so no overflow clipping */}
-              <div className="workspace-add-container" ref={workspaceAddContainerRef}>
-                <button
-                  type="button"
-                  className={`workspace-add-btn ${workspacePickerOpen ? 'active' : ''}`}
-                  onClick={() => setWorkspacePickerOpen(prev => !prev)}
-                  title="Open New Workspace (+ / ⌘T)"
-                  aria-label="Open New Workspace"
-                >
-                  <Plus size={13} />
-                </button>
-
-                {/* Upward Workspace Picker Popover */}
-                {workspacePickerOpen && (
-                  <div className="workspace-picker-popover footer-popover" ref={workspacePickerRef}>
-                    <div className="workspace-picker-header">
-                      <div className="workspace-picker-header-title">
-                        <FolderPlus size={13} style={{ color: '#818cf8' }} />
-                        <span>Open Workspace</span>
-                      </div>
-                      <span className="workspace-picker-shortcut">⌘T</span>
-                    </div>
-
-                    {/* Quick Open Root Crate or Duplicate View */}
-                    <div className="workspace-picker-quick-actions">
-                      {tree.length > 0 && (
-                        <button
-                          type="button"
-                          className="workspace-picker-quick-btn"
-                          onClick={() => {
-                            openInNewWorkspace(tree[0]);
-                            setWorkspacePickerOpen(false);
-                            setWorkspacePickerSearch('');
-                          }}
-                        >
-                          <Folder size={12} style={{ color: '#38bdf8' }} />
-                          <span>Library Root ({tree[0].name})</span>
-                        </button>
-                      )}
-                      {activeNode && (
-                        <button
-                          type="button"
-                          className="workspace-picker-quick-btn"
-                          onClick={() => {
-                            const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-                            setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
-                            setActiveWorkspaceId(newWsId);
-                            setWorkspacePickerOpen(false);
-                            setWorkspacePickerSearch('');
-                            showToast(`Duplicated workspace for "${activeNode.name}"`);
-                          }}
-                        >
-                          <Copy size={12} style={{ color: '#a78bfa' }} />
-                          <span>Duplicate Active ({activeNode.name})</span>
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="ctx-divider" style={{ margin: '6px 0' }} />
-
-                    <input
-                      type="search"
-                      className="workspace-picker-search"
-                      placeholder="Search crates/folders to open..."
-                      value={workspacePickerSearch}
-                      onChange={e => setWorkspacePickerSearch(e.target.value)}
-                      autoFocus
-                    />
-                    <div className="workspace-picker-list">
-                      {allContainers
-                        .filter(c => !workspacePickerSearch.trim() || c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
-                        .map(c => (
-                          <button
-                            key={c.id}
-                            type="button"
-                            className="workspace-picker-item"
-                            onClick={() => {
-                              openInNewWorkspace(c);
-                              setWorkspacePickerOpen(false);
-                              setWorkspacePickerSearch('');
-                            }}
-                          >
-                            <CoverArt
-                              src={c.type === 'Folder' ? null : (c.cover_url || c.tracks?.[0]?.cover_url || null)}
-                              alt={c.name}
-                              size={18}
-                              type={c.type === 'Artist' ? 'artist' : c.type === 'Playlist' ? 'playlist' : c.type === 'Folder' ? 'folder' : 'album'}
-                              seed={c.name}
-                              rounded={c.type === 'Artist' ? 'full' : 4}
-                            />
-                            <span className="workspace-picker-item-title">{c.name}</span>
-                            <span className="workspace-picker-item-count">{c.type}</span>
-                          </button>
-                        ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Hover Preview Card Tooltip */}
-              {hoverPreviewNode && hoverPreviewPos && (
-                <div
-                  className="workspace-preview-popover"
-                  style={{ left: hoverPreviewPos.left }}
-                >
-                  <div className="workspace-preview-media">
-                    <CoverArt
-                      src={hoverPreviewNode.type === 'Folder' ? null : (hoverPreviewNode.cover_url || hoverPreviewNode.tracks?.[0]?.cover_url || null)}
-                      alt={hoverPreviewNode.name}
-                      size={44}
-                      type={hoverPreviewNode.type === 'Artist' ? 'artist' : hoverPreviewNode.type === 'Playlist' ? 'playlist' : hoverPreviewNode.type === 'Folder' ? 'folder' : 'album'}
-                      seed={hoverPreviewNode.name}
-                      rounded={hoverPreviewNode.type === 'Artist' ? 'full' : 6}
-                    />
-                  </div>
-                  <div className="workspace-preview-info">
-                    <h4 className="workspace-preview-title">{hoverPreviewNode.name}</h4>
-                    <div className="workspace-preview-meta">
-                      <span className="active-hero-badge" style={{ fontSize: 9, padding: '1px 5px' }}>
-                        {hoverPreviewNode.type.toUpperCase()}
-                      </span>
-                      <span>·</span>
-                      <span>{flattenTracks(hoverPreviewNode).length} tracks</span>
-                      {hoverPreviewNode.children && hoverPreviewNode.children.length > 0 && (
-                        <>
-                          <span>·</span>
-                          <span>{hoverPreviewNode.children.length} subfolders</span>
-                        </>
-                      )}
-                    </div>
-                    <div className="workspace-preview-hint">Click to switch · Middle-click to close</div>
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Right: Track Filter Input + Actions (Add Music) */}
             <div className="footer-nav-right">
               <div className="footer-filter-box">
@@ -2950,7 +3192,7 @@ export const App: React.FC = () => {
                   ref={filterInputRef}
                   type="search"
                   className="footer-filter-input"
-                  placeholder="Filter tracks... (⌘F)"
+                  placeholder="Filter crate items... (⌘F)"
                   value={filterText}
                   onChange={e => setFilterText(e.target.value)}
                 />

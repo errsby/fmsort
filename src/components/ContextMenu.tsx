@@ -806,70 +806,20 @@ export const ContextMenu: React.FC<Props> = ({
 
           <div className="ctx-divider" />
 
-          {/* 3. New Container Inside Submenu */}
-          <div
-            className="ctx-item ctx-submenu-trigger"
-            onMouseEnter={() => setSubmenuOpen('newContainer')}
-            onMouseLeave={() => setSubmenuOpen(null)}
+          {/* 3. New Subfolder Inside */}
+          <button
+            type="button"
+            className="ctx-item"
+            onClick={e => {
+              e.stopPropagation();
+              onClose();
+              onNewContainerInside?.(node, 'Folder');
+            }}
           >
             <FolderPlus size={14} style={{ color: '#f59e0b' }} />
-            <span className="ctx-item-label">New Container Inside</span>
+            <span className="ctx-item-label">New Subfolder Inside</span>
             <span className="ctx-item-shortcut">N</span>
-            <ChevronRight size={13} style={{ color: 'var(--mu)', marginLeft: 'auto' }} />
-
-            {submenuOpen === 'newContainer' && (
-              <div className="ctx-submenu">
-                <button
-                  type="button"
-                  className="ctx-item"
-                  onClick={e => {
-                    e.stopPropagation();
-                    onClose();
-                    onNewContainerInside?.(node, 'Folder');
-                  }}
-                >
-                  <Folder size={14} style={{ color: '#f59e0b' }} />
-                  <span className="ctx-item-label">New Folder</span>
-                </button>
-                <button
-                  type="button"
-                  className="ctx-item"
-                  onClick={e => {
-                    e.stopPropagation();
-                    onClose();
-                    onNewContainerInside?.(node, 'Album');
-                  }}
-                >
-                  <Disc size={14} style={{ color: '#818cf8' }} />
-                  <span className="ctx-item-label">New Album</span>
-                </button>
-                <button
-                  type="button"
-                  className="ctx-item"
-                  onClick={e => {
-                    e.stopPropagation();
-                    onClose();
-                    onNewContainerInside?.(node, 'Artist');
-                  }}
-                >
-                  <User size={14} style={{ color: '#10b981' }} />
-                  <span className="ctx-item-label">New Artist</span>
-                </button>
-                <button
-                  type="button"
-                  className="ctx-item"
-                  onClick={e => {
-                    e.stopPropagation();
-                    onClose();
-                    onNewContainerInside?.(node, 'Playlist');
-                  }}
-                >
-                  <ListMusic size={14} style={{ color: '#38bdf8' }} />
-                  <span className="ctx-item-label">New Playlist</span>
-                </button>
-              </div>
-            )}
-          </div>
+          </button>
 
           {/* 4. Import Integrations (Strictly 3rd-party) */}
           <div
@@ -1088,74 +1038,21 @@ export const ContextMenu: React.FC<Props> = ({
             )}
           </div>
 
-          {/* 2. New Container Here Submenu */}
-          <div
-            className="ctx-item ctx-submenu-trigger"
-            onMouseEnter={() => setSubmenuOpen('newContainer')}
-            onMouseLeave={() => setSubmenuOpen(null)}
+          {/* 2. New Subfolder Here */}
+          <button
+            type="button"
+            className="ctx-item"
+            onClick={e => {
+              e.stopPropagation();
+              onClose();
+              if (activeNode) onNewContainerInside?.(activeNode, 'Folder');
+              else onOpenNewContainer?.('Folder');
+            }}
           >
             <FolderPlus size={14} style={{ color: '#f59e0b' }} />
-            <span className="ctx-item-label">New Container Here</span>
+            <span className="ctx-item-label">New Subfolder Here</span>
             <span className="ctx-item-shortcut">N</span>
-            <ChevronRight size={13} style={{ color: 'var(--mu)', marginLeft: 'auto' }} />
-
-            {submenuOpen === 'newContainer' && (
-              <div className="ctx-submenu">
-                <button
-                  type="button"
-                  className="ctx-item"
-                  onClick={e => {
-                    e.stopPropagation();
-                    onClose();
-                    if (activeNode) onNewContainerInside?.(activeNode, 'Folder');
-                    else onOpenNewContainer?.('Folder');
-                  }}
-                >
-                  <Folder size={14} style={{ color: '#f59e0b' }} />
-                  <span className="ctx-item-label">New Folder</span>
-                </button>
-                <button
-                  type="button"
-                  className="ctx-item"
-                  onClick={e => {
-                    e.stopPropagation();
-                    onClose();
-                    if (activeNode) onNewContainerInside?.(activeNode, 'Album');
-                    else onOpenNewContainer?.('Album');
-                  }}
-                >
-                  <Disc size={14} style={{ color: '#818cf8' }} />
-                  <span className="ctx-item-label">New Album</span>
-                </button>
-                <button
-                  type="button"
-                  className="ctx-item"
-                  onClick={e => {
-                    e.stopPropagation();
-                    onClose();
-                    if (activeNode) onNewContainerInside?.(activeNode, 'Artist');
-                    else onOpenNewContainer?.('Artist');
-                  }}
-                >
-                  <User size={14} style={{ color: '#10b981' }} />
-                  <span className="ctx-item-label">New Artist</span>
-                </button>
-                <button
-                  type="button"
-                  className="ctx-item"
-                  onClick={e => {
-                    e.stopPropagation();
-                    onClose();
-                    if (activeNode) onNewContainerInside?.(activeNode, 'Playlist');
-                    else onOpenNewContainer?.('Playlist');
-                  }}
-                >
-                  <ListMusic size={14} style={{ color: '#38bdf8' }} />
-                  <span className="ctx-item-label">New Playlist</span>
-                </button>
-              </div>
-            )}
-          </div>
+          </button>
 
           <div className="ctx-divider" />
 

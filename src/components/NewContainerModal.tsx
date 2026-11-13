@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import type { LibraryNode } from '../types';
-import { getAllNodes } from '../utils';
 import { createNode } from '../api';
 import { CoverArt, getDiceBearUrl } from './CoverArt';
 import type { FunkyVariant } from './CoverArt';
-import { Sparkles } from 'lucide-react';
+import { FolderPickerDropdown } from './FolderPickerDropdown';
+import { Sparkles, FolderPlus } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -14,20 +14,6 @@ interface Props {
   onCreated: (newNodeId: string) => void;
 }
 
-const COMMON_TYPES = [
-  'Folder',
-  'Label',
-  'Artist',
-  'Album',
-  'Playlist',
-  'Genre',
-  'Section',
-  'Era',
-  'Box Set',
-  'Compilation',
-  'Mixtape',
-];
-
 export const NewContainerModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -35,9 +21,7 @@ export const NewContainerModal: React.FC<Props> = ({
   allTreeNodes,
   onCreated,
 }) => {
-  const [parentId, setParentId] = useState<string>('');
-  const [type, setType] = useState('Folder');
-  const [customType, setCustomType] = useState('');
+  const [parentId, setParentId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
   const [variant, setVariant] = useState<FunkyVariant | 'auto'>('auto');
@@ -46,9 +30,7 @@ export const NewContainerModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (isOpen) {
-      setParentId(currentNode?.id || '');
-      setType('Folder');
-      setCustomType('');
+      setParentId(currentNode?.id || null);
       setName('');
       setCoverUrl('');
       setVariant('auto');
@@ -58,28 +40,25 @@ export const NewContainerModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  const allContainers = getAllNodes(allTreeNodes);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError('Container name cannot be empty');
+      setError('Folder name cannot be empty');
       return;
     }
-    const finalType = type === 'CUSTOM' ? (customType.trim() || 'Folder') : type;
     setSaving(true);
     setError(null);
     try {
       const res = await createNode({
         parent_id: parentId || null,
-        type: finalType,
+        type: 'Folder',
         name: name.trim(),
         cover_url: coverUrl.trim() || undefined,
       });
       onCreated(res.id);
       onClose();
     } catch (err: any) {
-      setError(err?.message || 'Failed to create container');
+      setError(err?.message || 'Failed to create folder');
     } finally {
       setSaving(false);
     }
@@ -88,21 +67,24 @@ export const NewContainerModal: React.FC<Props> = ({
   return (
     <>
       <div className="ov on" onClick={onClose} />
-      <div className="dlg on" role="dialog" aria-label="Create New Container">
+      <div className="dlg on" role="dialog" aria-label="Create New Folder">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <h2 style={{ margin: 0, fontSize: 16 }}>New Container / Folder</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FolderPlus size={18} style={{ color: '#38bdf8' }} />
+            <h2 style={{ margin: 0, fontSize: 16 }}>New Folder / Crate</h2>
+          </div>
           <button onClick={onClose} style={{ padding: '2px 8px' }}>✕</button>
         </div>
 
         {error && <div style={{ color: '#f87171', marginBottom: 12, fontSize: 12 }}>{error}</div>}
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {/* Container Name first so live thumbnail responds immediately to typing */}
+          {/* Folder Name first so live thumbnail responds immediately to typing */}
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mu)' }}>
-            Container Name
+            Folder Name
             <input
               type="text"
-              placeholder="e.g. German Ambient, Warp Records, Favorites..."
+              placeholder="e.g. Ambient &amp; Drone, Warp Records, Favorites..."
               value={name}
               onChange={e => setName(e.target.value)}
               autoFocus
@@ -114,25 +96,25 @@ export const NewContainerModal: React.FC<Props> = ({
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               <CoverArt
                 src={coverUrl}
-                alt={name || 'Container'}
+                alt={name || 'Folder'}
                 size={52}
-                type={type === 'Artist' ? 'artist' : type === 'Playlist' ? 'playlist' : type === 'Folder' ? 'folder' : 'album'}
+                type="folder"
                 seed={name || 'New Crate'}
                 variant={variant}
-                rounded={type === 'Artist' ? 'full' : 6}
+                rounded={6}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
                   <span style={{ fontSize: 11, fontWeight: 600, color: '#f4f4f5' }}>
-                    {coverUrl ? 'Custom Image / DiceBear API' : 'Funky Text-Generated Thumbnail'}
+                    {coverUrl ? 'Custom Image URL' : 'Text-Generated Thumbnail'}
                   </span>
                   <span style={{ fontSize: 10, color: 'var(--mu)' }}>
-                    {coverUrl ? 'API URL set' : 'Live morph on typing'}
+                    {coverUrl ? 'Custom' : 'Live morph on typing'}
                   </span>
                 </div>
                 <input
                   type="url"
-                  placeholder="Paste artwork URL or use funky generators below..."
+                  placeholder="Paste artwork URL or use generators below..."
                   value={coverUrl}
                   onChange={e => setCoverUrl(e.target.value)}
                   style={{ width: '100%', fontSize: 11, padding: '4px 8px' }}
@@ -143,7 +125,7 @@ export const NewContainerModal: React.FC<Props> = ({
             {/* Quick Generator & Variant Preset Toolbar */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', paddingTop: 6, borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
               <span style={{ fontSize: 10, color: 'var(--mu)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
-                Funky Style:
+                Style:
               </span>
               <select
                 value={variant}
@@ -179,7 +161,7 @@ export const NewContainerModal: React.FC<Props> = ({
                 {coverUrl && (
                   <button
                     type="button"
-                    title="Reset to live local SVG thumbnail"
+                    title="Reset to local SVG thumbnail"
                     onClick={() => setCoverUrl('')}
                     style={{ fontSize: 10, padding: '2px 6px', height: 24, color: 'var(--mu)', background: 'transparent', border: '1px solid var(--bd)' }}
                   >
@@ -190,48 +172,24 @@ export const NewContainerModal: React.FC<Props> = ({
             </div>
           </div>
 
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mu)' }}>
-            Parent Container
-            <select value={parentId} onChange={e => setParentId(e.target.value)}>
-              <option value="">(Root / Top Level)</option>
-              {allContainers.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.type})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mu)' }}>
-            Container Type
-            <select value={type} onChange={e => setType(e.target.value)}>
-              {COMMON_TYPES.map(t => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-              <option value="CUSTOM">Custom Type...</option>
-            </select>
-          </label>
-
-          {type === 'CUSTOM' && (
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--mu)' }}>
-              Custom Type Name
-              <input
-                type="text"
-                placeholder="e.g. Catalog, Vault, Archive..."
-                value={customType}
-                onChange={e => setCustomType(e.target.value)}
-              />
-            </label>
-          )}
+          {/* Custom Parent Folder Picker Submenu */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 12, color: 'var(--mu)' }}>Parent Folder</span>
+            <FolderPickerDropdown
+              selectedFolderId={parentId}
+              onSelectFolder={setParentId}
+              allTreeNodes={allTreeNodes}
+              allowRoot={true}
+              placeholder="Select parent folder..."
+            />
+          </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
             <button type="button" onClick={onClose} disabled={saving}>
               Cancel
             </button>
             <button type="submit" className="p" disabled={saving}>
-              {saving ? 'Creating...' : 'Create Container'}
+              {saving ? 'Creating...' : 'Create Folder'}
             </button>
           </div>
         </form>

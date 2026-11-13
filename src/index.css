@@ -4361,23 +4361,158 @@ tr.h.is-selected td {
    Footer Workspaces Dock (Option 3: macOS / Taskbar Style)
    ========================================================================= */
 
-.footer-workspaces-dock-wrapper {
+/* Floating Workspaces Switcher - Invisible floating container directly above footer bar */
+.floating-workspaces-container {
+  position: absolute;
+  bottom: calc(var(--footer-height, 42px) + 6px);
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 45;
+  padding: 0 16px;
+  background: transparent;
+  border: none;
+}
+
+.floating-workspaces-dock-wrapper {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
-  max-width: 52%;
-  flex: 1;
+  pointer-events: auto;
   position: relative;
+  max-width: 90%;
+  background: transparent;
+  border: none;
 }
 
-.footer-dock-divider {
-  width: 1px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.1);
-  flex-shrink: 0;
-  margin: 0 4px;
+/* Pinned Crates Section in Navigational Submenu */
+.crumb-menu-pinned-section {
+  padding: 4px 0 2px;
 }
+
+.crumb-menu-pinned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 4px;
+}
+
+.crumb-menu-pinned-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: #e4e4e7;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.crumb-menu-pinned-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.crumb-menu-pinned-item.active {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: #6366f1;
+  color: #ffffff;
+}
+
+.crumb-menu-pinned-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crumb-menu-pinned-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.crumb-menu-pinned-item:hover .crumb-menu-pinned-actions {
+  opacity: 1;
+}
+
+.crumb-menu-reorder-btn,
+.crumb-menu-unpin-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  color: #a1a1aa;
+  font-size: 10px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.crumb-menu-reorder-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.crumb-menu-unpin-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  color: #f87171;
+}
+
+/* Tree node action buttons (pin & reorder) */
+.tree-node-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.n:hover .tree-node-actions {
+  opacity: 1;
+}
+
+.tree-pin-btn,
+.tree-reorder-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  background: transparent;
+  border: none;
+  color: #71717a;
+  cursor: pointer;
+  padding: 0;
+}
+
+.tree-pin-btn:hover,
+.tree-reorder-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.tree-pin-btn.pinned {
+  color: #f59e0b;
+  opacity: 1;
+}
+
+
 
 .footer-workspaces-dock {
   display: flex;
@@ -4495,18 +4630,26 @@ tr.h.is-selected td {
   width: 26px;
   height: 26px;
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px dashed rgba(255, 255, 255, 0.15);
-  color: #a1a1aa;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #f4f4f5;
   cursor: pointer;
   transition: all 0.15s ease;
   flex-shrink: 0;
+  padding: 0;
 }
 
-.workspace-add-btn:hover {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(255, 255, 255, 0.3);
+.workspace-add-btn:hover,
+.workspace-add-btn.active {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.38);
   color: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.12);
+}
+
+.workspace-add-btn svg {
+  display: block;
+  stroke: currentColor;
 }
 
 /* Hover Preview Card Tooltip */
