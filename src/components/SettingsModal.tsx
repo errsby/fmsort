@@ -285,6 +285,7 @@ export const SettingsModal: React.FC<Props> = ({
                   <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Alt + →</kbd> / <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>]</kbd> Go forward in history</div>
                   <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Enter</kbd> Open container / Inspect track</div>
                   <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Space</kbd> Preview &amp; inspect track</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘\</kbd> Toggle workspace dock collapse</div>
                   <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Esc</kbd> Close modal / Clear selection</div>
                 </div>
               </div>

@@ -387,11 +387,19 @@ export function pasteItems(data: {
   trackIds?: number[];
   nodeIds?: string[];
   operation: 'copy' | 'cut';
-}): { createdTracksCount: number; createdNodesCount: number; movedCount: number } {
+}): {
+  createdTracksCount: number;
+  createdNodesCount: number;
+  movedCount: number;
+  newTrackIds: number[];
+  newNodeIds: string[];
+} {
   const { targetNodeId, trackIds = [], nodeIds = [], operation } = data;
   let createdTracksCount = 0;
   let createdNodesCount = 0;
   let movedCount = 0;
+  const newTrackIds: number[] = [];
+  const newNodeIds: string[] = [];
 
   db.transaction(() => {
     // 1. Cut operation: move tracks and reparent nodes
@@ -399,12 +407,14 @@ export function pasteItems(data: {
       if (trackIds.length > 0) {
         moveTracksBatch(trackIds, targetNodeId);
         movedCount += trackIds.length;
+        newTrackIds.push(...trackIds);
       }
       if (nodeIds.length > 0) {
         for (const id of nodeIds) {
           if (id !== targetNodeId) {
             updateNode(id, { parent_id: targetNodeId });
             movedCount++;
+            newNodeIds.push(id);
           }
         }
       }
@@ -419,14 +429,17 @@ export function pasteItems(data: {
         FROM tracks WHERE id = ?
       `);
       for (const id of trackIds) {
-        copyTrackStmt.run(targetNodeId, id);
+        const info = copyTrackStmt.run(targetNodeId, id);
         createdTracksCount++;
+        if (info.lastInsertRowid) {
+          newTrackIds.push(Number(info.lastInsertRowid));
+        }
       }
     }
 
     // 3. Copy operation: recursively duplicate nodes into targetNodeId
     if (nodeIds.length > 0) {
-      const cloneNodeRecursive = (sourceId: string, parentTargetId: string) => {
+      const cloneNodeRecursive = (sourceId: string, parentTargetId: string, isTopLevel = false) => {
         const sourceNode = db.prepare('SELECT * FROM nodes WHERE id = ?').get(sourceId) as any;
         if (!sourceNode) return;
 
@@ -441,6 +454,9 @@ export function pasteItems(data: {
           sort_order: sourceNode.sort_order || 0,
         });
         createdNodesCount++;
+        if (isTopLevel) {
+          newNodeIds.push(newNode.id);
+        }
 
         // Duplicate tracks in this source node into newNode.id
         const tracksInNode = db.prepare('SELECT id FROM tracks WHERE node_id = ?').all(sourceId) as { id: number }[];
@@ -457,19 +473,19 @@ export function pasteItems(data: {
         // Recursively duplicate child nodes
         const childNodes = db.prepare('SELECT id FROM nodes WHERE parent_id = ?').all(sourceId) as { id: string }[];
         for (const child of childNodes) {
-          cloneNodeRecursive(child.id, newNode.id);
+          cloneNodeRecursive(child.id, newNode.id, false);
         }
       };
 
       for (const id of nodeIds) {
         if (id !== targetNodeId) {
-          cloneNodeRecursive(id, targetNodeId);
+          cloneNodeRecursive(id, targetNodeId, true);
         }
       }
     }
   })();
 
-  return { createdTracksCount, createdNodesCount, movedCount };
+  return { createdTracksCount, createdNodesCount, movedCount, newTrackIds, newNodeIds };
 }
 
 export function getSetting(key: string): string | null {

@@ -36,8 +36,10 @@ export const NewTrackModal: React.FC<Props> = ({
   useEffect(() => {
     if (isOpen) {
       setTitle('');
-      setArtist('');
-      setAlbum(currentNode?.name || '');
+      const isArtist = currentNode?.type === 'Artist';
+      const isAlbum = currentNode?.type === 'Album';
+      setArtist(isArtist ? (currentNode?.name || '') : (isAlbum ? (currentNode?.tracks?.[0]?.a || '') : ''));
+      setAlbum(isAlbum ? (currentNode?.name || '') : '');
       setYear(new Date().getFullYear());
       setFormat('Digital');
       setCatalogNo('—');

@@ -116,7 +116,14 @@ export async function pasteItems(data: {
   trackIds?: number[];
   nodeIds?: string[];
   operation: 'copy' | 'cut';
-}): Promise<{ success: boolean; createdTracksCount: number; createdNodesCount: number; movedCount: number }> {
+}): Promise<{
+  success: boolean;
+  createdTracksCount: number;
+  createdNodesCount: number;
+  movedCount: number;
+  newTrackIds?: number[];
+  newNodeIds?: string[];
+}> {
   const res = await fetch(`${API_BASE}/items/paste`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

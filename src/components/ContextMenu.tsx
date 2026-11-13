@@ -320,7 +320,7 @@ export const ContextMenu: React.FC<Props> = ({
                 className="ctx-item"
                 onClick={() => {
                   onClose();
-                  onPasteItems?.();
+                  onPasteItems?.(selectedTracks?.[0]?.node_id);
                 }}
               >
                 <ClipboardPaste size={14} style={{ color: '#38bdf8' }} />
@@ -485,7 +485,7 @@ export const ContextMenu: React.FC<Props> = ({
               className="ctx-item"
               onClick={() => {
                 onClose();
-                onPasteItems?.();
+                onPasteItems?.(track.node_id);
               }}
             >
               <ClipboardPaste size={14} style={{ color: '#38bdf8' }} />

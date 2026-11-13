@@ -136,7 +136,7 @@ textarea:focus {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  z-index: 30;
+  z-index: 60;
   position: relative;
 }
 
@@ -537,7 +537,7 @@ textarea:focus {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
   box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  z-index: 100;
+  z-index: 120;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -4393,6 +4393,14 @@ tr.h.is-selected td {
   padding: 0 0 0 16px;
   background: transparent;
   border: none;
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+/* Ensure the workspace drawer can NEVER overlap the navigation submenu */
+.floating-workspaces-container.hide-for-nav-menu {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transform: translateY(12px) !important;
 }
 
 .floating-workspaces-dock-wrapper {
@@ -4405,40 +4413,97 @@ tr.h.is-selected td {
   background: rgba(14, 14, 17, 0.96);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
   border-bottom: 1px solid rgba(14, 14, 17, 0.96);
   border-radius: 9px 9px 0 0;
-  padding: 4px 8px 3px 6px;
+  padding: 4px 6px 3px 6px;
   margin-bottom: -1px;
   box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  transform-origin: bottom left;
+  will-change: transform, opacity;
 }
 
-/* Seamless decorative tab shoulder / flange effect connecting into footer */
-.floating-workspaces-dock-wrapper::before {
-  content: '';
+/* Continuous corner flanges connecting stroke directly into footer line */
+.dock-flange {
   position: absolute;
-  left: -7px;
   bottom: 0;
-  width: 7px;
-  height: 7px;
-  background: transparent;
-  border-bottom-right-radius: 7px;
-  box-shadow: 2px 2px 0 0 rgba(14, 14, 17, 0.96);
+  width: 10px;
+  height: 10px;
   pointer-events: none;
+  z-index: 1;
 }
 
-.floating-workspaces-dock-wrapper::after {
-  content: '';
-  position: absolute;
-  right: -7px;
-  bottom: 0;
-  width: 7px;
-  height: 7px;
+.dock-flange-left {
+  left: -10px;
+}
+
+.dock-flange-right {
+  right: -10px;
+}
+
+/* Collapsed Workspace Dock State w/ smooth animation */
+.floating-workspaces-dock-wrapper.is-collapsed {
+  padding: 3px 10px 3px 8px;
+  cursor: pointer;
+  background: rgba(14, 14, 17, 0.94);
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.4);
+}
+
+.floating-workspaces-dock-wrapper.is-collapsed:hover {
+  background: rgba(22, 22, 28, 0.98);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.workspace-collapsed-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #a1a1aa;
+  padding: 1px 3px;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.floating-workspaces-dock-wrapper.is-collapsed:hover .workspace-collapsed-pill {
+  color: #fafafa;
+}
+
+.workspace-collapsed-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-collapsed-text {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+/* Collapse Toggle Button inside dock */
+.workspace-dock-collapse-btn {
   background: transparent;
-  border-bottom-left-radius: 7px;
-  box-shadow: -2px 2px 0 0 rgba(14, 14, 17, 0.96);
-  pointer-events: none;
+  border: none;
+  color: var(--mu);
+  padding: 3px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+.workspace-dock-collapse-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fafafa;
 }
 
 /* Pinned Crates Section in Navigational Submenu */
