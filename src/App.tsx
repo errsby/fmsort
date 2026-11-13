@@ -158,28 +158,9 @@ export const App: React.FC = () => {
     } catch {}
     return 'ws-1';
   });
-  const [hoverPreviewNode, setHoverPreviewNode] = useState<LibraryNode | null>(null);
-  const [hoverPreviewPos, setHoverPreviewPos] = useState<{ left: number } | null>(null);
-  const hoverTimeoutRef = useRef<any>(null);
-  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [workspaceDropdownOpen, setWorkspaceDropdownOpen] = useState(false);
   const [workspacePickerSearch, setWorkspacePickerSearch] = useState('');
-  const [workspacesCollapsed, setWorkspacesCollapsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('fmsort_workspaces_collapsed') === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('fmsort_workspaces_collapsed', String(workspacesCollapsed));
-    } catch {}
-  }, [workspacesCollapsed]);
-
-  const workspacePickerRef = useRef<HTMLDivElement>(null);
-  const workspaceAddContainerRef = useRef<HTMLDivElement>(null);
-  const workspacesDockRef = useRef<HTMLDivElement>(null);
+  const workspaceDropdownRef = useRef<HTMLDivElement>(null);
   const dragHoverTimeoutRef = useRef<any>(null);
   const draggedTracksRef = useRef<number[]>([]);
   const draggedNodesRef = useRef<string[]>([]);
@@ -696,40 +677,7 @@ export const App: React.FC = () => {
     clearDragState();
   };
 
-  const handleWorkspaceChipMouseEnter = (node: LibraryNode | null, e: React.MouseEvent<HTMLDivElement>) => {
-    if (!node) return;
-    // Do not pop up hover preview while dragging items across workspaces
-    if (draggingTrackIds.length > 0 || draggedTracksRef.current.length > 0 || draggingNodeIds.length > 0 || draggedNodesRef.current.length > 0) {
-      return;
-    }
-    const rect = e.currentTarget.getBoundingClientRect();
-    const wrapperRect = workspacesDockRef.current?.getBoundingClientRect();
-    const leftPos = rect.left - (wrapperRect?.left || 0);
 
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    hoverTimeoutRef.current = setTimeout(() => {
-      setHoverPreviewNode(node);
-      setHoverPreviewPos({ left: Math.max(0, leftPos - 10) });
-    }, 220);
-  };
-
-  const handleWorkspaceChipMouseLeave = () => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    setHoverPreviewNode(null);
-    setHoverPreviewPos(null);
-  };
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (workspaceAddContainerRef.current && !workspaceAddContainerRef.current.contains(e.target as Node)) {
-        setWorkspacePickerOpen(false);
-      }
-    };
-    if (workspacePickerOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [workspacePickerOpen]);
 
   const loadTree = async (preferredNodeId?: string) => {
     try {
@@ -859,6 +807,9 @@ export const App: React.FC = () => {
       if (treeDropdownRef.current && !treeDropdownRef.current.contains(e.target as Node)) {
         setTreeDropdownOpen(false);
       }
+      if (workspaceDropdownRef.current && !workspaceDropdownRef.current.contains(e.target as Node)) {
+        setWorkspaceDropdownOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -870,6 +821,9 @@ export const App: React.FC = () => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCommandPaletteOpen(true);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 't') {
+        e.preventDefault();
+        setWorkspaceDropdownOpen(prev => !prev);
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w') {
         e.preventDefault();
         closeWorkspace(activeWorkspaceId);
@@ -888,8 +842,8 @@ export const App: React.FC = () => {
         }
       } else if (e.key === 'Escape') {
         setTreeDropdownOpen(false);
+        setWorkspaceDropdownOpen(false);
         setContextMenu(prev => ({ ...prev, isOpen: false }));
-        setWorkspacePickerOpen(false);
         setImportModalOpen(false);
         setTuneImportOpen(false);
         setCommandPaletteOpen(false);
@@ -2920,124 +2874,651 @@ export const App: React.FC = () => {
                     </div>
                   )}
 
-                  <div className="active-hero-content">
-                    <CoverArt
-                      src={activeNode.type === 'Folder' || isActiveAlbumIncomplete ? null : (activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || (activeNode.type === 'Artist' ? artistProfile?.picture : null) || heroBackdrop)}
-                      alt={activeNode.name}
-                      size={92}
-                      type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : activeNode.type === 'Folder' ? 'folder' : 'album'}
-                      seed={activeNode.name}
-                      rounded={activeNode.type === 'Artist' ? 'full' : 8}
-                    />
-                    <div className="active-hero-meta">
-                      <div className="active-hero-badge-row">
-                        <span className="active-hero-badge">{activeNode.type.toUpperCase()}</span>
-                        {statusEnabled && isActiveAlbum && isActiveAlbumCompleted && (
-                          <button
-                            type="button"
-                            className="active-hero-status-btn completed"
-                            onClick={() => handleToggleAlbumCompleted(activeArtist, activeNode.name, false)}
-                            title="Mark album as incomplete"
-                          >
-                            <Check size={11} strokeWidth={3} />
-                            <span>COMPLETED</span>
-                          </button>
-                        )}
-                        {activeNode.type === 'Album' && activeNode.tracks?.[0]?.f && (
-                          <span className="active-hero-tag">{activeNode.tracks[0].f}</span>
-                        )}
-                        {activeNode.type === 'Folder' && (
-                          <span className="active-hero-tag">{activeNode.children?.length || 0} CONTAINERS</span>
+                  {/* 1. TOP NAV BAR: Navigation button (../) and breadcrumb section ABOVE the header icon/type title */}
+                  <div className="hero-top-nav-bar">
+                    <div className="hero-nav-left">
+                      {/* ../ Library Tree Toggle Button & Dropdown */}
+                      <div
+                        className="crumb-history-container"
+                        ref={treeDropdownRef}
+                      >
+                        <button
+                          type="button"
+                          className={`crumb-history-btn ${treeDropdownOpen ? 'active' : ''}`}
+                          onClick={() => setTreeDropdownOpen(!treeDropdownOpen)}
+                          title="Browse Library Crates (..)"
+                          aria-label="Browse Library Crates"
+                        >
+                          ../
+                        </button>
+
+                        {treeDropdownOpen && (
+                          <div className="crumb-tree-dropdown header-popover" role="menu">
+                            {/* Menu Header with Integrated Search Box (⌘K) */}
+                            <div className="crumb-menu-search-row">
+                              <div className="crumb-menu-search-box">
+                                <Search size={14} className="crumb-menu-search-icon" />
+                                <input
+                                  type="search"
+                                  className="crumb-menu-search-input"
+                                  placeholder="Search crates or jump to… (⌘K)"
+                                  value={menuSearch}
+                                  onChange={e => setMenuSearch(e.target.value)}
+                                  autoFocus
+                                />
+                                <button
+                                  type="button"
+                                  className="crumb-menu-cmd-key"
+                                  onClick={() => {
+                                    setTreeDropdownOpen(false);
+                                    setCommandPaletteOpen(true);
+                                  }}
+                                  title="Open Command Palette (⌘K)"
+                                >
+                                  ⌘K
+                                </button>
+                              </div>
+                            </div>
+
+                            {/* Pinned Folders Section */}
+                            {pinnedCrateIds.length > 0 && !menuSearch.trim() && (
+                              <div className="crumb-menu-pinned-section">
+                                <div className="crumb-menu-section-header">
+                                  <div className="crumb-menu-section-title">
+                                    <Pin size={12} style={{ color: '#f59e0b' }} />
+                                    <span>Pinned Folders</span>
+                                  </div>
+                                  <span className="crumb-menu-section-badge">{pinnedCrateIds.length}</span>
+                                </div>
+                                <div className="crumb-menu-pinned-list">
+                                  {pinnedCrateIds
+                                    .map(id => findNodeById(tree, id))
+                                    .filter((n): n is LibraryNode => Boolean(n))
+                                    .map((pn, pIdx) => (
+                                      <div
+                                        key={pn.id}
+                                        className={`crumb-menu-pinned-item ${activeNodeId === pn.id ? 'active' : ''}`}
+                                        onClick={() => {
+                                          selectNode(pn);
+                                          setTreeDropdownOpen(false);
+                                        }}
+                                        title={`Go to ${pn.name}`}
+                                      >
+                                        <CoverArt
+                                          src={pn.cover_url || null}
+                                          alt={pn.name}
+                                          size={16}
+                                          type="folder"
+                                          seed={pn.name}
+                                          rounded={3}
+                                        />
+                                        <span className="crumb-menu-pinned-name">{pn.name}</span>
+                                        <div className="crumb-menu-pinned-actions">
+                                          {pIdx > 0 && (
+                                            <button
+                                              type="button"
+                                              className="crumb-menu-reorder-btn"
+                                              title="Move Up"
+                                              onClick={e => {
+                                                e.stopPropagation();
+                                                movePinnedOrder(pIdx, pIdx - 1);
+                                              }}
+                                            >
+                                              ↑
+                                            </button>
+                                          )}
+                                          {pIdx < pinnedCrateIds.length - 1 && (
+                                            <button
+                                              type="button"
+                                              className="crumb-menu-reorder-btn"
+                                              title="Move Down"
+                                              onClick={e => {
+                                                e.stopPropagation();
+                                                movePinnedOrder(pIdx, pIdx + 1);
+                                              }}
+                                            >
+                                              ↓
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            className="crumb-menu-unpin-btn"
+                                            title="Unpin folder"
+                                            onClick={e => togglePinCrate(pn.id, e)}
+                                          >
+                                            ✕
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ))}
+                                </div>
+                                <div className="ctx-divider" style={{ margin: '6px 0' }} />
+                              </div>
+                            )}
+
+                            {/* Menu Section Header */}
+                            <div className="crumb-menu-section-header">
+                              <div className="crumb-menu-section-title">
+                                <Library size={13} className="crumb-menu-section-icon" />
+                                <span>Crates &amp; Folders</span>
+                              </div>
+                              <span className="crumb-menu-section-badge">{tree.length}</span>
+                            </div>
+
+                            {/* Menu Directory List (Tree) */}
+                            <div className="crumb-tree-list">
+                              {loading ? (
+                                <div style={{ color: 'var(--mu)', padding: '16px 12px', fontSize: 12 }}>Loading library...</div>
+                              ) : tree.length === 0 ? (
+                                <div className="empty-sidebar-box" style={{ padding: 14 }}>
+                                  <CoverArt size={28} type="folder" seed="Library" rounded={6} style={{ marginBottom: 6 }} />
+                                  <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 3, color: '#f4f4f5' }}>Blank Library</div>
+                                  <p style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 10px', lineHeight: 1.4 }}>
+                                    No crates in your library yet.
+                                  </p>
+                                </div>
+                              ) : (
+                                (menuSearch.trim() ? filteredMenuNodes : tree).map(n => renderTreeNode(n, 0))
+                              )}
+                            </div>
+
+                            {/* Menu Footer / System Actions */}
+                            <div className="crumb-menu-footer-actions">
+                              <button
+                                type="button"
+                                className="crumb-menu-action-item"
+                                onClick={() => {
+                                  setTreeDropdownOpen(false);
+                                  setSettingsOpen(true);
+                                }}
+                                title="Library & Application Settings"
+                              >
+                                <div className="crumb-menu-action-left">
+                                  <Settings size={14} style={{ color: '#a78bfa' }} />
+                                  <span>Settings</span>
+                                </div>
+                                <span
+                                  className="crumb-menu-action-badge"
+                                  style={
+                                    statusEnabled
+                                      ? { background: 'rgba(99, 102, 241, 0.25)', color: '#c7d2fe', borderColor: '#6366f1' }
+                                      : undefined
+                                  }
+                                >
+                                  {statusEnabled ? 'Status: ON' : 'Preferences'}
+                                </span>
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
-                    <h2 className="active-hero-title">{activeNode.name}</h2>
-                    <div className="active-hero-sub">
-                      {activeNode.type === 'Album' && activeNode.tracks?.[0]?.a && (
-                        <span style={{ color: '#fafafa', fontWeight: 500 }}>{activeNode.tracks[0].a} · </span>
-                      )}
-                      {activeNode.type === 'Album' && activeNode.tracks?.[0]?.y ? (
-                        <span>{activeNode.tracks[0].y} · </span>
-                      ) : null}
-                      {activeNode.type === 'Artist' ? (
-                        activeFlatTracks.length > 0 ? (
-                          <>
-                            <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
-                            <span> · {fmtTotalRuntime(activeFlatTracks)}</span>
-                          </>
-                        ) : activeNode.children && activeNode.children.length > 0 ? (
-                          <span>{activeNode.children.length} {activeNode.children.length === 1 ? 'release' : 'releases'}</span>
-                        ) : null
-                      ) : (
-                        <>
-                          <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
-                          {activeFlatTracks.length > 0 && <span> · {fmtTotalRuntime(activeFlatTracks)}</span>}
-                        </>
-                      )}
-                      {activeFlatTracks.some(t => !t.isrc || t.isrc === '—') && (
-                        <>
-                          <span> · </span>
-                          <button
-                            type="button"
-                            onClick={handleEnrichActiveTracksIsrc}
-                            disabled={enrichingIsrc}
-                            title="Search digital music catalog to find verified ISRC codes for these tracks"
-                            style={{
-                              background: 'rgba(255, 255, 255, 0.08)',
-                              border: '1px solid rgba(255, 255, 255, 0.15)',
-                              borderRadius: 4,
-                              padding: '1px 8px',
-                              color: '#e4e4e7',
-                              fontSize: 11,
-                              cursor: enrichingIsrc ? 'wait' : 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
-                            }}
-                          >
-                            <Sparkles size={11} />
-                            <span>{enrichingIsrc ? 'Resolving ISRCs...' : 'Resolve ISRCs'}</span>
-                          </button>
-                        </>
-                      )}
-                      {activeNode.type === 'Artist' && (
-                        <>
-                          <span> · </span>
-                          <button
-                            type="button"
-                            className={`artist-info-toggle-pill ${artistInfoExpanded ? 'active' : ''}`}
-                            onClick={handleToggleArtistInfo}
-                            title="Show artist bio, Deezer stats, and social links"
-                          >
-                            <Info size={11} />
-                            <span>Artist Info</span>
-                            {artistInfoExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                          </button>
-                          <span> · </span>
-                          <button
-                            type="button"
-                            className={`artist-info-toggle-pill ${showArtistSuggestions ? 'active' : ''}`}
-                            onClick={() => setShowArtistSuggestions(prev => !prev)}
-                            title="Show suggested releases & discography"
-                          >
-                            <Sparkles size={11} />
-                            <span>Suggested Releases</span>
-                            {showArtistSuggestions ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                          </button>
-                        </>
-                      )}
+
+                      {/* Breadcrumb path */}
+                      <nav className="unified-crumbs" aria-label="Breadcrumb">
+                        <span
+                          className="crumb-link root-crumb"
+                          onClick={() => setTreeDropdownOpen(!treeDropdownOpen)}
+                          title="Toggle Library Navigation Menu"
+                        >
+                          <Library size={13} style={{ marginRight: 4 }} />
+                          <span>Library</span>
+                        </span>
+
+                        {activePath.map((item, idx) => {
+                          const isLast = idx === activePath.length - 1;
+                          return (
+                            <React.Fragment key={item.id}>
+                              <span className="crumb-sep">/</span>
+                              {isLast ? (
+                                <b className="crumb-current">{item.name}</b>
+                              ) : (
+                                <span
+                                  className="crumb-link"
+                                  onClick={e => {
+                                    if (e.metaKey || e.ctrlKey) {
+                                      e.preventDefault();
+                                      openInNewWorkspace(item);
+                                      return;
+                                    }
+                                    selectNode(item);
+                                  }}
+                                  onAuxClick={e => {
+                                    if (e.button === 1) {
+                                      e.preventDefault();
+                                      openInNewWorkspace(item);
+                                    }
+                                  }}
+                                >
+                                  {item.name}
+                                </span>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </nav>
+                    </div>
+                  </div>
+
+                  {/* 2. MAIN HERO CONTENT: Left side is Title & Meta; Right side is Actions across from title */}
+                  <div className="active-hero-content">
+                    <div className="hero-main-left">
+                      <CoverArt
+                        src={activeNode.type === 'Folder' || isActiveAlbumIncomplete ? null : (activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || (activeNode.type === 'Artist' ? artistProfile?.picture : null) || heroBackdrop)}
+                        alt={activeNode.name}
+                        size={92}
+                        type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : activeNode.type === 'Folder' ? 'folder' : 'album'}
+                        seed={activeNode.name}
+                        rounded={activeNode.type === 'Artist' ? 'full' : 8}
+                      />
+                      <div className="active-hero-meta">
+                        <div className="active-hero-badge-row">
+                          <span className="active-hero-badge">{activeNode.type.toUpperCase()}</span>
+                          {statusEnabled && isActiveAlbum && isActiveAlbumCompleted && (
+                            <button
+                              type="button"
+                              className="active-hero-status-btn completed"
+                              onClick={() => handleToggleAlbumCompleted(activeArtist, activeNode.name, false)}
+                              title="Mark album as incomplete"
+                            >
+                              <Check size={11} strokeWidth={3} />
+                              <span>COMPLETED</span>
+                            </button>
+                          )}
+                          {activeNode.type === 'Album' && activeNode.tracks?.[0]?.f && (
+                            <span className="active-hero-tag">{activeNode.tracks[0].f}</span>
+                          )}
+                          {activeNode.type === 'Folder' && (
+                            <span className="active-hero-tag">{activeNode.children?.length || 0} CONTAINERS</span>
+                          )}
+                        </div>
+                        <h2 className="active-hero-title">{activeNode.name}</h2>
+                        <div className="active-hero-sub">
+                          {activeNode.type === 'Album' && activeNode.tracks?.[0]?.a && (
+                            <span style={{ color: '#fafafa', fontWeight: 500 }}>{activeNode.tracks[0].a} · </span>
+                          )}
+                          {activeNode.type === 'Album' && activeNode.tracks?.[0]?.y ? (
+                            <span>{activeNode.tracks[0].y} · </span>
+                          ) : null}
+                          {activeNode.type === 'Artist' ? (
+                            activeFlatTracks.length > 0 ? (
+                              <>
+                                <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
+                                <span> · {fmtTotalRuntime(activeFlatTracks)}</span>
+                              </>
+                            ) : activeNode.children && activeNode.children.length > 0 ? (
+                              <span>{activeNode.children.length} {activeNode.children.length === 1 ? 'release' : 'releases'}</span>
+                            ) : null
+                          ) : (
+                            <>
+                              <span>{activeFlatTracks.length} {activeFlatTracks.length === 1 ? 'track' : 'tracks'}</span>
+                              {activeFlatTracks.length > 0 && <span> · {fmtTotalRuntime(activeFlatTracks)}</span>}
+                            </>
+                          )}
+                          {activeFlatTracks.some(t => !t.isrc || t.isrc === '—') && (
+                            <>
+                              <span> · </span>
+                              <button
+                                type="button"
+                                onClick={handleEnrichActiveTracksIsrc}
+                                disabled={enrichingIsrc}
+                                title="Search digital music catalog to find verified ISRC codes for these tracks"
+                                style={{
+                                  background: 'rgba(255, 255, 255, 0.08)',
+                                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                                  borderRadius: 4,
+                                  padding: '1px 8px',
+                                  color: '#e4e4e7',
+                                  fontSize: 11,
+                                  cursor: enrichingIsrc ? 'wait' : 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
+                              >
+                                <Sparkles size={11} />
+                                <span>{enrichingIsrc ? 'Resolving ISRCs...' : 'Resolve ISRCs'}</span>
+                              </button>
+                            </>
+                          )}
+                          {activeNode.type === 'Artist' && (
+                            <>
+                              <span> · </span>
+                              <button
+                                type="button"
+                                className={`artist-info-toggle-pill ${artistInfoExpanded ? 'active' : ''}`}
+                                onClick={handleToggleArtistInfo}
+                                title="Show artist bio, Deezer stats, and social links"
+                              >
+                                <Info size={11} />
+                                <span>Artist Info</span>
+                                {artistInfoExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                              </button>
+                              <span> · </span>
+                              <button
+                                type="button"
+                                className={`artist-info-toggle-pill ${showArtistSuggestions ? 'active' : ''}`}
+                                onClick={() => setShowArtistSuggestions(prev => !prev)}
+                                title="Show suggested releases & discography"
+                              >
+                                <Sparkles size={11} />
+                                <span>Suggested Releases</span>
+                                {showArtistSuggestions ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
-                    {activeNode.type === 'Artist' && artistInfoExpanded && (
-                      <ArtistProfileHeader
-                        profile={artistProfile}
-                        loading={loadingProfile}
-                        artistName={activeNode.name}
-                      />
-                    )}
+                    {/* Right side: Workspace dropdown, Filter box, and Add Music button across from title */}
+                    <div className="hero-actions-right">
+                      {/* Workspace Dropdown */}
+                      {(() => {
+                        const currentWs = workspaces.find(w => w.id === activeWorkspaceId);
+                        const currentWsNode = currentWs ? findNodeById(tree, currentWs.nodeId) : activeNode;
+
+                        return (
+                          <div className="header-workspace-container" ref={workspaceDropdownRef}>
+                            <button
+                              type="button"
+                              className={`header-workspace-btn ${workspaceDropdownOpen ? 'active' : ''}`}
+                              onClick={() => setWorkspaceDropdownOpen(prev => !prev)}
+                              onDragOver={e => {
+                                e.preventDefault();
+                                if (!workspaceDropdownOpen) setWorkspaceDropdownOpen(true);
+                              }}
+                              title="Workspaces (⌘1..9, ⌘T)"
+                              aria-label="Workspaces"
+                            >
+                              <Layers size={13} className="header-workspace-icon" />
+                              <span className="header-workspace-name">
+                                {currentWsNode?.name || 'Workspace'}
+                              </span>
+                              {workspaces.length > 1 && (
+                                <span className="header-workspace-badge">{workspaces.length}</span>
+                              )}
+                              <ChevronDown size={12} className={`header-workspace-arrow ${workspaceDropdownOpen ? 'open' : ''}`} />
+                            </button>
+
+                            {workspaceDropdownOpen && (
+                              <div className="header-workspace-popover" role="menu">
+                                <div className="header-ws-popover-header">
+                                  <div className="header-ws-title-group">
+                                    <Layers size={13} style={{ color: '#818cf8' }} />
+                                    <span className="header-ws-title">Workspaces</span>
+                                    <span className="header-ws-count-badge">{workspaces.length}</span>
+                                  </div>
+                                  <div className="header-ws-header-actions">
+                                    <span className="header-ws-hint">⌘1..{Math.min(workspaces.length, 9)}</span>
+                                  </div>
+                                </div>
+
+                                <div className="header-ws-list">
+                                  {workspaces.map((ws, wsIdx) => {
+                                    const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
+                                    const isActive = ws.id === activeWorkspaceId;
+                                    const isTarget = isWorkspaceDropTarget === ws.id;
+                                    const flatCount = wsNode ? flattenTracks(wsNode).length : 0;
+                                    const subCount = wsNode?.children?.length || 0;
+
+                                    return (
+                                      <div
+                                        key={ws.id}
+                                        className={`header-ws-item ${isActive ? 'is-active' : ''} ${isTarget ? 'is-drop-target' : ''}`}
+                                        onClick={() => {
+                                          switchWorkspace(ws.id);
+                                          setWorkspaceDropdownOpen(false);
+                                        }}
+                                        onAuxClick={e => {
+                                          if (e.button === 1 && workspaces.length > 1) {
+                                            e.preventDefault();
+                                            closeWorkspace(ws.id);
+                                          }
+                                        }}
+                                        onDragEnter={e => handleWorkspaceChipDragEnter(e, ws.id)}
+                                        onDragOver={e => handleWorkspaceChipDragOver(e, ws.id)}
+                                        onDragLeave={handleWorkspaceChipDragLeave}
+                                        onDrop={e => {
+                                          handleWorkspaceChipDrop(e, ws.id);
+                                          setWorkspaceDropdownOpen(false);
+                                        }}
+                                        title={`Switch to "${wsNode?.name || 'Workspace'}" (⌘${wsIdx + 1}) · Drag here to move items into this workspace`}
+                                      >
+                                        <div className="header-ws-item-thumb">
+                                          <CoverArt
+                                            src={wsNode?.cover_url || null}
+                                            alt={wsNode?.name || ''}
+                                            size={22}
+                                            type="folder"
+                                            seed={wsNode?.name || ''}
+                                            rounded={4}
+                                          />
+                                        </div>
+
+                                        <div className="header-ws-item-info">
+                                          <div className="header-ws-item-name">{wsNode?.name || 'Untitled Crate'}</div>
+                                          <div className="header-ws-item-sub">
+                                            <span>{flatCount} {flatCount === 1 ? 'track' : 'tracks'}</span>
+                                            {subCount > 0 && <span> · {subCount} {subCount === 1 ? 'subfolder' : 'subfolders'}</span>}
+                                          </div>
+                                        </div>
+
+                                        <div className="header-ws-item-actions">
+                                          {wsIdx < 9 && (
+                                            <kbd className="header-kbd">⌘{wsIdx + 1}</kbd>
+                                          )}
+                                          {workspaces.length > 1 && (
+                                            <button
+                                              type="button"
+                                              className="header-ws-close-btn"
+                                              onClick={e => {
+                                                e.stopPropagation();
+                                                closeWorkspace(ws.id, e);
+                                              }}
+                                              title="Close Workspace (Middle-click or ×)"
+                                              aria-label="Close workspace"
+                                            >
+                                              ✕
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                <div className="header-ws-divider" />
+
+                                <div className="header-ws-open-section">
+                                  <div className="header-ws-quick-actions">
+                                    {activeNode && (
+                                      <button
+                                        type="button"
+                                        className="header-ws-quick-btn"
+                                        onClick={() => {
+                                          const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                                          setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
+                                          setActiveWorkspaceId(newWsId);
+                                          setWorkspaceDropdownOpen(false);
+                                          setWorkspacePickerSearch('');
+                                          showToast(`Duplicated workspace for "${activeNode.name}"`);
+                                        }}
+                                      >
+                                        <Copy size={12} style={{ color: '#a78bfa' }} />
+                                        <span>Duplicate Active View</span>
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  <div className="header-ws-search-wrap">
+                                    <Search size={12} className="header-ws-search-icon" />
+                                    <input
+                                      type="search"
+                                      className="header-ws-search-input"
+                                      placeholder="Open folder in new workspace..."
+                                      value={workspacePickerSearch}
+                                      onChange={e => setWorkspacePickerSearch(e.target.value)}
+                                    />
+                                  </div>
+
+                                  {workspacePickerSearch.trim() && (
+                                    <div className="header-ws-search-results">
+                                      {allContainers
+                                        .filter(c => c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
+                                        .slice(0, 8)
+                                        .map(c => (
+                                          <button
+                                            key={c.id}
+                                            type="button"
+                                            className="header-ws-search-item"
+                                            onClick={() => {
+                                              openInNewWorkspace(c);
+                                              setWorkspaceDropdownOpen(false);
+                                              setWorkspacePickerSearch('');
+                                            }}
+                                          >
+                                            <CoverArt
+                                              src={c.cover_url || null}
+                                              alt={c.name}
+                                              size={18}
+                                              type="folder"
+                                              seed={c.name}
+                                              rounded={3}
+                                            />
+                                            <span className="header-ws-search-item-title">{c.name}</span>
+                                            <span className="header-ws-search-item-badge">{c.type}</span>
+                                          </button>
+                                        ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Filter Box */}
+                      <div className="header-filter-box">
+                        <Search size={13} className="header-filter-icon" />
+                        <input
+                          ref={filterInputRef}
+                          type="search"
+                          className="header-filter-input"
+                          placeholder="Filter crate items... (⌘F)"
+                          value={filterText}
+                          onChange={e => setFilterText(e.target.value)}
+                        />
+                        {filterText && (
+                          <button
+                            type="button"
+                            className="header-filter-clear-btn"
+                            onClick={() => setFilterText('')}
+                            title="Clear filter"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Add Music Button with [A] keybind */}
+                      <div className="header-add-music-container" ref={addMusicRef}>
+                        <button
+                          type="button"
+                          className={`header-add-music-btn ${addMusicMenuOpen ? 'active' : ''}`}
+                          onClick={() => setAddMusicMenuOpen(!addMusicMenuOpen)}
+                          title="Add Music (A)"
+                        >
+                          <Plus size={13} strokeWidth={2.4} />
+                          <span>Add Music</span>
+                          <kbd className="header-kbd">A</kbd>
+                          <ChevronDown size={11} className={`header-add-music-arrow ${addMusicMenuOpen ? 'open' : ''}`} />
+                        </button>
+
+                        {addMusicMenuOpen && (
+                          <div className="add-music-dropdown header-popover" style={{ right: 0, left: 'auto', top: 'calc(100% + 6px)', bottom: 'auto', minWidth: 260 }}>
+                            <button
+                              type="button"
+                              className="add-music-option"
+                              onClick={() => {
+                                setAddMusicMenuOpen(false);
+                                const targetId = selectedNode
+                                  ? selectedNode.id
+                                  : firstSelectedTrack
+                                    ? (firstSelectedTrack.parent_id || 'uncategorized')
+                                    : (activeNode?.id || 'uncategorized');
+                                setSearchInitialQuery('');
+                                setSearchInitialTargetNodeId(targetId);
+                                setImportModalOpen(true);
+                              }}
+                            >
+                              <div style={{ padding: 6, borderRadius: 6, background: '#1e3a5f', color: '#60a5fa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <Sparkles size={16} />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div className="add-music-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span>Search &amp; Import Releases</span>
+                                  <kbd className="header-kbd">A</kbd>
+                                </div>
+                                <div className="add-music-desc">Search artists &amp; albums from Discogs 17.5M+ and Deezer</div>
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              className="add-music-option"
+                              onClick={() => {
+                                setAddMusicMenuOpen(false);
+                                handleOpenTuneImport(selectedNode || activeNode);
+                              }}
+                            >
+                              <div style={{ padding: 6, borderRadius: 6, background: '#164e63', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <FileText size={16} />
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div className="add-music-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span>Import Tune My Music (.csv)</span>
+                                  <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,211,238,0.15)', color: '#22d3ee', fontWeight: 600 }}>CSV</span>
+                                </div>
+                                <div className="add-music-desc">Smart import playlists with Deezer &amp; Discogs connection</div>
+                              </div>
+                            </button>
+
+                            <button
+                              type="button"
+                              className="add-music-option"
+                              onClick={() => {
+                                setAddMusicMenuOpen(false);
+                                setNewTrackOpen(true);
+                              }}
+                            >
+                              <div style={{ padding: 6, borderRadius: 6, background: '#143825', color: '#34d399', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <Plus size={16} />
+                              </div>
+                              <div>
+                                <div className="add-music-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <span>Add Track Manually</span>
+                                  <kbd className="header-kbd">T</kbd>
+                                </div>
+                                <div className="add-music-desc">Enter custom track metadata, duration &amp; catalog tags</div>
+                              </div>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Optional Artist Profile Header when expanded */}
+                  {activeNode.type === 'Artist' && artistInfoExpanded && (
+                    <ArtistProfileHeader
+                      profile={artistProfile}
+                      loading={loadingProfile}
+                      artistName={activeNode.name}
+                    />
+                  )}
                 </div>
-              </div>
-            ); })()}
+              ); })()}
 
             {/* Suggested Releases & Discography for Artists (integrated onto all artist pages, auto-collapsed) */}
             {activeNode.type === 'Artist' && (
@@ -3297,586 +3778,24 @@ export const App: React.FC = () => {
           <div className="empty-library-hero" style={{ margin: 'auto', padding: '60px 20px', textAlign: 'center' }}>
             <Disc size={36} style={{ color: '#60a5fa', marginBottom: 16 }} />
             <h2 style={{ fontSize: 18, color: '#fafafa', marginBottom: 6 }}>No crates in library</h2>
-            <p style={{ color: 'var(--mu)', fontSize: 13 }}>Import music using the footer below to get started.</p>
+            <p style={{ color: 'var(--mu)', fontSize: 13, marginBottom: 16 }}>Import music to get started.</p>
+            <button
+              type="button"
+              className="header-add-music-btn"
+              style={{ margin: '0 auto', display: 'inline-flex' }}
+              onClick={() => {
+                setSearchInitialQuery('');
+                setSearchInitialTargetNodeId('uncategorized');
+                setImportModalOpen(true);
+              }}
+            >
+              <Plus size={13} strokeWidth={2.4} />
+              <span>Add Music</span>
+              <kbd className="header-kbd">A</kbd>
+            </button>
           </div>
         )}
           </main>
-
-          {/* Floating Workspaces Switcher - Left-aligned floating tab tray emerging seamlessly out of footer */}
-          <div className={`floating-workspaces-container ${treeDropdownOpen ? 'hide-for-nav-menu' : ''}`}>
-            <div
-              className={`floating-workspaces-dock-wrapper ${workspacesCollapsed ? 'is-collapsed' : ''}`}
-              ref={workspacesDockRef}
-              onClick={workspacesCollapsed ? () => setWorkspacesCollapsed(false) : undefined}
-              onDragEnter={() => {
-                if (workspacesCollapsed) setWorkspacesCollapsed(false);
-              }}
-              onDragOver={e => {
-                if (workspacesCollapsed) {
-                  e.preventDefault();
-                  setWorkspacesCollapsed(false);
-                }
-              }}
-            >
-              {/* Seamless Flange Left & Right with connected continuous white border lining */}
-              <svg className="dock-flange dock-flange-left" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-                <path d="M 0 10 L 10 10 L 10 0 A 10 10 0 0 0 0 10 Z" fill="#0e0e11" />
-                <path d="M 10 0 A 10 10 0 0 0 0 10" fill="none" stroke="rgba(255, 255, 255, 0.1)" strokeWidth="1" strokeLinecap="square" />
-              </svg>
-              <svg className="dock-flange dock-flange-right" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-                <path d="M 10 10 L 0 10 L 0 0 A 10 10 0 0 1 10 10 Z" fill="#0e0e11" />
-                <path d="M 0 0 A 10 10 0 0 1 10 10" fill="none" stroke="rgba(255, 255, 255, 0.1)" strokeWidth="1" strokeLinecap="square" />
-              </svg>
-
-              {workspacesCollapsed ? (
-                <div
-                  className="workspace-collapsed-pill"
-                  title="Expand workspace switcher (Click or ⌘\)"
-                >
-                  <span className="workspace-collapsed-icon">
-                    <Layers size={13} style={{ color: '#818cf8' }} />
-                  </span>
-                  <span className="workspace-collapsed-text">
-                    {workspaces.length} Workspace{workspaces.length > 1 ? 's' : ''}
-                  </span>
-                  <ChevronUp size={13} style={{ color: 'var(--mu)', marginLeft: 2 }} />
-                </div>
-              ) : (
-                <>
-                  <div className="footer-workspaces-dock">
-                    {workspaces.map((ws, wsIdx) => {
-                      const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
-                      const isActive = ws.id === activeWorkspaceId;
-                      const isTarget = isWorkspaceDropTarget === ws.id;
-
-                      return (
-                        <div
-                          key={ws.id}
-                          className={`workspace-chip ${isActive ? 'active' : ''} ${isTarget ? 'is-drop-target' : ''}`}
-                          onClick={() => switchWorkspace(ws.id)}
-                          onAuxClick={e => {
-                            if (e.button === 1) {
-                              e.preventDefault();
-                              closeWorkspace(ws.id);
-                            }
-                          }}
-                          onMouseEnter={e => handleWorkspaceChipMouseEnter(wsNode, e)}
-                          onMouseLeave={handleWorkspaceChipMouseLeave}
-                          onDragEnter={e => handleWorkspaceChipDragEnter(e, ws.id)}
-                          onDragOver={e => handleWorkspaceChipDragOver(e, ws.id)}
-                          onDragLeave={handleWorkspaceChipDragLeave}
-                          onDrop={e => handleWorkspaceChipDrop(e, ws.id)}
-                          title={`Switch to "${wsNode?.name || 'Workspace'}" (⌘${wsIdx + 1}) · Drag here to switch workspace`}
-                        >
-                          <span className="workspace-chip-icon">
-                            <CoverArt
-                              src={wsNode?.cover_url || null}
-                              alt={wsNode?.name || ''}
-                              size={14}
-                              type="folder"
-                              seed={wsNode?.name || ''}
-                              rounded={3}
-                            />
-                          </span>
-
-                          <span className="workspace-chip-title">
-                            {wsNode?.name || 'Untitled Crate'}
-                          </span>
-
-                          {workspaces.length > 1 && (
-                            <button
-                              type="button"
-                              className="workspace-chip-close"
-                              onClick={e => closeWorkspace(ws.id, e)}
-                              title="Close Workspace (Middle-click or ×)"
-                              aria-label="Close workspace"
-                            >
-                              ✕
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* New Workspace (+) Button & Popover */}
-                  <div className="workspace-add-container" ref={workspaceAddContainerRef}>
-                    <button
-                      type="button"
-                      className={`workspace-add-btn ${workspacePickerOpen ? 'active' : ''}`}
-                      onClick={() => setWorkspacePickerOpen(prev => !prev)}
-                      title="Open New Workspace (+ / ⌘T)"
-                      aria-label="Open New Workspace"
-                    >
-                      <Plus size={15} strokeWidth={2.4} />
-                    </button>
-
-                    {/* Upward Workspace Picker Popover */}
-                    {workspacePickerOpen && (
-                      <div className="workspace-picker-popover footer-popover" ref={workspacePickerRef}>
-                        <div className="workspace-picker-header">
-                          <div className="workspace-picker-header-title">
-                            <FolderPlus size={13} style={{ color: '#818cf8' }} />
-                            <span>Open Workspace</span>
-                          </div>
-                          <span className="workspace-picker-shortcut">⌘T</span>
-                        </div>
-
-                        {/* Quick Open Root Crate or Duplicate View */}
-                        <div className="workspace-picker-quick-actions">
-                          {tree.length > 0 && (
-                            <button
-                              type="button"
-                              className="workspace-picker-quick-btn"
-                              onClick={() => {
-                                openInNewWorkspace(tree[0]);
-                                setWorkspacePickerOpen(false);
-                                setWorkspacePickerSearch('');
-                              }}
-                            >
-                              <Folder size={12} style={{ color: '#38bdf8' }} />
-                              <span>Library Root ({tree[0].name})</span>
-                            </button>
-                          )}
-                          {activeNode && (
-                            <button
-                              type="button"
-                              className="workspace-picker-quick-btn"
-                              onClick={() => {
-                                const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-                                setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
-                                setActiveWorkspaceId(newWsId);
-                                setWorkspacePickerOpen(false);
-                                setWorkspacePickerSearch('');
-                                showToast(`Duplicated workspace for "${activeNode.name}"`);
-                              }}
-                            >
-                              <Copy size={12} style={{ color: '#a78bfa' }} />
-                              <span>Duplicate Active ({activeNode.name})</span>
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="ctx-divider" style={{ margin: '6px 0' }} />
-
-                        <input
-                          type="search"
-                          className="workspace-picker-search"
-                          placeholder="Search folders to open..."
-                          value={workspacePickerSearch}
-                          onChange={e => setWorkspacePickerSearch(e.target.value)}
-                          autoFocus
-                        />
-                        <div className="workspace-picker-list">
-                          {allContainers
-                            .filter(c => !workspacePickerSearch.trim() || c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
-                            .map(c => (
-                              <button
-                                key={c.id}
-                                type="button"
-                                className="workspace-picker-item"
-                                onClick={() => {
-                                  openInNewWorkspace(c);
-                                  setWorkspacePickerOpen(false);
-                                  setWorkspacePickerSearch('');
-                                }}
-                              >
-                                <CoverArt
-                                  src={c.cover_url || null}
-                                  alt={c.name}
-                                  size={18}
-                                  type="folder"
-                                  seed={c.name}
-                                  rounded={3}
-                                />
-                                <span className="workspace-picker-item-title">{c.name}</span>
-                              </button>
-                            ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Collapse Switcher Button */}
-                  <button
-                    type="button"
-                    className="workspace-dock-collapse-btn"
-                    onClick={e => {
-                      e.stopPropagation();
-                      setWorkspacesCollapsed(true);
-                    }}
-                    title="Collapse workspace switcher (⌘\)"
-                    aria-label="Collapse workspace switcher"
-                  >
-                    <ChevronDown size={14} />
-                  </button>
-                </>
-              )}
-            </div>
-
-            {/* Hover Preview Card Tooltip */}
-            {!workspacesCollapsed && hoverPreviewNode && hoverPreviewPos && (
-              <div
-                className="workspace-preview-popover"
-                style={{ left: hoverPreviewPos.left }}
-              >
-                <div className="workspace-preview-media">
-                  <CoverArt
-                    src={hoverPreviewNode.cover_url || null}
-                    alt={hoverPreviewNode.name}
-                    size={44}
-                    type="folder"
-                    seed={hoverPreviewNode.name}
-                    rounded={6}
-                  />
-                </div>
-                <div className="workspace-preview-info">
-                  <h4 className="workspace-preview-title">{hoverPreviewNode.name}</h4>
-                  <div className="workspace-preview-meta">
-                    <span>{flattenTracks(hoverPreviewNode).length} tracks</span>
-                    {hoverPreviewNode.children && hoverPreviewNode.children.length > 0 && (
-                      <>
-                        <span>·</span>
-                        <span>{hoverPreviewNode.children.length} subfolders</span>
-                      </>
-                    )}
-                  </div>
-                  <div className="workspace-preview-hint">Click to switch · Middle-click to close</div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Integrated UI Footer — Docked at bottom of main viewport (does NOT extend into sidebar) */}
-          <footer className="integrated-footer">
-            {/* Left: Library Tree Dropdown (../) + Breadcrumbs (without dropdown arrows) */}
-            <div className="footer-nav-left">
-              {/* ../ Library Tree Toggle Button & Dropdown */}
-              <div
-                className="crumb-history-container"
-                ref={treeDropdownRef}
-              >
-                <button
-                  type="button"
-                  className={`crumb-history-btn ${treeDropdownOpen ? 'active' : ''}`}
-                  onClick={() => setTreeDropdownOpen(!treeDropdownOpen)}
-                  title="Browse Library Crates (..)"
-                  aria-label="Browse Library Crates"
-                >
-                  ../
-                </button>
-
-                {treeDropdownOpen && (
-                  <div className="crumb-tree-dropdown footer-popover" role="menu">
-                    {/* Menu Header with Integrated Search Box (⌘K) */}
-                    <div className="crumb-menu-search-row">
-                      <div className="crumb-menu-search-box">
-                        <Search size={14} className="crumb-menu-search-icon" />
-                        <input
-                          type="search"
-                          className="crumb-menu-search-input"
-                          placeholder="Search crates or jump to… (⌘K)"
-                          value={menuSearch}
-                          onChange={e => setMenuSearch(e.target.value)}
-                          autoFocus
-                        />
-                        <button
-                          type="button"
-                          className="crumb-menu-cmd-key"
-                          onClick={() => {
-                            setTreeDropdownOpen(false);
-                            setCommandPaletteOpen(true);
-                          }}
-                          title="Open Command Palette (⌘K)"
-                        >
-                          ⌘K
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Pinned Folders Section */}
-                    {pinnedCrateIds.length > 0 && !menuSearch.trim() && (
-                      <div className="crumb-menu-pinned-section">
-                        <div className="crumb-menu-section-header">
-                          <div className="crumb-menu-section-title">
-                            <Pin size={12} style={{ color: '#f59e0b' }} />
-                            <span>Pinned Folders</span>
-                          </div>
-                          <span className="crumb-menu-section-badge">{pinnedCrateIds.length}</span>
-                        </div>
-                        <div className="crumb-menu-pinned-list">
-                          {pinnedCrateIds
-                            .map(id => findNodeById(tree, id))
-                            .filter((n): n is LibraryNode => Boolean(n))
-                            .map((pn, pIdx) => (
-                              <div
-                                key={pn.id}
-                                className={`crumb-menu-pinned-item ${activeNodeId === pn.id ? 'active' : ''}`}
-                                onClick={() => {
-                                  selectNode(pn);
-                                  setTreeDropdownOpen(false);
-                                }}
-                                title={`Go to ${pn.name}`}
-                              >
-                                <CoverArt
-                                  src={pn.cover_url || null}
-                                  alt={pn.name}
-                                  size={16}
-                                  type="folder"
-                                  seed={pn.name}
-                                  rounded={3}
-                                />
-                                <span className="crumb-menu-pinned-name">{pn.name}</span>
-                                <div className="crumb-menu-pinned-actions">
-                                  {pIdx > 0 && (
-                                    <button
-                                      type="button"
-                                      className="crumb-menu-reorder-btn"
-                                      title="Move Up"
-                                      onClick={e => {
-                                        e.stopPropagation();
-                                        movePinnedOrder(pIdx, pIdx - 1);
-                                      }}
-                                    >
-                                      ↑
-                                    </button>
-                                  )}
-                                  {pIdx < pinnedCrateIds.length - 1 && (
-                                    <button
-                                      type="button"
-                                      className="crumb-menu-reorder-btn"
-                                      title="Move Down"
-                                      onClick={e => {
-                                        e.stopPropagation();
-                                        movePinnedOrder(pIdx, pIdx + 1);
-                                      }}
-                                    >
-                                      ↓
-                                    </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    className="crumb-menu-unpin-btn"
-                                    title="Unpin folder"
-                                    onClick={e => togglePinCrate(pn.id, e)}
-                                  >
-                                    ✕
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                        </div>
-                        <div className="ctx-divider" style={{ margin: '6px 0' }} />
-                      </div>
-                    )}
-
-                    {/* Menu Section Header */}
-                    <div className="crumb-menu-section-header">
-                      <div className="crumb-menu-section-title">
-                        <Library size={13} className="crumb-menu-section-icon" />
-                        <span>Crates &amp; Folders</span>
-                      </div>
-                      <span className="crumb-menu-section-badge">{tree.length}</span>
-                    </div>
-
-                    {/* Menu Directory List (Tree) */}
-                    <div className="crumb-tree-list">
-                      {loading ? (
-                        <div style={{ color: 'var(--mu)', padding: '16px 12px', fontSize: 12 }}>Loading library...</div>
-                      ) : tree.length === 0 ? (
-                        <div className="empty-sidebar-box" style={{ padding: 14 }}>
-                          <CoverArt size={28} type="folder" seed="Library" rounded={6} style={{ marginBottom: 6 }} />
-                          <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 3, color: '#f4f4f5' }}>Blank Library</div>
-                          <p style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 10px', lineHeight: 1.4 }}>
-                            No crates in your library yet.
-                          </p>
-                        </div>
-                      ) : (
-                        (menuSearch.trim() ? filteredMenuNodes : tree).map(n => renderTreeNode(n, 0))
-                      )}
-                    </div>
-
-                    {/* Menu Footer / System Actions */}
-                    <div className="crumb-menu-footer-actions">
-                      <button
-                        type="button"
-                        className="crumb-menu-action-item"
-                        onClick={() => {
-                          setTreeDropdownOpen(false);
-                          setSettingsOpen(true);
-                        }}
-                        title="Library & Application Settings"
-                      >
-                        <div className="crumb-menu-action-left">
-                          <Settings size={14} style={{ color: '#a78bfa' }} />
-                          <span>Settings</span>
-                        </div>
-                        <span
-                          className="crumb-menu-action-badge"
-                          style={
-                            statusEnabled
-                              ? { background: 'rgba(99, 102, 241, 0.25)', color: '#c7d2fe', borderColor: '#6366f1' }
-                              : undefined
-                          }
-                        >
-                          {statusEnabled ? 'Status: ON' : 'Preferences'}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Breadcrumb path */}
-              <nav className="unified-crumbs" aria-label="Breadcrumb">
-                <span
-                  className="crumb-link root-crumb"
-                  onClick={() => setTreeDropdownOpen(!treeDropdownOpen)}
-                  title="Toggle Library Navigation Menu"
-                >
-                  <Library size={13} style={{ marginRight: 4 }} />
-                  <span>Library</span>
-                </span>
-
-                {activePath.map((item, idx) => {
-                  const isLast = idx === activePath.length - 1;
-                  return (
-                    <React.Fragment key={item.id}>
-                      <span className="crumb-sep">/</span>
-                      {isLast ? (
-                        <b className="crumb-current">{item.name}</b>
-                      ) : (
-                        <span
-                          className="crumb-link"
-                          onClick={e => {
-                            if (e.metaKey || e.ctrlKey) {
-                              e.preventDefault();
-                              openInNewWorkspace(item);
-                              return;
-                            }
-                            selectNode(item);
-                          }}
-                          onAuxClick={e => {
-                            if (e.button === 1) {
-                              e.preventDefault();
-                              openInNewWorkspace(item);
-                            }
-                          }}
-                        >
-                          {item.name}
-                        </span>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </nav>
-            </div>
-
-            {/* Right: Track Filter Input + Actions (Add Music) */}
-            <div className="footer-nav-right">
-              <div className="footer-filter-box">
-                <Search size={12} className="footer-filter-icon" />
-                <input
-                  ref={filterInputRef}
-                  type="search"
-                  className="footer-filter-input"
-                  placeholder="Filter crate items... (⌘F)"
-                  value={filterText}
-                  onChange={e => setFilterText(e.target.value)}
-                />
-                {filterText && (
-                  <button
-                    type="button"
-                    className="footer-filter-clear-btn"
-                    onClick={() => setFilterText('')}
-                    title="Clear filter"
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-
-              <div style={{ position: 'relative' }} ref={addMusicRef}>
-                <button
-                  type="button"
-                  className="p footer-action-btn"
-                  onClick={() => setAddMusicMenuOpen(!addMusicMenuOpen)}
-                  title="Add Music"
-                >
-                  <Plus size={13} />
-                  <span>Add Music</span>
-                </button>
-
-                {addMusicMenuOpen && (
-                  <div className="add-music-dropdown footer-popover" style={{ right: 0, left: 'auto', bottom: 'calc(100% + 8px)', top: 'auto', minWidth: 260 }}>
-                    <button
-                      type="button"
-                      className="add-music-option"
-                      onClick={() => {
-                        setAddMusicMenuOpen(false);
-                        const targetId = selectedNode
-                          ? selectedNode.id
-                          : firstSelectedTrack
-                            ? (firstSelectedTrack.parent_id || 'uncategorized')
-                            : 'uncategorized';
-                        setSearchInitialQuery('');
-                        setSearchInitialTargetNodeId(targetId);
-                        setImportModalOpen(true);
-                      }}
-                    >
-                      <div style={{ padding: 6, borderRadius: 6, background: '#1e3a5f', color: '#60a5fa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Sparkles size={16} />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div className="add-music-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <span>Search &amp; Import Releases</span>
-                          <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: 'rgba(255,255,255,0.1)', color: 'var(--mu)', fontWeight: 600 }}>S</span>
-                        </div>
-                        <div className="add-music-desc">Search artists &amp; albums from Discogs 17.5M+ and Deezer</div>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      className="add-music-option"
-                      onClick={() => {
-                        setAddMusicMenuOpen(false);
-                        handleOpenTuneImport(selectedNode || activeNode);
-                      }}
-                    >
-                      <div style={{ padding: 6, borderRadius: 6, background: '#164e63', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <FileText size={16} />
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div className="add-music-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <span>Import Tune My Music (.csv)</span>
-                          <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,211,238,0.15)', color: '#22d3ee', fontWeight: 600 }}>CSV</span>
-                        </div>
-                        <div className="add-music-desc">Smart import playlists with Deezer &amp; Discogs connection</div>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      className="add-music-option"
-                      onClick={() => {
-                        setAddMusicMenuOpen(false);
-                        setNewTrackOpen(true);
-                      }}
-                    >
-                      <div style={{ padding: 6, borderRadius: 6, background: '#143825', color: '#34d399', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Plus size={16} />
-                      </div>
-                      <div>
-                        <div className="add-music-title">Add Track Manually</div>
-                        <div className="add-music-desc">Enter custom track metadata, duration &amp; catalog tags</div>
-                      </div>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </footer>
         </div>
       </div>
 
