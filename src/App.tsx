@@ -50,6 +50,7 @@ import type { ContextMenuState } from './components/ContextMenu';
 import { ArtistProjectsSuggestions } from './components/ArtistProjectsSuggestions';
 import { ArtistProfileHeader } from './components/ArtistProfileHeader';
 import { SocialFeedPage } from './components/SocialFeedPage';
+import { ProfilePage } from './components/ProfilePage';
 import {
   Search,
   FolderPlus,
@@ -74,6 +75,7 @@ import {
   ChevronUp,
   FileText,
   FolderInput,
+  User,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -131,7 +133,13 @@ function flattenVisibleTree(nodes: LibraryNode[], openMap: Record<string, boolea
 }
 
 export const App: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<'library' | 'feed'>('library');
+  const [currentPage, setCurrentPage] = useState<'library' | 'feed' | 'profile'>(() => {
+    if (typeof window !== 'undefined') {
+      if (window.location.pathname === '/profile') return 'profile';
+      if (window.location.pathname === '/feed') return 'feed';
+    }
+    return 'library';
+  });
   const [tree, setTree] = useState<LibraryNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeNodeId, setActiveNodeId] = useState<string>('');
@@ -376,6 +384,15 @@ export const App: React.FC = () => {
   // Browser Back/Forward navigation without URL slugs
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
+      if (window.location.pathname === '/profile') {
+        setCurrentPage('profile');
+        return;
+      }
+      if (window.location.pathname === '/feed') {
+        setCurrentPage('feed');
+        return;
+      }
+      setCurrentPage('library');
       const targetId = e.state?.nodeId;
       if (targetId) {
         const targetNode = findNodeById(tree, targetId);
@@ -462,9 +479,17 @@ export const App: React.FC = () => {
         setAddMusicMenuOpen(false);
         setActiveTrack(null);
       } else if (
-        (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowLeft')) &&
+        (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowLeft') || e.key === '[') &&
         !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)
       ) {
+        if (currentPage === 'profile' || currentPage === 'feed') {
+          e.preventDefault();
+          setCurrentPage('library');
+          if (window.location.pathname !== '/') {
+            window.history.pushState({}, '', '/');
+          }
+          return;
+        }
         if (activeNodeId) {
           e.preventDefault();
           handleGoBack();
@@ -473,7 +498,7 @@ export const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeNodeId, activePath]);
+  }, [activeNodeId, activePath, currentPage]);
 
 
   const handleOpenTuneImport = (node?: LibraryNode | null) => {
@@ -1723,10 +1748,11 @@ export const App: React.FC = () => {
     // Track rows
     sorted.forEach(t => {
       const isSelected = selectedTrackIds.has(t.id);
+      const isTrackAlbumIncomplete = statusEnabled && Boolean(t.al) && !isAlbumCompleted(t.a, t.al, completedAlbumKeys);
       nodesOut.push(
         <tr
           key={`t-${t.id}`}
-          className={`t ${isSelected ? 's is-selected' : ''} ${draggingTrackIds.includes(t.id) ? 'is-dragging' : ''}`}
+          className={`t ${isSelected ? 's is-selected' : ''} ${draggingTrackIds.includes(t.id) ? 'is-dragging' : ''} ${isTrackAlbumIncomplete ? 'album-incomplete' : ''}`}
           draggable={true}
           onDragStart={e => handleTrackDragStart(e, t)}
           onDragEnd={handleDragEnd}
@@ -1737,13 +1763,12 @@ export const App: React.FC = () => {
           {activeCols.map((col, colIdx) => {
             const cellStyle = colIdx === 0 ? { paddingLeft: `${14 + depth * 18}px` } : undefined;
             if (col.key === 'title') {
-              const isTrackAlbumIncomplete = statusEnabled && Boolean(t.al) && !isAlbumCompleted(t.a, t.al, completedAlbumKeys);
               return (
                 <td key={col.key} style={cellStyle}>
                   <div className="tree-node-cell" style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
                     <span className="ar empty" style={{ width: 14 }} />
                     <CoverArt
-                      src={isTrackAlbumIncomplete ? null : (t.cover_url || n.cover_url)}
+                      src={t.cover_url || n.cover_url}
                       alt={t.t}
                       size={24}
                       type="track"
@@ -1840,9 +1865,9 @@ export const App: React.FC = () => {
                         <span className="ar empty" style={{ width: 14 }} />
                       )}
 
-                      {/* CoverArt (Folders always use text-generated thumbnails, uncompleted albums hide banner thumbnail when status tracking enabled) */}
+                      {/* CoverArt (Folders always use text-generated thumbnails; albums and other items always keep small thumbnails in table even in completion mode) */}
                       <CoverArt
-                        src={child.type === 'Folder' || isAlbumIncomplete ? null : (child.cover_url || child.tracks?.[0]?.cover_url || null)}
+                        src={child.type === 'Folder' ? null : (child.cover_url || child.tracks?.[0]?.cover_url || null)}
                         alt={child.name}
                         size={24}
                         type={child.type === 'Artist' ? 'artist' : child.type === 'Playlist' ? 'playlist' : child.type === 'Folder' ? 'folder' : 'album'}
@@ -1983,8 +2008,32 @@ export const App: React.FC = () => {
         {currentPage === 'feed' ? (
           <SocialFeedPage
             tree={tree}
-            onSwitchToLibrary={() => setCurrentPage('library')}
+            onSwitchToLibrary={() => {
+              setCurrentPage('library');
+              if (window.location.pathname !== '/') {
+                window.history.pushState({}, '', '/');
+              }
+            }}
             onImportRelease={handleImportFeedRelease}
+            showToast={showToast}
+          />
+        ) : currentPage === 'profile' ? (
+          <ProfilePage
+            tree={tree}
+            completedAlbumKeys={completedAlbumKeys}
+            onSwitchToLibrary={() => {
+              setCurrentPage('library');
+              if (window.location.pathname !== '/') {
+                window.history.pushState({}, '', '/');
+              }
+            }}
+            onSelectNode={(node) => {
+              setActiveNodeId(node.id);
+              setCurrentPage('library');
+              if (window.location.pathname !== '/') {
+                window.history.pushState({}, '', '/');
+              }
+            }}
             showToast={showToast}
           />
         ) : activeNode ? (
@@ -2050,24 +2099,15 @@ export const App: React.FC = () => {
                     <div className="active-hero-meta">
                       <div className="active-hero-badge-row">
                         <span className="active-hero-badge">{activeNode.type.toUpperCase()}</span>
-                        {statusEnabled && isActiveAlbum && (
+                        {statusEnabled && isActiveAlbum && isActiveAlbumCompleted && (
                           <button
                             type="button"
-                            className={`active-hero-status-btn ${isActiveAlbumCompleted ? 'completed' : 'incomplete'}`}
-                            onClick={() => handleToggleAlbumCompleted(activeArtist, activeNode.name, !isActiveAlbumCompleted)}
-                            title={isActiveAlbumCompleted ? 'Mark album as incomplete' : 'Mark album as completed'}
+                            className="active-hero-status-btn completed"
+                            onClick={() => handleToggleAlbumCompleted(activeArtist, activeNode.name, false)}
+                            title="Mark album as incomplete"
                           >
-                            {isActiveAlbumCompleted ? (
-                              <>
-                                <Check size={11} strokeWidth={3} />
-                                <span>COMPLETED</span>
-                              </>
-                            ) : (
-                              <>
-                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
-                                <span>INCOMPLETE</span>
-                              </>
-                            )}
+                            <Check size={11} strokeWidth={3} />
+                            <span>COMPLETED</span>
                           </button>
                         )}
                         {activeNode.type === 'Album' && activeNode.tracks?.[0]?.f && (
@@ -2459,8 +2499,42 @@ export const App: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Menu Footer / System Actions: Settings */}
+                    {/* Menu Footer / System Actions */}
                     <div className="crumb-menu-footer-actions">
+                      <button
+                        type="button"
+                        className="crumb-menu-action-item"
+                        onClick={() => {
+                          setTreeDropdownOpen(false);
+                          setCurrentPage('profile');
+                          window.history.pushState({ page: 'profile' }, '', '/profile');
+                        }}
+                        title="View Public Profile & Activity Log (/profile)"
+                      >
+                        <div className="crumb-menu-action-left">
+                          <User size={14} style={{ color: '#38bdf8' }} />
+                          <span>Public Profile</span>
+                        </div>
+                        <span className="crumb-menu-action-badge">/profile</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="crumb-menu-action-item"
+                        onClick={() => {
+                          setTreeDropdownOpen(false);
+                          setCurrentPage('feed');
+                          window.history.pushState({ page: 'feed' }, '', '/feed');
+                        }}
+                        title="View Discovery Feed (/feed)"
+                      >
+                        <div className="crumb-menu-action-left">
+                          <Rss size={14} style={{ color: '#f59e0b' }} />
+                          <span>Discovery Feed</span>
+                        </div>
+                        <span className="crumb-menu-action-badge">/feed</span>
+                      </button>
+
                       <button
                         type="button"
                         className="crumb-menu-action-item"
@@ -2494,28 +2568,49 @@ export const App: React.FC = () => {
               <nav className="unified-crumbs" aria-label="Breadcrumb">
                 <span
                   className="crumb-link root-crumb"
-                  onClick={() => setTreeDropdownOpen(!treeDropdownOpen)}
+                  onClick={() => {
+                    if (currentPage !== 'library') {
+                      setCurrentPage('library');
+                      if (window.location.pathname !== '/') {
+                        window.history.pushState({}, '', '/');
+                      }
+                    } else {
+                      setTreeDropdownOpen(!treeDropdownOpen);
+                    }
+                  }}
                   title="Toggle Library Navigation Menu"
                 >
                   <Library size={13} style={{ marginRight: 4 }} />
                   <span>Library</span>
                 </span>
 
-                {activePath.map((item, idx) => {
-                  const isLast = idx === activePath.length - 1;
-                  return (
-                    <React.Fragment key={item.id}>
-                      <span className="crumb-sep">/</span>
-                      {isLast ? (
-                        <b className="crumb-current">{item.name}</b>
-                      ) : (
-                        <span className="crumb-link" onClick={() => selectNode(item)}>
-                          {item.name}
-                        </span>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
+                {currentPage === 'profile' ? (
+                  <>
+                    <span className="crumb-sep">/</span>
+                    <b className="crumb-current">Public Profile (@err)</b>
+                  </>
+                ) : currentPage === 'feed' ? (
+                  <>
+                    <span className="crumb-sep">/</span>
+                    <b className="crumb-current">Discovery Feed</b>
+                  </>
+                ) : (
+                  activePath.map((item, idx) => {
+                    const isLast = idx === activePath.length - 1;
+                    return (
+                      <React.Fragment key={item.id}>
+                        <span className="crumb-sep">/</span>
+                        {isLast ? (
+                          <b className="crumb-current">{item.name}</b>
+                        ) : (
+                          <span className="crumb-link" onClick={() => selectNode(item)}>
+                            {item.name}
+                          </span>
+                        )}
+                      </React.Fragment>
+                    );
+                  })
+                )}
               </nav>
             </div>
 
