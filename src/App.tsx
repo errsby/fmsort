@@ -512,11 +512,9 @@ export const App: React.FC = () => {
       return;
     }
 
-    // Folders pull ambient backdrop from their first child container with cover art
+    // Folders never pull ambient backdrop from child album cover art (funky generative backdrop instead)
     if (activeNode.type === 'Folder') {
-      const firstChildWithCover = activeNode.children?.find(c => c.cover_url || c.tracks?.[0]?.cover_url);
-      const folderCover = activeNode.cover_url || firstChildWithCover?.cover_url || firstChildWithCover?.tracks?.[0]?.cover_url || null;
-      setHeroBackdrop(folderCover);
+      setHeroBackdrop(null);
       return;
     }
 
@@ -1524,16 +1522,29 @@ export const App: React.FC = () => {
           onContextMenu={e => handleTrackContextMenu(e, t)}
         >
           {activeCols.map((col, colIdx) => {
-            const cellStyle = colIdx === 0 ? { paddingLeft: `${14 + depth * 16}px` } : undefined;
+            const cellStyle = colIdx === 0 ? { paddingLeft: `${14 + depth * 18}px` } : undefined;
             if (col.key === 'title') {
               return (
                 <td key={col.key} style={cellStyle}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                  <div className="tree-node-cell" style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
+                    {/* Tree hierarchy indentation guide lines */}
+                    {depth > 0 && (
+                      <div className="tree-depth-guides" aria-hidden="true">
+                        {Array.from({ length: depth }).map((_, i) => (
+                          <span
+                            key={i}
+                            className="tree-guide-line"
+                            style={{ left: `${-(depth - i) * 18 + 7}px` }}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <span className="ar empty" style={{ width: 14 }} />
                     <CoverArt
                       src={t.cover_url || n.cover_url}
                       alt={t.t}
-                      size={26}
-                      type="album"
+                      size={24}
+                      type="track"
                       seed={t.al || t.t || t.a}
                       rounded={4}
                     />
@@ -1572,22 +1583,20 @@ export const App: React.FC = () => {
       );
     });
 
-    // Sub-containers as section header rows with backdrop designs
+    // Sub-containers aligned with table rows and structured in tree layout
     if (n.children && n.children.length > 0) {
       n.children.forEach(child => {
         const childTracks = flattenTracks(child);
         const hasSubItems = (child.children && child.children.length > 0) || childTracks.length > 0;
         const isCollapsed = hasSubItems ? isSectionCollapsed(child, depth) : true;
-        const backdropImg = child.cover_url || child.tracks?.[0]?.cover_url || null;
         const isNodeSelected = selectedNodeIds.has(child.id);
         const isDropTarget = dropTargetNodeId === child.id;
         const isDragging = draggingNodeIds.includes(child.id) || draggingNodeId === child.id;
 
-        // Unified container item (Folder, Album, Artist, Playlist) with hero design and consistent selection
         nodesOut.push(
           <tr
             key={`h-${child.id}`}
-            className={`folder-item-hero-row ${!hasSubItems ? 'is-empty' : ''} ${isNodeSelected ? 'is-selected' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
+            className={`t container-row ${child.type.toLowerCase()}-row ${!hasSubItems ? 'is-empty' : ''} ${isNodeSelected ? 's is-selected' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
             data-context-type="node"
             data-node-id={child.id}
             draggable={true}
@@ -1600,94 +1609,171 @@ export const App: React.FC = () => {
             onDoubleClick={() => selectNode(child)}
             onContextMenu={e => handleNodeContextMenu(e, child)}
           >
-            <td colSpan={colSpan}>
-              <div
-                className={`folder-item-hero ${hasSubItems && isCollapsed ? 'is-collapsed' : 'is-uncollapsed'}`}
-                style={{ paddingLeft: `${10 + depth * 16}px` }}
+            {activeCols.map((col, colIdx) => {
+              const cellStyle = colIdx === 0 ? { paddingLeft: `${14 + depth * 18}px` } : undefined;
+
+              if (col.key === 'title') {
+                return (
+                  <td key={col.key} style={cellStyle}>
+                    <div className="tree-node-cell" style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
+                      {/* Tree hierarchy indentation guide lines */}
+                      {depth > 0 && (
+                        <div className="tree-depth-guides" aria-hidden="true">
+                          {Array.from({ length: depth }).map((_, i) => (
+                            <span
+                              key={i}
+                              className="tree-guide-line"
+                              style={{ left: `${-(depth - i) * 18 + 7}px` }}
+                            />
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Expand / Collapse Chevron */}
+                      {hasSubItems ? (
+                        <span
+                          className={`ar ${isCollapsed ? '' : 'o'}`}
+                          title={isCollapsed ? 'Expand' : 'Collapse'}
+                          onClick={e => {
+                            e.stopPropagation();
+                            toggleSectionCollapse(child.id, isCollapsed);
+                          }}
+                        >
+                          ›
+                        </span>
+                      ) : (
+                        <span className="ar empty" style={{ width: 14 }} />
+                      )}
+
+                      {/* CoverArt (Folders always use text-generated thumbnails, never taken over by child album covers) */}
+                      <CoverArt
+                        src={child.type === 'Folder' ? null : (child.cover_url || child.tracks?.[0]?.cover_url || null)}
+                        alt={child.name}
+                        size={24}
+                        type={child.type === 'Artist' ? 'artist' : child.type === 'Playlist' ? 'playlist' : child.type === 'Folder' ? 'folder' : 'album'}
+                        seed={child.name}
+                        rounded={child.type === 'Artist' ? 'full' : 4}
+                      />
+
+                      {/* Type Badge */}
+                      <span className={`folder-item-type-plain badge-${child.type.toLowerCase()}`}>
+                        {child.type}
+                      </span>
+
+                      {/* Name */}
+                      <span className="ttl container-ttl">
+                        {child.name}
+                      </span>
+
+                      {/* Selected Badge */}
+                      {isNodeSelected && (
+                        <span className="folder-item-selected-badge">
+                          <Check size={11} strokeWidth={3} />
+                          Selected
+                        </span>
+                      )}
+
+                      {/* Drop Target Badge */}
+                      {isDropTarget && (
+                        <span className="drop-target-badge">
+                          {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : `Move into "${child.name}"`}
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                );
+              }
+
+              if (col.key === 'artist') {
+                const artistDisplay = child.type === 'Album'
+                  ? (child.tracks?.[0]?.a || '—')
+                  : child.type === 'Artist'
+                    ? child.name
+                    : '—';
+                return <td key={col.key} style={cellStyle}>{artistDisplay}</td>;
+              }
+
+              if (col.key === 'album') {
+                const albumDisplay = child.type === 'Album'
+                  ? child.name
+                  : child.type === 'Artist'
+                    ? (child.children?.length ? `${child.children.length} releases` : '—')
+                    : '—';
+                return <td key={col.key} style={cellStyle}>{albumDisplay}</td>;
+              }
+
+              if (col.key === 'year') {
+                const yearDisplay = child.type === 'Album'
+                  ? (child.tracks?.[0]?.y || '—')
+                  : '—';
+                return <td key={col.key} style={cellStyle}>{yearDisplay}</td>;
+              }
+
+              if (col.key === 'format') {
+                const formatDisplay = child.type === 'Album'
+                  ? (child.tracks?.[0]?.f || 'Album')
+                  : child.type;
+                return <td key={col.key} style={cellStyle}>{formatDisplay}</td>;
+              }
+
+              if (col.key === 'cat') {
+                const catDisplay = child.type === 'Album' ? (child.tracks?.[0]?.c || '—') : '—';
+                return <td key={col.key} style={cellStyle} className="mono">{catDisplay}</td>;
+              }
+
+              if (col.key === 'bc') {
+                const bcDisplay = child.type === 'Album' ? (child.tracks?.[0]?.bc || '—') : '—';
+                return <td key={col.key} style={cellStyle} className="mono">{bcDisplay}</td>;
+              }
+
+              if (col.key === 'mbid') {
+                const mb = child.type === 'Album' ? (child.tracks?.[0]?.mb || '') : '';
+                const displayMbid = mb && mb.length > 8 ? `${mb.slice(0, 8)}…` : mb || '—';
+                return (
+                  <td key={col.key} style={cellStyle} className="mono" title={mb || undefined}>
+                    {displayMbid}
+                  </td>
+                );
+              }
+
+              if (col.key === 'isrc') {
+                if (child.type === 'Album') {
+                  const withIsrc = childTracks.filter(t => t.isrc && t.isrc !== '—').length;
+                  return (
+                    <td key={col.key} style={cellStyle} className="mono">
+                      {childTracks.length > 0 ? `${withIsrc}/${childTracks.length}` : '—'}
+                    </td>
+                  );
+                }
+                return <td key={col.key} style={cellStyle}>—</td>;
+              }
+
+              if (col.key === 'len') {
+                const lenDisplay = childTracks.length > 0
+                  ? fmtTotalRuntime(childTracks)
+                  : (child.children?.length ? `${child.children.length} items` : '—');
+                return <td key={col.key} style={cellStyle} className="mono">{lenDisplay}</td>;
+              }
+
+              if (col.key === 'bpm') return <td key={col.key} style={cellStyle}>—</td>;
+              if (col.key === 'key') return <td key={col.key} style={cellStyle}>—</td>;
+
+              return <td key={col.key} style={cellStyle}>—</td>;
+            })}
+
+            <td style={{ width: 36, textAlign: 'right', paddingRight: 8 }}>
+              <button
+                type="button"
+                className="node-more-btn"
+                title={`Manage ${child.name}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setNodeToEdit(child);
+                  setNodeEditOpen(true);
+                }}
               >
-                {/* Backdrop Layer */}
-                {backdropImg && (
-                  <div className="hero-backdrop" aria-hidden="true">
-                    <div
-                      className="hero-backdrop-glow"
-                      style={{ backgroundImage: `url(${backdropImg})` }}
-                    />
-                    <div
-                      className="hero-backdrop-artwork folder-backdrop-artwork"
-                      style={{ backgroundImage: `url(${backdropImg})` }}
-                    />
-                    <div className="hero-backdrop-scrim folder-backdrop-scrim" />
-                  </div>
-                )}
-
-                {/* Foreground Content - Compact Inlined Row */}
-                <div className="folder-item-content">
-                  {hasSubItems ? (
-                    <span
-                      className={`ar ${isCollapsed ? '' : 'o'}`}
-                      title={isCollapsed ? 'Expand' : 'Collapse'}
-                      onClick={e => {
-                        e.stopPropagation();
-                        toggleSectionCollapse(child.id, isCollapsed);
-                      }}
-                    >
-                      ›
-                    </span>
-                  ) : (
-                    <span className="ar empty" style={{ width: 14 }} />
-                  )}
-
-                  <CoverArt
-                    src={backdropImg}
-                    alt={child.name}
-                    size={24}
-                    type={child.type === 'Artist' ? 'artist' : child.type === 'Playlist' ? 'playlist' : child.type === 'Folder' ? 'folder' : 'album'}
-                    seed={child.name}
-                    rounded={child.type === 'Artist' ? 'full' : 4}
-                  />
-
-                  <span className="folder-item-type-plain">{child.type}</span>
-                  <span className="folder-item-name">{child.name}</span>
-                  {isNodeSelected && (
-                    <span className="folder-item-selected-badge">
-                      <Check size={11} strokeWidth={3} />
-                      Selected
-                    </span>
-                  )}
-                  {isDropTarget && (
-                    <span className="drop-target-badge">
-                      {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : `Move into "${child.name}"`}
-                    </span>
-                  )}
-                  {child.type === 'Album' && child.tracks?.[0]?.a && (
-                    <span className="folder-item-artist">· {child.tracks[0].a}</span>
-                  )}
-                  <span className="m">
-                    {child.type === 'Folder' && child.children?.length ? `${child.children.length} items` : ''}
-                    {childTracks.length > 0 ? (
-                      <>
-                        {child.type === 'Folder' && child.children?.length ? ' · ' : ''}
-                        {childTracks.length} {childTracks.length === 1 ? 'track' : 'tracks'} · {fmtTotalRuntime(childTracks)}
-                      </>
-                    ) : null}
-                  </span>
-
-                  {/* Actions on right */}
-                  <div className="folder-item-actions" onClick={e => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      className="node-more-btn"
-                      title={`Manage ${child.name}`}
-                      onClick={() => {
-                        setNodeToEdit(child);
-                        setNodeEditOpen(true);
-                      }}
-                    >
-                      <MoreHorizontal size={13} />
-                    </button>
-                  </div>
-                </div>
-              </div>
+                <MoreHorizontal size={13} />
+              </button>
             </td>
           </tr>
         );
@@ -1737,7 +1823,7 @@ export const App: React.FC = () => {
             {/* Active Container Hero Banner with Discogs / Ambient Background Artwork */}
             {(activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist' || activeNode.type === 'Folder') && (
               <div className="active-hero-banner">
-                {heroBackdrop ? (
+                {heroBackdrop && activeNode.type !== 'Folder' ? (
                   <div className="hero-backdrop" aria-hidden="true">
                     <div
                       className="hero-backdrop-glow"
@@ -1764,7 +1850,7 @@ export const App: React.FC = () => {
 
                 <div className="active-hero-content">
                   <CoverArt
-                    src={activeNode.cover_url || (activeNode.type !== 'Folder' ? (activeNode.tracks?.[0]?.cover_url || (activeNode.type === 'Artist' ? artistProfile?.picture : null) || heroBackdrop) : null)}
+                    src={activeNode.type === 'Folder' ? null : (activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || (activeNode.type === 'Artist' ? artistProfile?.picture : null) || heroBackdrop)}
                     alt={activeNode.name}
                     size={92}
                     type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : activeNode.type === 'Folder' ? 'folder' : 'album'}

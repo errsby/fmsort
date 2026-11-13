@@ -132,10 +132,11 @@ export const CoverArt: React.FC<CoverArtProps> = ({
   const isFunky = funky !== undefined ? funky : isFolder;
   const effectiveSeed = (seed?.trim() || alt?.trim() || (isFolder ? 'Crate' : ''));
   const borderRadius = rounded === 'full' ? '50%' : `${rounded}px`;
-  const hasValidImage = !!src && !loadFailed && src.trim() !== '' && src !== '—';
+  // Folders always prioritize text-generated thumbnails (never taken over by child album or track covers)
+  const hasValidImage = isFolder ? false : (!!src && !loadFailed && src.trim() !== '' && src !== '—');
 
-  // If this is a folder (or explicitly funky) and has no valid custom image, render funky text-generated thumbnail
-  if (isFunky && !hasValidImage) {
+  // If this is a folder (or explicitly funky), render funky text-generated thumbnail
+  if (isFolder || (isFunky && !hasValidImage)) {
     const palette = getFunkyPalette(effectiveSeed);
     const chosenVariant = variant && variant !== 'auto' ? variant : getFunkyVariant(effectiveSeed);
 

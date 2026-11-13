@@ -2396,77 +2396,114 @@ tr.t:hover .cover-art-wrapper {
   }
 }
 
-/* Folder Items Backdrop Design (Albums & Artists within folders) - Compact List Sizing */
-.folder-item-hero-row {
-  cursor: pointer;
-  position: relative;
+/* =========================================================================
+   Container Rows in Table (Folder, Album, Artist, Playlist - Aligned with Table Grid)
+   ========================================================================= */
+
+tr.container-row td {
+  height: 36px;
+  background: rgba(255, 255, 255, 0.015);
+  font-size: 13px;
+  border-bottom: 1px solid #1c1c20;
 }
 
-.folder-item-hero-row td {
-  padding: 0 !important;
-  border-bottom: 1px solid var(--bd) !important;
-  background: transparent !important;
-  position: relative;
-  overflow: hidden;
+tr.container-row:hover td {
+  background: rgba(255, 255, 255, 0.05) !important;
 }
 
-.folder-item-hero {
+tr.container-row.s td,
+tr.container-row.is-selected td {
+  background: rgba(99, 102, 241, 0.16) !important;
+  color: #fafafa !important;
+}
+
+tr.container-row.s td:first-child,
+tr.container-row.is-selected td:first-child {
+  border-left: 3px solid #818cf8 !important;
+}
+
+.tree-node-cell {
   position: relative;
-  overflow: hidden;
-  height: 35px;
-  min-height: 35px;
-  background: var(--pn);
   display: flex;
   align-items: center;
-  transition: background 0.15s ease;
+  min-height: 26px;
 }
 
-.folder-item-hero:hover {
-  background: #141419;
-}
-
-/* Smooth backdrop fade when toggling collapsed / uncollapsed states */
-.folder-item-hero .hero-backdrop {
-  transition: opacity 0.25s ease;
-}
-
-/* When uncollapsed (expanded), fade out the backdrop so it feels clean and not redundant with tracks */
-.folder-item-hero.is-uncollapsed .hero-backdrop {
-  opacity: 0;
-}
-
-.folder-item-hero.is-uncollapsed:hover .hero-backdrop {
-  opacity: 0.18;
-}
-
-/* When collapsed (summary row), show the full backdrop artwork */
-.folder-item-hero.is-collapsed .hero-backdrop {
-  opacity: 1;
-}
-
-.folder-item-hero.is-collapsed:hover .folder-backdrop-artwork {
-  opacity: 0.44;
-}
-
-.folder-backdrop-artwork {
+.tree-depth-guides {
   position: absolute;
-  top: -10px;
-  bottom: -10px;
-  right: -5px;
-  width: 260px !important;
-  background-size: cover;
-  background-position: center 30%;
-  opacity: 0.28 !important;
-  filter: contrast(1.08) saturate(1.15);
-  mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.4) 35%, rgba(0,0,0,1) 100%) !important;
-  -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.4) 35%, rgba(0,0,0,1) 100%) !important;
-  transition: opacity 0.2s ease;
+  top: -15px;
+  bottom: -15px;
+  left: 0;
+  width: 0;
+  pointer-events: none;
 }
 
-.folder-backdrop-scrim {
+.tree-guide-line {
   position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, #09090b 0%, rgba(9, 9, 11, 0.9) 45%, rgba(9, 9, 11, 0.5) 80%, rgba(9, 9, 11, 0.2) 100%) !important;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+tr:hover .tree-guide-line {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.container-ttl {
+  font-weight: 600 !important;
+  color: #ffffff !important;
+}
+
+.folder-item-type-plain {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.badge-folder {
+  color: #fde68a;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.badge-artist {
+  color: #a7f3d0;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.badge-album {
+  color: #c7d2fe;
+  background: rgba(99, 102, 241, 0.18);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+}
+
+.badge-playlist {
+  color: #bae6fd;
+  background: rgba(14, 165, 233, 0.15);
+  border: 1px solid rgba(14, 165, 233, 0.35);
+}
+
+.folder-item-selected-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #4338ca;
+  color: #e0e7ff;
+  border: 1px solid #6366f1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
 }
 
 .folder-item-content {
@@ -4162,49 +4199,19 @@ tr.t.is-selected td:first-child {
   border-left: 2px solid rgba(255, 255, 255, 0.35);
 }
 
-/* Selected Folder / Album / Container Hero Row */
-tr.folder-item-hero-row.is-selected td {
+/* Selected Container Row (Folder, Album, Artist, Playlist) */
+tr.container-row.is-selected td {
   background: rgba(99, 102, 241, 0.16) !important;
+  color: #fafafa !important;
 }
 
-tr.folder-item-hero-row.is-selected td > .folder-item-hero {
-  background: rgba(99, 102, 241, 0.24) !important;
+tr.container-row.is-selected td:first-child {
   border-left: 3px solid #818cf8 !important;
-  box-shadow: inset 0 0 0 1px rgba(129, 140, 248, 0.45) !important;
 }
 
-tr.folder-item-hero-row.is-selected .folder-backdrop-scrim {
-  background: linear-gradient(90deg, rgba(49, 46, 129, 0.45) 0%, rgba(9, 9, 11, 0.75) 45%, rgba(9, 9, 11, 0.5) 80%, rgba(9, 9, 11, 0.2) 100%) !important;
-}
-
-tr.folder-item-hero-row.is-selected .folder-item-name {
+tr.container-row.is-selected .container-ttl {
   color: #ffffff !important;
   font-weight: 700 !important;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
-}
-
-tr.folder-item-hero-row.is-selected .folder-item-type-plain {
-  color: #c7d2fe !important;
-  background: rgba(99, 102, 241, 0.4) !important;
-  border: 1px solid rgba(129, 140, 248, 0.6) !important;
-  border-radius: 3px;
-  padding: 0 4px;
-}
-
-.folder-item-selected-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: #4338ca;
-  color: #e0e7ff;
-  border: 1px solid #6366f1;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 tr.h.is-selected td {
