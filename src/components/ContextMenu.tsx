@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import type { Track, LibraryNode } from '../types';
+import type { Track, LibraryNode, ClipboardState } from '../types';
 import { CoverArt } from './CoverArt';
 import {
   Folder,
@@ -10,6 +10,8 @@ import {
   Pencil,
   Trash2,
   Copy,
+  Scissors,
+  ClipboardPaste,
   ExternalLink,
   Plus,
   Command,
@@ -73,6 +75,15 @@ interface Props {
   onRefreshLibrary?: () => void;
   onOpenBackup?: () => void;
   onShowToast?: (message: string) => void;
+  // Clipboard (Copy / Cut / Paste)
+  clipboard?: ClipboardState | null;
+  onCopyItems?: (
+    operation: 'copy' | 'cut',
+    specificTracks?: Track[],
+    specificNode?: LibraryNode,
+    specificNodes?: LibraryNode[]
+  ) => void;
+  onPasteItems?: (targetNodeId?: string) => void;
   // Status Tracking actions
   statusEnabled?: boolean;
   isAlbumCompleted?: (artist?: string, album?: string) => boolean;
@@ -109,6 +120,9 @@ export const ContextMenu: React.FC<Props> = ({
   onOpenCommandPalette,
   onRefreshLibrary,
   onShowToast,
+  clipboard,
+  onCopyItems,
+  onPasteItems,
   statusEnabled,
   isAlbumCompleted,
   onToggleAlbumCompleted,
@@ -274,6 +288,47 @@ export const ContextMenu: React.FC<Props> = ({
               <span className="ctx-item-shortcut">M</span>
             </button>
 
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onClose();
+                onCopyItems?.('copy', selectedTracks);
+              }}
+            >
+              <Copy size={14} />
+              <span className="ctx-item-label">Copy {count} Tracks</span>
+              <span className="ctx-item-shortcut">⌘C</span>
+            </button>
+
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onClose();
+                onCopyItems?.('cut', selectedTracks);
+              }}
+            >
+              <Scissors size={14} />
+              <span className="ctx-item-label">Cut {count} Tracks</span>
+              <span className="ctx-item-shortcut">⌘X</span>
+            </button>
+
+            {clipboard && (
+              <button
+                type="button"
+                className="ctx-item"
+                onClick={() => {
+                  onClose();
+                  onPasteItems?.();
+                }}
+              >
+                <ClipboardPaste size={14} style={{ color: '#38bdf8' }} />
+                <span className="ctx-item-label">Paste {clipboard.label}</span>
+                <span className="ctx-item-shortcut">⌘V</span>
+              </button>
+            )}
+
             {/* Advanced Batch Tools */}
             <div
               className="ctx-item ctx-submenu-trigger"
@@ -398,6 +453,47 @@ export const ContextMenu: React.FC<Props> = ({
             <span className="ctx-item-shortcut">M</span>
           </button>
 
+          <button
+            type="button"
+            className="ctx-item"
+            onClick={() => {
+              onClose();
+              onCopyItems?.('copy', [track]);
+            }}
+          >
+            <Copy size={14} />
+            <span className="ctx-item-label">Copy Track</span>
+            <span className="ctx-item-shortcut">⌘C</span>
+          </button>
+
+          <button
+            type="button"
+            className="ctx-item"
+            onClick={() => {
+              onClose();
+              onCopyItems?.('cut', [track]);
+            }}
+          >
+            <Scissors size={14} />
+            <span className="ctx-item-label">Cut Track</span>
+            <span className="ctx-item-shortcut">⌘X</span>
+          </button>
+
+          {clipboard && (
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onClose();
+                onPasteItems?.();
+              }}
+            >
+              <ClipboardPaste size={14} style={{ color: '#38bdf8' }} />
+              <span className="ctx-item-label">Paste {clipboard.label}</span>
+              <span className="ctx-item-shortcut">⌘V</span>
+            </button>
+          )}
+
           <div className="ctx-divider" />
 
           {/* Advanced Metadata Tools Submenu */}
@@ -438,7 +534,6 @@ export const ContextMenu: React.FC<Props> = ({
                 >
                   {copiedKey === 'Track Name' ? <Check size={14} style={{ color: '#4ade80' }} /> : <Copy size={14} />}
                   <span className="ctx-item-label">Copy "Artist - Title"</span>
-                  <span className="ctx-item-shortcut">⌘C</span>
                 </button>
 
                 {track.isrc && track.isrc !== '—' && (
@@ -588,6 +683,33 @@ export const ContextMenu: React.FC<Props> = ({
                 <span className="ctx-item-shortcut">D</span>
               </button>
             )}
+
+            {/* Batch Copy / Cut Containers */}
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onClose();
+                onCopyItems?.('copy', undefined, undefined, selectedNodes);
+              }}
+            >
+              <Copy size={14} />
+              <span className="ctx-item-label">Copy {count} Containers</span>
+              <span className="ctx-item-shortcut">⌘C</span>
+            </button>
+
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onClose();
+                onCopyItems?.('cut', undefined, undefined, selectedNodes);
+              }}
+            >
+              <Scissors size={14} />
+              <span className="ctx-item-label">Cut {count} Containers</span>
+              <span className="ctx-item-shortcut">⌘X</span>
+            </button>
 
             {/* Advanced Batch Tools */}
             <div
@@ -821,6 +943,48 @@ export const ContextMenu: React.FC<Props> = ({
             <span className="ctx-item-shortcut">N</span>
           </button>
 
+          {/* Copy & Cut Folder */}
+          <button
+            type="button"
+            className="ctx-item"
+            onClick={() => {
+              onClose();
+              onCopyItems?.('copy', undefined, node);
+            }}
+          >
+            <Copy size={14} />
+            <span className="ctx-item-label">Copy Folder</span>
+            <span className="ctx-item-shortcut">⌘C</span>
+          </button>
+
+          <button
+            type="button"
+            className="ctx-item"
+            onClick={() => {
+              onClose();
+              onCopyItems?.('cut', undefined, node);
+            }}
+          >
+            <Scissors size={14} />
+            <span className="ctx-item-label">Cut Folder</span>
+            <span className="ctx-item-shortcut">⌘X</span>
+          </button>
+
+          {clipboard && (
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onClose();
+                onPasteItems?.(node.id);
+              }}
+            >
+              <ClipboardPaste size={14} style={{ color: '#38bdf8' }} />
+              <span className="ctx-item-label">Paste {clipboard.label} into "{node.name}"</span>
+              <span className="ctx-item-shortcut">⌘V</span>
+            </button>
+          )}
+
           {/* 4. Import Integrations (Strictly 3rd-party) */}
           <div
             className="ctx-item ctx-submenu-trigger"
@@ -901,7 +1065,6 @@ export const ContextMenu: React.FC<Props> = ({
                 >
                   {copiedKey === 'Container Name' ? <Check size={14} style={{ color: '#4ade80' }} /> : <Copy size={14} />}
                   <span className="ctx-item-label">Copy Name</span>
-                  <span className="ctx-item-shortcut">⌘C</span>
                 </button>
               </div>
             )}
@@ -1053,6 +1216,23 @@ export const ContextMenu: React.FC<Props> = ({
             <span className="ctx-item-label">New Subfolder Here</span>
             <span className="ctx-item-shortcut">N</span>
           </button>
+
+          {clipboard && (
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onClose();
+                onPasteItems?.(activeNode?.id);
+              }}
+            >
+              <ClipboardPaste size={14} style={{ color: '#38bdf8' }} />
+              <span className="ctx-item-label">
+                Paste {clipboard.label} {activeNode ? `into "${activeNode.name}"` : 'Here'}
+              </span>
+              <span className="ctx-item-shortcut">⌘V</span>
+            </button>
+          )}
 
           <div className="ctx-divider" />
 
@@ -1273,6 +1453,21 @@ export const ContextMenu: React.FC<Props> = ({
               </div>
             )}
           </div>
+
+          {clipboard && (
+            <button
+              type="button"
+              className="ctx-item"
+              onClick={() => {
+                onClose();
+                onPasteItems?.();
+              }}
+            >
+              <ClipboardPaste size={14} style={{ color: '#38bdf8' }} />
+              <span className="ctx-item-label">Paste {clipboard.label}</span>
+              <span className="ctx-item-shortcut">⌘V</span>
+            </button>
+          )}
 
           {/* 3. Import Integrations */}
           <div

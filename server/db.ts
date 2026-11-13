@@ -382,6 +382,96 @@ export function moveTracksBatch(ids: number[], targetNodeId: string) {
   db.prepare(`UPDATE tracks SET node_id = ? WHERE id IN (${placeholders})`).run(targetNodeId, ...ids);
 }
 
+export function pasteItems(data: {
+  targetNodeId: string;
+  trackIds?: number[];
+  nodeIds?: string[];
+  operation: 'copy' | 'cut';
+}): { createdTracksCount: number; createdNodesCount: number; movedCount: number } {
+  const { targetNodeId, trackIds = [], nodeIds = [], operation } = data;
+  let createdTracksCount = 0;
+  let createdNodesCount = 0;
+  let movedCount = 0;
+
+  db.transaction(() => {
+    // 1. Cut operation: move tracks and reparent nodes
+    if (operation === 'cut') {
+      if (trackIds.length > 0) {
+        moveTracksBatch(trackIds, targetNodeId);
+        movedCount += trackIds.length;
+      }
+      if (nodeIds.length > 0) {
+        for (const id of nodeIds) {
+          if (id !== targetNodeId) {
+            updateNode(id, { parent_id: targetNodeId });
+            movedCount++;
+          }
+        }
+      }
+      return;
+    }
+
+    // 2. Copy operation: duplicate tracks into targetNodeId
+    if (trackIds.length > 0) {
+      const copyTrackStmt = db.prepare(`
+        INSERT INTO tracks (node_id, title, artist, album, year, format, catalog_no, barcode, mbid, isrc, length, bpm, key, sort_order, cover_url)
+        SELECT ?, title, artist, album, year, format, catalog_no, barcode, mbid, isrc, length, bpm, key, sort_order, cover_url
+        FROM tracks WHERE id = ?
+      `);
+      for (const id of trackIds) {
+        copyTrackStmt.run(targetNodeId, id);
+        createdTracksCount++;
+      }
+    }
+
+    // 3. Copy operation: recursively duplicate nodes into targetNodeId
+    if (nodeIds.length > 0) {
+      const cloneNodeRecursive = (sourceId: string, parentTargetId: string) => {
+        const sourceNode = db.prepare('SELECT * FROM nodes WHERE id = ?').get(sourceId) as any;
+        if (!sourceNode) return;
+
+        const isSameParent = sourceNode.parent_id === parentTargetId;
+        const newName = isSameParent ? `${sourceNode.name} (Copy)` : sourceNode.name;
+
+        const newNode = createNode({
+          parent_id: parentTargetId,
+          type: sourceNode.type,
+          name: newName,
+          cover_url: sourceNode.cover_url || '',
+          sort_order: sourceNode.sort_order || 0,
+        });
+        createdNodesCount++;
+
+        // Duplicate tracks in this source node into newNode.id
+        const tracksInNode = db.prepare('SELECT id FROM tracks WHERE node_id = ?').all(sourceId) as { id: number }[];
+        const copyTrackStmt = db.prepare(`
+          INSERT INTO tracks (node_id, title, artist, album, year, format, catalog_no, barcode, mbid, isrc, length, bpm, key, sort_order, cover_url)
+          SELECT ?, title, artist, album, year, format, catalog_no, barcode, mbid, isrc, length, bpm, key, sort_order, cover_url
+          FROM tracks WHERE id = ?
+        `);
+        for (const tr of tracksInNode) {
+          copyTrackStmt.run(newNode.id, tr.id);
+          createdTracksCount++;
+        }
+
+        // Recursively duplicate child nodes
+        const childNodes = db.prepare('SELECT id FROM nodes WHERE parent_id = ?').all(sourceId) as { id: string }[];
+        for (const child of childNodes) {
+          cloneNodeRecursive(child.id, newNode.id);
+        }
+      };
+
+      for (const id of nodeIds) {
+        if (id !== targetNodeId) {
+          cloneNodeRecursive(id, targetNodeId);
+        }
+      }
+    }
+  })();
+
+  return { createdTracksCount, createdNodesCount, movedCount };
+}
+
 export function getSetting(key: string): string | null {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
   return row ? row.value : null;

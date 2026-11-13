@@ -10,6 +10,7 @@ import {
   deleteTrack,
   deleteTracksBatch,
   moveTracksBatch,
+  pasteItems,
   exportLibrary,
   importLibrary,
   getSetting,
@@ -183,6 +184,22 @@ const server = Bun.serve({
         }
         moveTracksBatch(body.ids, body.targetNodeId);
         return json({ success: true });
+      }
+
+      // 9a. Copy & Paste Items: POST /api/items/paste
+      if (path === '/api/items/paste' && method === 'POST') {
+        const body = await req.json();
+        const { targetNodeId, trackIds, nodeIds, operation = 'copy' } = body;
+        if (!targetNodeId) {
+          return errorJson('Missing targetNodeId');
+        }
+        const result = pasteItems({
+          targetNodeId,
+          trackIds: Array.isArray(trackIds) ? trackIds : [],
+          nodeIds: Array.isArray(nodeIds) ? nodeIds : [],
+          operation: operation === 'cut' ? 'cut' : 'copy',
+        });
+        return json({ success: true, ...result });
       }
 
       // 9b. Enrich Single Track ISRC: POST /api/tracks/:id/enrich-isrc

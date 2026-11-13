@@ -111,6 +111,21 @@ export async function moveTracksBatch(ids: number[], targetNodeId: string): Prom
   if (!res.ok) throw new Error('Failed to move tracks');
 }
 
+export async function pasteItems(data: {
+  targetNodeId: string;
+  trackIds?: number[];
+  nodeIds?: string[];
+  operation: 'copy' | 'cut';
+}): Promise<{ success: boolean; createdTracksCount: number; createdNodesCount: number; movedCount: number }> {
+  const res = await fetch(`${API_BASE}/items/paste`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error('Failed to paste items');
+  return res.json();
+}
+
 export async function searchHybrid(query: string): Promise<HybridSearchResponse> {
   const res = await fetch(`${API_BASE}/search/hybrid?q=${encodeURIComponent(query)}`);
   if (!res.ok) throw new Error('Failed to perform hybrid search');

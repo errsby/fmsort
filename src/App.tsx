@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import type { LibraryNode, Track, ColumnDef, ColumnKey } from './types';
+import type { LibraryNode, Track, ColumnDef, ColumnKey, ClipboardState } from './types';
 import {
   fetchTree,
   deleteTracksBatch,
@@ -18,6 +18,7 @@ import {
   fetchSettings,
   saveSettings,
   toggleAlbumsCompleted,
+  pasteItems,
   type SuggestedProject,
   type ArtistProfileData,
 } from './api';
@@ -197,6 +198,24 @@ export const App: React.FC = () => {
       return [];
     }
   });
+  const [clipboard, setClipboard] = useState<ClipboardState | null>(() => {
+    try {
+      const saved = sessionStorage.getItem('fmsort_clipboard');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (clipboard) {
+        sessionStorage.setItem('fmsort_clipboard', JSON.stringify(clipboard));
+      } else {
+        sessionStorage.removeItem('fmsort_clipboard');
+      }
+    } catch {}
+  }, [clipboard]);
   const [tree, setTree] = useState<LibraryNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeNodeId, setActiveNodeId] = useState<string>('');
@@ -1391,6 +1410,173 @@ export const App: React.FC = () => {
     });
   };
 
+  // Copy & Paste Handlers for Tracks & Containers
+  const copySelectedItems = (
+    operation: 'copy' | 'cut' = 'copy',
+    specificTracks?: Track[],
+    specificNode?: LibraryNode,
+    specificNodes?: LibraryNode[]
+  ) => {
+    // 1. Specific nodes provided (e.g. from multi-node context menu)
+    if (specificNodes && specificNodes.length > 0) {
+      const nodeIds = specificNodes.map(n => n.id);
+      const label = specificNodes.length === 1 ? `"${specificNodes[0].name}"` : `${specificNodes.length} containers`;
+      const newClip: ClipboardState = {
+        operation,
+        type: 'nodes',
+        nodeIds,
+        count: specificNodes.length,
+        label,
+      };
+      setClipboard(newClip);
+      showToast(`${operation === 'cut' ? 'Cut' : 'Copied'} ${label}`);
+      return;
+    }
+
+    // 2. Specific single node provided (e.g. from context menu)
+    if (specificNode) {
+      const newClip: ClipboardState = {
+        operation,
+        type: 'nodes',
+        nodeIds: [specificNode.id],
+        count: 1,
+        label: `"${specificNode.name}"`,
+      };
+      setClipboard(newClip);
+      showToast(`${operation === 'cut' ? 'Cut' : 'Copied'} "${specificNode.name}"`);
+      return;
+    }
+
+    // 3. Specific tracks provided (e.g. from context menu)
+    if (specificTracks && specificTracks.length > 0) {
+      const trackIds = specificTracks.map(t => t.id);
+      const label = specificTracks.length === 1 ? `"${specificTracks[0].t}"` : `${specificTracks.length} tracks`;
+      const newClip: ClipboardState = {
+        operation,
+        type: 'tracks',
+        trackIds,
+        count: specificTracks.length,
+        label,
+      };
+      setClipboard(newClip);
+      showToast(`${operation === 'cut' ? 'Cut' : 'Copied'} ${label}`);
+      return;
+    }
+
+    // 4. Selection of tracks
+    if (selectedTrackIds.size > 0) {
+      const trackIds = Array.from(selectedTrackIds);
+      const label = trackIds.length === 1
+        ? `"${allLibraryTracks.find(t => t.id === trackIds[0])?.t || 'Track'}"`
+        : `${trackIds.length} tracks`;
+      const newClip: ClipboardState = {
+        operation,
+        type: 'tracks',
+        trackIds,
+        count: trackIds.length,
+        label,
+      };
+      setClipboard(newClip);
+      showToast(`${operation === 'cut' ? 'Cut' : 'Copied'} ${label}`);
+      return;
+    }
+
+    // 5. Selection of nodes
+    if (selectedNodeIds.size > 0) {
+      const nodeIds = Array.from(selectedNodeIds);
+      const label = nodeIds.length === 1
+        ? `"${findNodeById(tree, nodeIds[0])?.name || 'Container'}"`
+        : `${nodeIds.length} containers`;
+      const newClip: ClipboardState = {
+        operation,
+        type: 'nodes',
+        nodeIds,
+        count: nodeIds.length,
+        label,
+      };
+      setClipboard(newClip);
+      showToast(`${operation === 'cut' ? 'Cut' : 'Copied'} ${label}`);
+      return;
+    }
+
+    // 5. Active focused track
+    if (activeTrack) {
+      const newClip: ClipboardState = {
+        operation,
+        type: 'tracks',
+        trackIds: [activeTrack.id],
+        count: 1,
+        label: `"${activeTrack.t}"`,
+      };
+      setClipboard(newClip);
+      showToast(`${operation === 'cut' ? 'Cut' : 'Copied'} "${activeTrack.t}"`);
+      return;
+    }
+
+    // 6. Active node
+    if (activeNode) {
+      const newClip: ClipboardState = {
+        operation,
+        type: 'nodes',
+        nodeIds: [activeNode.id],
+        count: 1,
+        label: `"${activeNode.name}"`,
+      };
+      setClipboard(newClip);
+      showToast(`${operation === 'cut' ? 'Cut' : 'Copied'} "${activeNode.name}"`);
+      return;
+    }
+
+    showToast('Nothing selected to copy');
+  };
+
+  const pasteClipboard = async (targetNodeId?: string) => {
+    if (!clipboard) {
+      showToast('Clipboard is empty');
+      return;
+    }
+
+    const targetNode = (targetNodeId && findNodeById(tree, targetNodeId)) || activeNode || (tree.length > 0 ? tree[0] : null);
+    if (!targetNode) {
+      showToast('No folder open to paste into');
+      return;
+    }
+
+    // Cyclical prevention for containers
+    if (clipboard.type === 'nodes' && clipboard.nodeIds) {
+      const isSelfOrDescendant = clipboard.nodeIds.some(
+        id => id === targetNode.id || isDescendant(tree, id, targetNode.id)
+      );
+      if (isSelfOrDescendant) {
+        showToast('Cannot paste a container into itself or its own subfolder');
+        return;
+      }
+    }
+
+    try {
+      await pasteItems({
+        targetNodeId: targetNode.id,
+        trackIds: clipboard.trackIds,
+        nodeIds: clipboard.nodeIds,
+        operation: clipboard.operation,
+      });
+
+      const isCut = clipboard.operation === 'cut';
+      const actionWord = isCut ? 'Moved' : 'Pasted';
+      showToast(`${actionWord} ${clipboard.label} into "${targetNode.name}"`);
+
+      if (isCut) {
+        setClipboard(null);
+        setSelectedTrackIds(new Set());
+        setSelectedNodeIds(new Set());
+      }
+
+      await loadTree(targetNode.id);
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to paste items');
+    }
+  };
+
   // Universal Drag & Drop Handlers (Tracks & Containers)
   const clearDragState = () => {
     if (dragHoverTimeoutRef.current) {
@@ -1900,6 +2086,35 @@ export const App: React.FC = () => {
         return;
       }
 
+      // Copy (⌘C / Ctrl+C)
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+        const hasSelection = (window.getSelection()?.toString() || '').trim().length > 0;
+        if (!hasSelection && (selectedTrackIds.size > 0 || selectedNodeIds.size > 0 || activeTrack || activeNode)) {
+          e.preventDefault();
+          copySelectedItems('copy');
+          return;
+        }
+      }
+
+      // Cut (⌘X / Ctrl+X)
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'x' || e.key === 'X')) {
+        const hasSelection = (window.getSelection()?.toString() || '').trim().length > 0;
+        if (!hasSelection && (selectedTrackIds.size > 0 || selectedNodeIds.size > 0 || activeTrack || activeNode)) {
+          e.preventDefault();
+          copySelectedItems('cut');
+          return;
+        }
+      }
+
+      // Paste (⌘V / Ctrl+V)
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 'v' || e.key === 'V')) {
+        if (clipboard) {
+          e.preventDefault();
+          pasteClipboard();
+          return;
+        }
+      }
+
       // Music Search & Add keybind: 'a' / 'A', 's' / 'S', '/', or ⌘I / Ctrl+I
       const isSearchShortcut =
         (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'a' || e.key === 'A' || e.key === 's' || e.key === 'S' || e.key === '/')) ||
@@ -2015,6 +2230,8 @@ export const App: React.FC = () => {
     activeNode,
     activeNodeId,
     activePath,
+    activeTrack,
+    clipboard,
   ]);
 
   // Helper to sort tracks
@@ -3717,6 +3934,9 @@ export const App: React.FC = () => {
         }}
         onOpenBackup={() => setBackupOpen(true)}
         onShowToast={showToast}
+        clipboard={clipboard}
+        onCopyItems={copySelectedItems}
+        onPasteItems={pasteClipboard}
       />
 
       {/* Empty Space Drop Target Visual Indicator */}

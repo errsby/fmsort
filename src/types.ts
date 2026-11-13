@@ -163,3 +163,13 @@ export interface HybridSearchResponse {
     deezerReleases?: number;
   };
 }
+
+export interface ClipboardState {
+  operation: 'copy' | 'cut';
+  type: 'tracks' | 'nodes';
+  trackIds?: number[];
+  nodeIds?: string[];
+  count: number;
+  label: string;
+}
+

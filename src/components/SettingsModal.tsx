@@ -311,6 +311,8 @@ export const SettingsModal: React.FC<Props> = ({
                   <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘K</kbd> Command Palette / Quick jump</div>
                   <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘F</kbd> Filter tracks in crate</div>
                   <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘A</kbd> Select all items in view</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘C</kbd> / <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘X</kbd> Copy / Cut selected items</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘V</kbd> Paste items into active folder</div>
                   <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>M</kbd> Move selected tracks / items</div>
                   <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>R</kbd> Resolve missing ISRC codes</div>
                   <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>E</kbd> Rename / edit container</div>
