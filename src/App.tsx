@@ -78,6 +78,8 @@ import {
   CheckSquare,
   CheckCircle2,
   X,
+  GripHorizontal,
+  RotateCcw,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -154,49 +156,20 @@ const clampMenuCoordinates = (
   proposedX: number,
   proposedY: number,
   menuWidth: number,
-  menuHeight: number,
-  dockRect?: Rect | null
+  menuHeight: number
 ): { x: number; y: number } => {
   const winW = typeof window !== 'undefined' ? window.innerWidth : 1280;
   const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
   const SCREEN_PAD = 10;
-  const DOCK_PAD = 12;
 
-  // 1. Strictly clamp within window boundaries so it NEVER goes off screen/app
+  // Strictly clamp within window boundaries so it NEVER goes off screen/app
   const minX = SCREEN_PAD;
   const maxX = Math.max(minX, winW - menuWidth - SCREEN_PAD);
   const minY = SCREEN_PAD;
   const maxY = Math.max(minY, winH - menuHeight - SCREEN_PAD);
 
-  let x = Math.max(minX, Math.min(maxX, proposedX));
-  let y = Math.max(minY, Math.min(maxY, proposedY));
-
-  // 2. Prevent collision with workspace drawer at bottom-left
-  if (dockRect && dockRect.width && dockRect.width > 0 && dockRect.height && dockRect.height > 0) {
-    const forbiddenRight = dockRect.right + DOCK_PAD;
-    const forbiddenTop = dockRect.top - DOCK_PAD;
-
-    // Check if the menu overlaps the forbidden bottom-left zone
-    const isColliding = x < forbiddenRight && (y + menuHeight) > forbiddenTop;
-
-    if (isColliding) {
-      const horizontalOverlap = forbiddenRight - x;
-      const verticalOverlap = (y + menuHeight) - forbiddenTop;
-
-      // Can it fit above the workspace drawer without going off-screen top?
-      const canFitAbove = forbiddenTop - menuHeight >= minY;
-
-      if (canFitAbove && verticalOverlap <= horizontalOverlap) {
-        // Push above the workspace drawer
-        y = forbiddenTop - menuHeight;
-      } else {
-        // Push to the right of the workspace drawer
-        x = forbiddenRight;
-        // Re-clamp X in case pushing right exceeded screen width
-        x = Math.max(minX, Math.min(maxX, x));
-      }
-    }
-  }
+  const x = Math.max(minX, Math.min(maxX, proposedX));
+  const y = Math.max(minY, Math.min(maxY, proposedY));
 
   return { x: Math.round(x), y: Math.round(y) };
 };
@@ -205,6 +178,7 @@ interface NavMenuSavedState {
   isOpen: boolean;
   isPinned: boolean;
   position: { x: number; y: number } | null;
+  width: number;
   height: number;
 }
 
@@ -224,7 +198,8 @@ const getInitialNavMenuState = (): NavMenuSavedState => {
           !isNaN(parsed.position.y)
             ? { x: parsed.position.x, y: parsed.position.y }
             : null,
-        height: typeof parsed.height === 'number' && parsed.height >= 260 ? parsed.height : 480,
+        width: typeof parsed.width === 'number' && parsed.width >= 300 && parsed.width <= 900 ? parsed.width : 360,
+        height: typeof parsed.height === 'number' && parsed.height >= 260 && parsed.height <= 1200 ? parsed.height : 480,
       };
     }
   } catch {}
@@ -232,6 +207,7 @@ const getInitialNavMenuState = (): NavMenuSavedState => {
     isOpen: false,
     isPinned: false,
     position: null,
+    width: 360,
     height: 480,
   };
 };
@@ -266,19 +242,21 @@ export const App: React.FC = () => {
   const workspaceAddContainerRef = useRef<HTMLDivElement>(null);
   const workspacesDockRef = useRef<HTMLDivElement>(null);
 
-  // Navigational Submenu Draggable, Resizable & Pinnable with State Persistence
+  // Unified Library & Workspace Drawer Draggable, Resizable & Pinnable with State Persistence
   const initialNavMenuStateRef = useRef<NavMenuSavedState>(getInitialNavMenuState());
   const [treeDropdownOpen, setTreeDropdownOpen] = useState<boolean>(initialNavMenuStateRef.current.isOpen);
   const [isMenuPinned, setIsMenuPinned] = useState<boolean>(initialNavMenuStateRef.current.isPinned);
   const isMenuPinnedRef = useRef(isMenuPinned);
   isMenuPinnedRef.current = isMenuPinned;
   const isDraggingMenuRef = useRef(false);
+  const isResizingDrawerRef = useRef(false);
+  const [isInteracting, setIsInteracting] = useState(false);
   const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(initialNavMenuStateRef.current.position);
+  const [menuWidth, setMenuWidth] = useState<number>(initialNavMenuStateRef.current.width);
   const [menuHeight, setMenuHeight] = useState<number>(initialNavMenuStateRef.current.height);
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
-  const treeDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Save floating nav menu state across page closes and reloads
+  // Save unified library drawer state across page closes and reloads
   useEffect(() => {
     try {
       localStorage.setItem(
@@ -287,23 +265,20 @@ export const App: React.FC = () => {
           isOpen: treeDropdownOpen,
           isPinned: isMenuPinned,
           position: menuPosition,
+          width: menuWidth,
           height: menuHeight,
         })
       );
     } catch (e) {
       console.warn('Could not save nav menu state to localStorage', e);
     }
-  }, [treeDropdownOpen, isMenuPinned, menuPosition, menuHeight]);
+  }, [treeDropdownOpen, isMenuPinned, menuPosition, menuWidth, menuHeight]);
 
-  // Re-clamp floating nav menu on window resize and workspace changes to avoid collision
+  // Re-clamp drawer on window resize to ensure it NEVER goes off screen
   useEffect(() => {
     const handleWindowResize = () => {
       if (menuPosition) {
-        const dropdownEl = dropdownContainerRef.current;
-        const width = dropdownEl?.getBoundingClientRect().width || 340;
-        const dockEl = workspacesDockRef.current?.querySelector('.floating-workspaces-dock-wrapper') || workspacesDockRef.current;
-        const dockRect = dockEl?.getBoundingClientRect();
-        const clamped = clampMenuCoordinates(menuPosition.x, menuPosition.y, width, menuHeight, dockRect);
+        const clamped = clampMenuCoordinates(menuPosition.x, menuPosition.y, menuWidth, menuHeight);
         if (clamped.x !== menuPosition.x || clamped.y !== menuPosition.y) {
           setMenuPosition(clamped);
         }
@@ -313,7 +288,7 @@ export const App: React.FC = () => {
     handleWindowResize();
     window.addEventListener('resize', handleWindowResize);
     return () => window.removeEventListener('resize', handleWindowResize);
-  }, [menuPosition, menuHeight, workspaces.length]);
+  }, [menuPosition, menuWidth, menuHeight]);
 
   // "Select Multiple" Mode state
   const [selectMultipleMode, setSelectMultipleMode] = useState(false);
@@ -505,9 +480,8 @@ export const App: React.FC = () => {
     setSelectedTrackIds(new Set());
     setSelectedNodeIds(new Set([node.id]));
     lastSelectedNodeIdRef.current = node.id;
-    setTreeDropdownOpen(false);
     if (!isMenuPinnedRef.current) {
-      setMenuPosition(null);
+      setTreeDropdownOpen(false);
     }
 
     setWorkspaces(prev => prev.map(ws => {
@@ -897,6 +871,7 @@ export const App: React.FC = () => {
   };
 
   // Navigational Submenu Drag & Move with Screen Clamping & Workspace Drawer Collision Avoidance
+  // Unified Library & Workspaces Drawer Drag & Move with Screen Clamping
   const handleMenuDragStart = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -905,29 +880,24 @@ export const App: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
 
-    const dropdownEl = dropdownContainerRef.current;
-    if (!dropdownEl) return;
-    const rect = dropdownEl.getBoundingClientRect();
+    const drawerEl = dropdownContainerRef.current || workspacesDockRef.current;
+    if (!drawerEl) return;
+    const rect = drawerEl.getBoundingClientRect();
     const offsetX = e.clientX - rect.left;
     const offsetY = e.clientY - rect.top;
 
-    const dockEl = workspacesDockRef.current?.querySelector('.floating-workspaces-dock-wrapper') || workspacesDockRef.current;
-    const dockRect = dockEl?.getBoundingClientRect();
-
     isDraggingMenuRef.current = true;
-    const initialPos = clampMenuCoordinates(rect.left, rect.top, rect.width, menuHeight, dockRect);
+    setIsInteracting(true);
+    const initialPos = clampMenuCoordinates(rect.left, rect.top, rect.width, rect.height);
     setMenuPosition(initialPos);
 
     const handleMouseMove = (moveEv: MouseEvent) => {
       moveEv.preventDefault();
-      const curDockEl = workspacesDockRef.current?.querySelector('.floating-workspaces-dock-wrapper') || workspacesDockRef.current;
-      const curDockRect = curDockEl?.getBoundingClientRect();
       const clamped = clampMenuCoordinates(
         moveEv.clientX - offsetX,
         moveEv.clientY - offsetY,
         rect.width,
-        menuHeight,
-        curDockRect
+        rect.height
       );
       setMenuPosition(clamped);
     };
@@ -937,6 +907,7 @@ export const App: React.FC = () => {
       window.removeEventListener('mouseup', handleMouseUp);
       setTimeout(() => {
         isDraggingMenuRef.current = false;
+        setIsInteracting(false);
       }, 60);
     };
 
@@ -944,43 +915,56 @@ export const App: React.FC = () => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Navigational Submenu Vertical Resize with Collision Avoidance & Screen Clamping
-  const handleMenuResizeStart = (e: React.MouseEvent) => {
+  // Unified Library Drawer Resizing (Top edge and Bottom-Right corner)
+  const handleDrawerResizeStart = (e: React.MouseEvent, direction: 'top' | 'corner') => {
     e.preventDefault();
     e.stopPropagation();
+    isResizingDrawerRef.current = true;
+    setIsInteracting(true);
+
+    const startX = e.clientX;
     const startY = e.clientY;
+    const startWidth = menuWidth;
     const startHeight = menuHeight;
-
-    const dropdownEl = dropdownContainerRef.current;
-    const curRect = dropdownEl?.getBoundingClientRect();
-    const curY = curRect?.top || (menuPosition ? menuPosition.y : 60);
-    const curX = curRect?.left || (menuPosition ? menuPosition.x : 24);
-
-    const dockEl = workspacesDockRef.current?.querySelector('.floating-workspaces-dock-wrapper') || workspacesDockRef.current;
-    const dockRect = dockEl?.getBoundingClientRect();
+    const startPos = menuPosition;
 
     const handleMouseMove = (moveEv: MouseEvent) => {
+      moveEv.preventDefault();
+      const deltaX = moveEv.clientX - startX;
       const deltaY = moveEv.clientY - startY;
-      let newHeight = Math.max(260, startHeight + deltaY);
 
-      // Constraint 1: Screen bottom boundary
-      const maxScreenHeight = window.innerHeight - curY - 10;
-      newHeight = Math.min(newHeight, maxScreenHeight);
+      let newWidth = startWidth;
+      let newHeight = startHeight;
 
-      // Constraint 2: Cannot collide with workspace drawer if horizontally overlapping
-      if (dockRect && dockRect.width && dockRect.width > 0 && curX < dockRect.right + 12) {
-        const maxDrawerHeight = dockRect.top - 12 - curY;
-        if (maxDrawerHeight >= 260) {
-          newHeight = Math.min(newHeight, maxDrawerHeight);
+      if (direction === 'top') {
+        const proposedHeight = startHeight - deltaY;
+        const maxHeight = startPos ? startPos.y + startHeight - 10 : window.innerHeight - 32;
+        newHeight = Math.max(260, Math.min(maxHeight, proposedHeight));
+
+        if (startPos) {
+          const newY = Math.max(10, startPos.y - (newHeight - startHeight));
+          setMenuPosition({ x: startPos.x, y: Math.round(newY) });
         }
+      } else if (direction === 'corner') {
+        const maxWidth = window.innerWidth - (startPos?.x || 16) - 10;
+        newWidth = Math.max(300, Math.min(maxWidth, startWidth + deltaX));
+
+        const proposedHeight = startHeight + deltaY;
+        const maxHeight = window.innerHeight - (startPos?.y || 16) - 10;
+        newHeight = Math.max(260, Math.min(maxHeight, proposedHeight));
       }
 
+      setMenuWidth(Math.round(newWidth));
       setMenuHeight(Math.round(newHeight));
     };
 
     const handleMouseUp = () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
+      setTimeout(() => {
+        isResizingDrawerRef.current = false;
+        setIsInteracting(false);
+      }, 50);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -1106,15 +1090,17 @@ export const App: React.FC = () => {
   // Click outside to close menus
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (isDraggingMenuRef.current) return;
+      if (isDraggingMenuRef.current || isResizingDrawerRef.current) return;
       if (addMusicRef.current && !addMusicRef.current.contains(e.target as Node)) {
         setAddMusicMenuOpen(false);
       }
       if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
         setColumnMenuOpen(false);
       }
-      if (!isMenuPinnedRef.current && treeDropdownRef.current && !treeDropdownRef.current.contains(e.target as Node)) {
-        setTreeDropdownOpen(false);
+      if (!isMenuPinnedRef.current && treeDropdownOpen) {
+        if (workspacesDockRef.current && !workspacesDockRef.current.contains(e.target as Node)) {
+          setTreeDropdownOpen(false);
+        }
       }
       if (
         workspacePickerRef.current &&
@@ -1126,7 +1112,7 @@ export const App: React.FC = () => {
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [treeDropdownOpen]);
 
   // Keyboard shortcuts for Command Palette, Back navigation, and Workspace Dock
   useEffect(() => {
@@ -3097,8 +3083,9 @@ export const App: React.FC = () => {
               }
 
               if (col.key === 'len') {
-                const lenDisplay = childTracks.length > 0
-                  ? fmtTotalRuntime(childTracks)
+                const totalSeconds = childTracks.reduce((p, x) => p + (x.len || 0), 0);
+                const lenDisplay = totalSeconds > 0
+                  ? fmtDuration(totalSeconds)
                   : (child.children?.length ? `${child.children.length} items` : '—');
                 return <td key={col.key} style={cellStyle} className="mono">{lenDisplay}</td>;
               }
@@ -3200,169 +3187,12 @@ export const App: React.FC = () => {
                   {/* 1. TOP NAV BAR: Navigation button (../) and breadcrumb section ABOVE the header icon/type title */}
                   <div className="hero-top-nav-bar">
                     <div className="hero-nav-left">
-                      {/* ../ Library Tree Toggle Button & Dropdown */}
-                      <div
-                        className="crumb-history-container"
-                        ref={treeDropdownRef}
-                      >
-                        <button
-                          type="button"
-                          className={`crumb-history-btn ${treeDropdownOpen ? 'active' : ''}`}
-                          onClick={() => {
-                            if (treeDropdownOpen) {
-                              setTreeDropdownOpen(false);
-                              if (!isMenuPinnedRef.current) {
-                                setMenuPosition(null);
-                              }
-                            } else {
-                              setTreeDropdownOpen(true);
-                            }
-                          }}
-                          title="Browse Library Crates (..)"
-                          aria-label="Browse Library Crates"
-                        >
-                          ../
-                        </button>
-
-                        {treeDropdownOpen && (
-                          <div
-                            ref={dropdownContainerRef}
-                            className={`crumb-tree-dropdown ${isMenuPinned ? 'is-pinned' : ''} ${menuPosition ? 'is-floating' : ''}`}
-                            role="menu"
-                            style={{
-                              height: menuHeight,
-                              maxHeight: 'calc(100vh - 60px)',
-                              ...(menuPosition
-                                ? {
-                                    position: 'fixed',
-                                    left: `${menuPosition.x}px`,
-                                    top: `${menuPosition.y}px`,
-                                    zIndex: 2000,
-                                  }
-                                : {}),
-                            }}
-                          >
-                            {/* Menu Header with Integrated Search Box (⌘K) & Toned-down Pin Action (Draggable Header) */}
-                            <div
-                              className="crumb-menu-search-row"
-                              onMouseDown={handleMenuDragStart}
-                              onDoubleClick={() => setMenuPosition(null)}
-                              title="Drag header to move submenu · Double-click to snap back"
-                            >
-                              <div
-                                className="crumb-menu-search-box"
-                                onMouseDown={e => e.stopPropagation()}
-                              >
-                                <Search size={14} className="crumb-menu-search-icon" />
-                                <input
-                                  type="search"
-                                  className="crumb-menu-search-input"
-                                  placeholder="Search crates or jump to… (⌘K)"
-                                  value={menuSearch}
-                                  onChange={e => setMenuSearch(e.target.value)}
-                                  onMouseDown={e => e.stopPropagation()}
-                                />
-                                <button
-                                  type="button"
-                                  className="crumb-menu-cmd-key"
-                                  onClick={() => {
-                                    setTreeDropdownOpen(false);
-    if (!isMenuPinnedRef.current) {
-      setMenuPosition(null);
-    }
-                                    setCommandPaletteOpen(true);
-                                  }}
-                                  onMouseDown={e => e.stopPropagation()}
-                                  title="Open Command Palette (⌘K)"
-                                >
-                                  ⌘K
-                                </button>
-                              </div>
-
-                              <div className="crumb-menu-header-actions" onMouseDown={e => e.stopPropagation()}>
-                                <button
-                                  type="button"
-                                  className={`crumb-menu-pin-icon-btn ${isMenuPinned ? 'is-active' : ''}`}
-                                  onClick={() => setIsMenuPinned(!isMenuPinned)}
-                                  title={isMenuPinned ? 'Unpin submenu (click outside will close)' : 'Pin submenu (keep open while browsing)'}
-                                  aria-label={isMenuPinned ? 'Unpin submenu' : 'Pin submenu'}
-                                >
-                                  <Pin size={13} style={isMenuPinned ? { color: '#f59e0b', fill: '#f59e0b' } : undefined} />
-                                </button>
-                                {(menuPosition || isMenuPinned) && (
-                                  <button
-                                    type="button"
-                                    className="crumb-menu-close-window-btn"
-                                    onClick={() => {
-                                      setTreeDropdownOpen(false);
-                                      setMenuPosition(null);
-                                      setIsMenuPinned(false);
-                                    }}
-                                    title="Close submenu"
-                                    aria-label="Close submenu"
-                                  >
-                                    <X size={13} />
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Menu Directory List (Tree - Pinned crates appear atop) */}
-                            <div className="crumb-tree-list">
-                              {loading ? (
-                                <div style={{ color: 'var(--mu)', padding: '16px 12px', fontSize: 12 }}>Loading library...</div>
-                              ) : tree.length === 0 ? (
-                                <div className="empty-sidebar-box" style={{ padding: 14 }}>
-                                  <CoverArt size={28} type="folder" seed="Library" rounded={6} style={{ marginBottom: 6 }} />
-                                  <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 3, color: '#f4f4f5' }}>Blank Library</div>
-                                  <p style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 10px', lineHeight: 1.4 }}>
-                                    No crates in your library yet.
-                                  </p>
-                                </div>
-                              ) : (
-                                displayedNavNodes.map(n => renderTreeNode(n, 0))
-                              )}
-                            </div>
-
-                            {/* Menu Footer / System Actions */}
-                            <div className="crumb-menu-footer-actions">
-                              <button
-                                type="button"
-                                className="crumb-menu-action-item"
-                                onClick={() => {
-                                  setTreeDropdownOpen(false);
-    if (!isMenuPinnedRef.current) {
-      setMenuPosition(null);
-    }
-                                  setSettingsOpen(true);
-                                }}
-                                title="Library & Application Settings"
-                              >
-                                <div className="crumb-menu-action-left">
-                                  <Settings size={14} style={{ color: '#a78bfa' }} />
-                                  <span>Settings</span>
-                                </div>
-                              </button>
-                            </div>
-
-                            {/* Vertical Resize Handle */}
-                            <div
-                              className="crumb-menu-resize-handle"
-                              onMouseDown={handleMenuResizeStart}
-                              title="Drag vertically to resize"
-                            >
-                              <div className="crumb-menu-resize-bar" />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
                       {/* Breadcrumb path */}
                       <nav className="unified-crumbs" aria-label="Breadcrumb">
                         <span
                           className="crumb-link root-crumb"
                           onClick={() => setTreeDropdownOpen(!treeDropdownOpen)}
-                          title="Toggle Library Navigation Menu"
+                          title="Toggle Library Navigation Drawer"
                         >
                           <Library size={13} style={{ marginRight: 4 }} />
                           <span>Library</span>
@@ -4131,158 +3961,332 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* Bottom-Left Floating / Docked Workspaces Switcher */}
+      {/* Bottom-Left Unified Workspaces & Library Drawer */}
       <div
-        className="floating-workspaces-container bottom-left"
+        className={`floating-workspaces-container bottom-left ${treeDropdownOpen ? 'is-expanded' : ''} ${menuPosition ? 'is-moved' : ''}`}
         ref={workspacesDockRef}
         role="region"
-        aria-label="Workspaces Switcher"
+        aria-label="Workspaces and Library Drawer"
+        style={{
+          ...(menuPosition
+            ? {
+                position: 'fixed',
+                left: `${menuPosition.x}px`,
+                top: `${menuPosition.y}px`,
+                bottom: 'auto',
+                right: 'auto',
+              }
+            : {}),
+        }}
       >
-        <div className="floating-workspaces-dock-wrapper">
-          {/* Workspace Chips List */}
-          <div className="footer-workspaces-dock">
-                {workspaces.map((ws, wsIdx) => {
-                  const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
-                  const isActive = ws.id === activeWorkspaceId;
-                  const isTarget = isWorkspaceDropTarget === ws.id;
-                  const flatCount = wsNode ? flattenTracks(wsNode).length : 0;
+        <div
+          ref={dropdownContainerRef}
+          className={`floating-workspaces-dock-wrapper ${treeDropdownOpen ? 'is-expanded' : ''} ${isInteracting ? 'is-interacting' : ''}`}
+          style={{
+            ...(treeDropdownOpen
+              ? {
+                  width: `${menuWidth}px`,
+                  height: `${menuHeight}px`,
+                }
+              : {}),
+          }}
+        >
+          {/* Top Resize Handle when Expanded */}
+          {treeDropdownOpen && (
+            <div
+              className="drawer-resize-handle-top"
+              onMouseDown={e => handleDrawerResizeStart(e, 'top')}
+              title="Drag vertically to resize height"
+            >
+              <div className="drawer-resize-bar" />
+            </div>
+          )}
 
-                  return (
-                    <div
-                      key={ws.id}
-                      className={`workspace-chip ${isActive ? 'active' : ''} ${isTarget ? 'is-drop-target' : ''}`}
-                      onClick={() => switchWorkspace(ws.id)}
-                      onAuxClick={e => {
-                        if (e.button === 1 && workspaces.length > 1) {
-                          e.preventDefault();
-                          closeWorkspace(ws.id);
-                        }
-                      }}
-                      onMouseEnter={e => handleWorkspaceChipMouseEnter(wsNode, e)}
-                      onMouseLeave={handleWorkspaceChipMouseLeave}
-                      onDragEnter={e => handleWorkspaceChipDragEnter(e, ws.id)}
-                      onDragOver={e => handleWorkspaceChipDragOver(e, ws.id)}
-                      onDragLeave={handleWorkspaceChipDragLeave}
-                      onDrop={e => handleWorkspaceChipDrop(e, ws.id)}
-                      title={`Switch to "${wsNode?.name || 'Workspace'}" (⌘${wsIdx + 1}) · Middle-click to close · Drag items here`}
+          {/* Expanded Library Menu Content */}
+          {treeDropdownOpen && (
+            <div className="drawer-library-expanded-panel">
+              {/* Header / Search Row with Move Grip, Search (⌘K), Pin, Snap & Close */}
+              <div
+                className="drawer-menu-search-row"
+                onMouseDown={handleMenuDragStart}
+                onDoubleClick={() => setMenuPosition(null)}
+                title="Drag header to move drawer · Double-click to snap back to dock"
+              >
+                <div className="drawer-drag-grip-indicator" title="Drag to move drawer">
+                  <GripHorizontal size={13} />
+                </div>
+
+                <div
+                  className="drawer-menu-search-box"
+                  onMouseDown={e => e.stopPropagation()}
+                >
+                  <Search size={13} className="drawer-menu-search-icon" />
+                  <input
+                    type="search"
+                    className="drawer-menu-search-input"
+                    placeholder="Search crates or jump to… (⌘K)"
+                    value={menuSearch}
+                    onChange={e => setMenuSearch(e.target.value)}
+                    onMouseDown={e => e.stopPropagation()}
+                  />
+                  <button
+                    type="button"
+                    className="drawer-menu-cmd-key"
+                    onClick={() => {
+                      if (!isMenuPinnedRef.current) {
+                        setTreeDropdownOpen(false);
+                      }
+                      setCommandPaletteOpen(true);
+                    }}
+                    onMouseDown={e => e.stopPropagation()}
+                    title="Open Command Palette (⌘K)"
+                  >
+                    ⌘K
+                  </button>
+                </div>
+
+                <div className="drawer-menu-header-actions" onMouseDown={e => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    className={`drawer-menu-action-btn ${isMenuPinned ? 'is-active' : ''}`}
+                    onClick={() => setIsMenuPinned(!isMenuPinned)}
+                    title={isMenuPinned ? 'Unpin menu (click outside will close)' : 'Pin menu (keep open while browsing)'}
+                    aria-label={isMenuPinned ? 'Unpin menu' : 'Pin menu'}
+                  >
+                    <Pin size={12} style={isMenuPinned ? { color: '#f59e0b', fill: '#f59e0b' } : undefined} />
+                  </button>
+                  {menuPosition && (
+                    <button
+                      type="button"
+                      className="drawer-menu-action-btn"
+                      onClick={() => setMenuPosition(null)}
+                      title="Snap back to bottom-left dock (or double-click header)"
+                      aria-label="Snap back to dock"
                     >
-                      <div className="workspace-chip-icon">
-                        <CoverArt
-                          src={wsNode?.cover_url || null}
-                          alt={wsNode?.name || ''}
-                          size={14}
-                          type="folder"
-                          seed={wsNode?.name || ''}
-                          rounded={2}
-                        />
-                      </div>
-                      <span className="workspace-chip-title">{wsNode?.name || 'Workspace'}</span>
-                      {flatCount > 0 && <span className="workspace-chip-badge">{flatCount}</span>}
-                      {wsIdx < 9 && <kbd className="header-kbd" style={{ fontSize: '9px', padding: '1px 3px' }}>⌘{wsIdx + 1}</kbd>}
-                      {workspaces.length > 1 && (
-                        <button
-                          type="button"
-                          className="workspace-chip-close"
-                          onClick={e => {
-                            e.stopPropagation();
-                            closeWorkspace(ws.id, e);
-                          }}
-                          title="Close workspace"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+                      <RotateCcw size={12} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="drawer-menu-action-btn close-btn"
+                    onClick={() => setTreeDropdownOpen(false)}
+                    title="Close library drawer"
+                    aria-label="Close library drawer"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
               </div>
 
-              {/* Add Workspace (+) Button & Popover */}
-              <div className="workspace-add-container" ref={workspaceAddContainerRef}>
-                <button
-                  type="button"
-                  className={`workspace-add-btn ${workspacePickerOpen ? 'active' : ''}`}
-                  onClick={() => setWorkspacePickerOpen(prev => !prev)}
-                  title="Open in New Workspace (⌘T)"
-                >
-                  <Plus size={13} strokeWidth={2.4} />
-                </button>
-
-                {workspacePickerOpen && (
-                  <div className="workspace-picker-popover bottom-align" ref={workspacePickerRef} role="menu">
-                    <div className="workspace-picker-header">
-                      <div className="workspace-picker-header-title">
-                        <Layers size={13} style={{ color: '#818cf8' }} />
-                        <span>Workspaces</span>
-                      </div>
-                      <span className="workspace-picker-shortcut">⌘1..{Math.min(workspaces.length, 9)}</span>
-                    </div>
-
-                    <div className="workspace-picker-quick-actions">
-                      {activeNode && (
-                        <button
-                          type="button"
-                          className="workspace-picker-quick-btn"
-                          onClick={() => {
-                            const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-                            setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
-                            setActiveWorkspaceId(newWsId);
-                            setWorkspacePickerOpen(false);
-                            setWorkspacePickerSearch('');
-                            showToast(`Duplicated workspace for "${activeNode.name}"`);
-                          }}
-                        >
-                          <Copy size={12} style={{ color: '#a78bfa' }} />
-                          <span>Duplicate View ("{activeNode.name}")</span>
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="header-ws-search-wrap" style={{ margin: '6px 0' }}>
-                      <Search size={12} className="header-ws-search-icon" />
-                      <input
-                        type="search"
-                        className="header-ws-search-input"
-                        placeholder="Search and open crate..."
-                        value={workspacePickerSearch}
-                        onChange={e => setWorkspacePickerSearch(e.target.value)}
-                        autoFocus
-                      />
-                    </div>
-
-                    {workspacePickerSearch.trim() && (
-                      <div className="header-ws-search-results">
-                        {allContainers
-                          .filter(c => c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
-                          .slice(0, 8)
-                          .map(c => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              className="header-ws-search-item"
-                              onClick={() => {
-                                openInNewWorkspace(c);
-                                setWorkspacePickerOpen(false);
-                                setWorkspacePickerSearch('');
-                              }}
-                            >
-                              <CoverArt
-                                src={c.cover_url || null}
-                                alt={c.name}
-                                size={18}
-                                type="folder"
-                                seed={c.name}
-                                rounded={3}
-                              />
-                              <span className="header-ws-search-item-title">{c.name}</span>
-                              <span className="header-ws-search-item-badge">{c.type}</span>
-                            </button>
-                          ))}
-                      </div>
-                    )}
+              {/* Directory Tree List with Custom Scrollbar */}
+              <div className="drawer-tree-list custom-fmsort-scrollbar">
+                {loading ? (
+                  <div style={{ color: 'var(--mu)', padding: '16px 12px', fontSize: 12 }}>Loading library...</div>
+                ) : tree.length === 0 ? (
+                  <div className="empty-sidebar-box" style={{ padding: 14 }}>
+                    <CoverArt size={28} type="folder" seed="Library" rounded={6} style={{ marginBottom: 6 }} />
+                    <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 3, color: '#f4f4f5' }}>Blank Library</div>
+                    <p style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 10px', lineHeight: 1.4 }}>
+                      No crates in your library yet.
+                    </p>
                   </div>
+                ) : (
+                  displayedNavNodes.map(n => renderTreeNode(n, 0))
                 )}
               </div>
+
+              {/* Footer Actions (Settings & Stats) */}
+              <div className="drawer-menu-footer-actions">
+                <button
+                  type="button"
+                  className="drawer-menu-action-item"
+                  onClick={() => {
+                    if (!isMenuPinnedRef.current) {
+                      setTreeDropdownOpen(false);
+                    }
+                    setSettingsOpen(true);
+                  }}
+                  title="Library & Application Settings"
+                >
+                  <Settings size={13} style={{ color: '#a78bfa' }} />
+                  <span>Settings</span>
+                </button>
+
+                <div className="drawer-menu-footer-meta">
+                  <span>{allContainers.length} crates</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Baseline Dock Bar: [../] [|] [Workspace Chips] [+] */}
+          <div className="drawer-dock-baseline-bar">
+            <button
+              type="button"
+              className={`drawer-crumb-btn ${treeDropdownOpen ? 'active' : ''}`}
+              onClick={() => setTreeDropdownOpen(prev => !prev)}
+              title="Browse Library Crates (..)"
+              aria-label="Browse Library Crates"
+            >
+              ../
+            </button>
+
+            <div className="drawer-dock-divider" />
+
+            {/* Workspace Chips List */}
+            <div className="footer-workspaces-dock">
+              {workspaces.map((ws, wsIdx) => {
+                const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
+                const isActive = ws.id === activeWorkspaceId;
+                const isTarget = isWorkspaceDropTarget === ws.id;
+                const flatCount = wsNode ? flattenTracks(wsNode).length : 0;
+
+                return (
+                  <div
+                    key={ws.id}
+                    className={`workspace-chip ${isActive ? 'active' : ''} ${isTarget ? 'is-drop-target' : ''}`}
+                    onClick={() => switchWorkspace(ws.id)}
+                    onAuxClick={e => {
+                      if (e.button === 1 && workspaces.length > 1) {
+                        e.preventDefault();
+                        closeWorkspace(ws.id);
+                      }
+                    }}
+                    onMouseEnter={e => handleWorkspaceChipMouseEnter(wsNode, e)}
+                    onMouseLeave={handleWorkspaceChipMouseLeave}
+                    onDragEnter={e => handleWorkspaceChipDragEnter(e, ws.id)}
+                    onDragOver={e => handleWorkspaceChipDragOver(e, ws.id)}
+                    onDragLeave={handleWorkspaceChipDragLeave}
+                    onDrop={e => handleWorkspaceChipDrop(e, ws.id)}
+                    title={`Switch to "${wsNode?.name || 'Workspace'}" (⌘${wsIdx + 1}) · Middle-click to close · Drag items here`}
+                  >
+                    <div className="workspace-chip-icon">
+                      <CoverArt
+                        src={wsNode?.cover_url || null}
+                        alt={wsNode?.name || ''}
+                        size={14}
+                        type="folder"
+                        seed={wsNode?.name || ''}
+                        rounded={2}
+                      />
+                    </div>
+                    <span className="workspace-chip-title">{wsNode?.name || 'Workspace'}</span>
+                    {flatCount > 0 && <span className="workspace-chip-badge">{flatCount}</span>}
+                    {wsIdx < 9 && <kbd className="header-kbd" style={{ fontSize: '9px', padding: '1px 3px' }}>⌘{wsIdx + 1}</kbd>}
+                    {workspaces.length > 1 && (
+                      <button
+                        type="button"
+                        className="workspace-chip-close"
+                        onClick={e => {
+                          e.stopPropagation();
+                          closeWorkspace(ws.id, e);
+                        }}
+                        title="Close workspace"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Add Workspace (+) Button & Popover */}
+            <div className="workspace-add-container" ref={workspaceAddContainerRef}>
+              <button
+                type="button"
+                className={`workspace-add-btn ${workspacePickerOpen ? 'active' : ''}`}
+                onClick={() => setWorkspacePickerOpen(prev => !prev)}
+                title="Open in New Workspace (⌘T)"
+              >
+                <Plus size={13} strokeWidth={2.4} />
+              </button>
+
+              {workspacePickerOpen && (
+                <div className="workspace-picker-popover bottom-align" ref={workspacePickerRef} role="menu">
+                  <div className="workspace-picker-header">
+                    <div className="workspace-picker-header-title">
+                      <Layers size={13} style={{ color: '#818cf8' }} />
+                      <span>Workspaces</span>
+                    </div>
+                    <span className="workspace-picker-shortcut">⌘1..{Math.min(workspaces.length, 9)}</span>
+                  </div>
+
+                  <div className="workspace-picker-quick-actions">
+                    {activeNode && (
+                      <button
+                        type="button"
+                        className="workspace-picker-quick-btn"
+                        onClick={() => {
+                          const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                          setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
+                          setActiveWorkspaceId(newWsId);
+                          setWorkspacePickerOpen(false);
+                          setWorkspacePickerSearch('');
+                          showToast(`Duplicated workspace for "${activeNode.name}"`);
+                        }}
+                      >
+                        <Copy size={12} style={{ color: '#a78bfa' }} />
+                        <span>Duplicate View ("{activeNode.name}")</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="header-ws-search-wrap" style={{ margin: '6px 0' }}>
+                    <Search size={12} className="header-ws-search-icon" />
+                    <input
+                      type="search"
+                      className="header-ws-search-input"
+                      placeholder="Search and open crate..."
+                      value={workspacePickerSearch}
+                      onChange={e => setWorkspacePickerSearch(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+
+                  {workspacePickerSearch.trim() && (
+                    <div className="header-ws-search-results">
+                      {allContainers
+                        .filter(c => c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
+                        .slice(0, 8)
+                        .map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="header-ws-search-item"
+                            onClick={() => {
+                              openInNewWorkspace(c);
+                              setWorkspacePickerOpen(false);
+                              setWorkspacePickerSearch('');
+                            }}
+                          >
+                            <CoverArt
+                              src={c.cover_url || null}
+                              alt={c.name}
+                              size={18}
+                              type="folder"
+                              seed={c.name}
+                              rounded={3}
+                            />
+                            <span className="header-ws-search-item-title">{c.name}</span>
+                            <span className="header-ws-search-item-badge">{c.type}</span>
+                          </button>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Corner Resize Handle when Expanded */}
+            {treeDropdownOpen && (
+              <div
+                className="drawer-resize-handle-corner"
+                onMouseDown={e => handleDrawerResizeStart(e, 'corner')}
+                title="Drag corner to resize width & height"
+              />
+            )}
+          </div>
 
           {/* Hover Preview Card Tooltip */}
           {hoverPreviewNode && hoverPreviewPos && (

@@ -5665,36 +5665,405 @@ tr.h.is-selected td {
 }
 
 /* =========================================================================
-   Bottom-Left Floating Workspaces Switcher Dock
+   Unified Bottom-Left Workspaces & Library Drawer (Docked & Floating)
    ========================================================================= */
 .floating-workspaces-container.bottom-left {
   position: fixed;
   bottom: 16px;
   left: 16px;
   right: auto;
-  z-index: 60;
+  z-index: 1000;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: flex-start;
   pointer-events: none;
   padding: 0;
 }
 
+.floating-workspaces-container.bottom-left.is-moved {
+  bottom: auto !important;
+  right: auto !important;
+}
+
 .floating-workspaces-container.bottom-left .floating-workspaces-dock-wrapper {
   pointer-events: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background: rgba(14, 14, 18, 0.94);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background: rgba(14, 14, 18, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 9px;
-  padding: 4px 6px;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: width 0.22s cubic-bezier(0.16, 1, 0.3, 1), height 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-radius 0.2s ease, box-shadow 0.2s ease;
+  position: relative;
+  overflow: visible;
   max-width: calc(100vw - 32px);
-  transform-origin: bottom left;
+}
+
+.floating-workspaces-dock-wrapper.is-interacting {
+  transition: none !important;
+}
+
+/* Collapsed Dock State */
+.floating-workspaces-dock-wrapper:not(.is-expanded) {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 6px;
+  gap: 5px;
+  height: auto;
+  width: auto;
+}
+
+.floating-workspaces-dock-wrapper:not(.is-expanded) .drawer-dock-baseline-bar {
+  border-top: none;
+  background: transparent;
+  padding: 0;
+  min-height: auto;
+  width: auto;
+}
+
+/* Expanded Dock State */
+.floating-workspaces-dock-wrapper.is-expanded {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.88), 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+/* Top Resize Handle */
+.drawer-resize-handle-top {
+  height: 8px;
+  width: 100%;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  flex-shrink: 0;
+  transition: background 0.12s ease;
+  user-select: none;
+}
+
+.drawer-resize-handle-top:hover,
+.drawer-resize-handle-top:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.drawer-resize-bar {
+  width: 38px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.22);
+  transition: background 0.12s ease;
+}
+
+.drawer-resize-handle-top:hover .drawer-resize-bar {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+/* Corner Resize Handle */
+.drawer-resize-handle-corner {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.4;
+  transition: opacity 0.14s ease;
+  z-index: 10;
+}
+
+.drawer-resize-handle-corner:hover {
+  opacity: 0.9;
+}
+
+.drawer-resize-handle-corner::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-right: 2px solid rgba(255, 255, 255, 0.6);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.6);
+  margin-right: 3px;
+  margin-bottom: 3px;
+}
+
+/* Expanded Library Panel */
+.drawer-library-expanded-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: drawerPanelFade 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes drawerPanelFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Drawer Header with Move Grip & Search (⌘K) */
+.drawer-menu-search-row {
+  padding: 6px 10px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: grab;
+  user-select: none;
+}
+
+.drawer-menu-search-row:active {
+  cursor: grabbing;
+}
+
+.drawer-drag-grip-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #52525b;
+  padding: 0 1px;
+  cursor: grab;
+  transition: color 0.14s ease;
+  flex-shrink: 0;
+}
+
+.drawer-menu-search-row:hover .drawer-drag-grip-indicator {
+  color: #a1a1aa;
+}
+
+.drawer-menu-search-box {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 7px;
+  padding: 0 8px;
+  height: 30px;
+  flex: 1;
+  min-width: 0;
+  cursor: text;
+  transition: all 0.14s ease;
+}
+
+.drawer-menu-search-box:focus-within {
+  border-color: rgba(96, 165, 250, 0.5);
+  background: rgba(0, 0, 0, 0.55);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.2);
+}
+
+.drawer-menu-search-icon {
+  color: #71717a;
+  flex-shrink: 0;
+}
+
+.drawer-menu-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  font-size: 12px;
+  color: #f4f4f5;
+  min-width: 0;
+}
+
+.drawer-menu-search-input::placeholder {
+  color: #71717a;
+}
+
+.drawer-menu-cmd-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  color: #a1a1aa;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 1px 5px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  flex-shrink: 0;
+}
+
+.drawer-menu-cmd-key:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.drawer-menu-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.drawer-menu-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #71717a;
+  cursor: pointer;
+  transition: all 0.14s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.drawer-menu-action-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #fafafa;
+}
+
+.drawer-menu-action-btn.is-active {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.3);
+  color: #f59e0b;
+}
+
+.drawer-menu-action-btn.close-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+/* Directory Tree List */
+.drawer-tree-list {
+  flex: 1;
+  min-height: 120px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+/* Footer / System Actions */
+.drawer-menu-footer-actions {
+  padding: 6px 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.drawer-menu-action-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #a1a1aa;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.drawer-menu-action-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffffff;
+}
+
+.drawer-menu-footer-meta {
+  font-size: 10px;
+  color: #71717a;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Baseline Dock Bar: [../] [|] [Workspace Chips] [+] */
+.drawer-dock-baseline-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  background: rgba(14, 14, 18, 0.98);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  position: relative;
+  flex-shrink: 0;
+  min-height: 38px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.drawer-dock-baseline-bar .footer-workspaces-dock {
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.drawer-dock-baseline-bar .footer-workspaces-dock::-webkit-scrollbar {
+  display: none;
+}
+
+.drawer-crumb-btn {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  font-size: 11px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #d4d4d8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.14s ease;
+  flex-shrink: 0;
+}
+
+.drawer-crumb-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+.drawer-crumb-btn.active {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(96, 165, 250, 0.45);
+  color: #93c5fd;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.25);
+}
+
+.drawer-dock-divider {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
+  margin: 0 2px;
 }
 
 .floating-workspaces-container.bottom-left .workspace-preview-popover.bottom-align,
@@ -5704,108 +6073,6 @@ tr.h.is-selected td {
   top: auto;
   left: 0;
   animation: popoverFadeUp 0.14s ease;
-}
-
-/* =========================================================================
-   Navigational Submenu Header Actions, Pin Button, Close & Resize
-   ========================================================================= */
-.crumb-menu-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.crumb-menu-pin-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: transparent;
-  border: 1px solid transparent;
-  color: #71717a;
-  cursor: pointer;
-  transition: all 0.14s ease;
-  padding: 0;
-  flex-shrink: 0;
-}
-
-.crumb-menu-pin-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.12);
-  color: #fafafa;
-}
-
-.crumb-menu-pin-icon-btn.is-active {
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.3);
-  color: #f59e0b;
-}
-
-.crumb-menu-close-window-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  background: transparent;
-  border: 1px solid transparent;
-  color: #71717a;
-  cursor: pointer;
-  transition: all 0.14s ease;
-  padding: 0;
-  flex-shrink: 0;
-}
-
-.crumb-menu-close-window-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.3);
-  color: #f87171;
-}
-
-.crumb-tree-dropdown.is-pinned {
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(245, 158, 11, 0.28);
-}
-
-.crumb-tree-dropdown.is-floating {
-  position: fixed !important;
-  bottom: auto !important;
-  right: auto !important;
-  margin: 0 !important;
-  animation: none !important;
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.12) !important;
-}
-
-.crumb-menu-resize-handle {
-  height: 10px;
-  cursor: ns-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.02);
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  flex-shrink: 0;
-  transition: background 0.12s ease;
-}
-
-.crumb-menu-resize-handle:hover,
-.crumb-menu-resize-handle:active {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.crumb-menu-resize-bar {
-  width: 32px;
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.2);
-  transition: background 0.12s ease;
-}
-
-.crumb-menu-resize-handle:hover .crumb-menu-resize-bar {
-  background: rgba(255, 255, 255, 0.5);
 }
 
 /* =========================================================================
