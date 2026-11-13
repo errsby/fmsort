@@ -390,7 +390,10 @@ export interface ParsedTuneTrack {
   title: string;
   artist: string;
   album: string;
-  isrc: string;
+  isrc: string; // ONLY authentic 12-char ISRC, or ''
+  deezerId?: string; // e.g. "3115569011"
+  playlist?: string;
+  type?: 'Track' | 'Artist' | 'Album' | 'Playlist';
 }
 
 export interface TuneImportResponse {
@@ -406,13 +409,21 @@ export interface TuneImportResponse {
 }
 
 export async function parseTuneMyMusic(text: string): Promise<{ tracks: ParsedTuneTrack[]; total: number }> {
+  console.log('[API] POST /api/import/tunemymusic/parse - sending', text.length, 'bytes');
+  const t0 = performance.now();
   const res = await fetch(`${API_BASE}/import/tunemymusic/parse`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
   });
-  if (!res.ok) throw new Error('Failed to parse Tune My Music file');
-  return res.json();
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error('[API] /import/tunemymusic/parse failed:', err);
+    throw new Error(err.error || 'Failed to parse Tune My Music CSV file');
+  }
+  const data = await res.json();
+  console.log(`[API] /import/tunemymusic/parse returned ${data.tracks?.length || 0} tracks in ${(performance.now() - t0).toFixed(0)} ms`);
+  return data;
 }
 
 export async function importTuneMyMusic(data: {
@@ -420,6 +431,9 @@ export async function importTuneMyMusic(data: {
   tracks?: ParsedTuneTrack[];
   targetNodeId?: string | null;
 }): Promise<TuneImportResponse> {
+  const trackCount = data.tracks?.length || 0;
+  console.log(`[API] POST /api/import/tunemymusic - submitting ${trackCount} tracks to targetNodeId: ${data.targetNodeId || 'root'}`);
+  const t0 = performance.now();
   const res = await fetch(`${API_BASE}/import/tunemymusic`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -427,7 +441,15 @@ export async function importTuneMyMusic(data: {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
+    console.error('[API] /import/tunemymusic error response:', err);
     throw new Error(err.error || 'Failed to import Tune My Music data');
   }
-  return res.json();
+  const result: TuneImportResponse = await res.json();
+  console.log(`[API] /import/tunemymusic completed in ${(performance.now() - t0).toFixed(0)} ms:`, {
+    importedTracks: result.importedTracks,
+    artistsCount: result.artistsCount,
+    albumsCount: result.albumsCount,
+    destNodeId: result.destNodeId,
+  });
+  return result;
 }

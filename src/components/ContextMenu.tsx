@@ -437,8 +437,8 @@ export const ContextMenu: React.FC<Props> = ({
                   }}
                 >
                   <FileText size={14} style={{ color: '#06b6d4' }} />
-                  <span className="ctx-item-label">Tune My Music (.txt)</span>
-                  <span className="ctx-item-badge">TXT</span>
+                  <span className="ctx-item-label">Tune My Music (.csv)</span>
+                  <span className="ctx-item-badge">CSV</span>
                 </button>
 
                 <button
@@ -613,8 +613,8 @@ export const ContextMenu: React.FC<Props> = ({
                   }}
                 >
                   <FileText size={14} style={{ color: '#06b6d4' }} />
-                  <span className="ctx-item-label">Tune My Music (.txt)</span>
-                  <span className="ctx-item-badge">TXT</span>
+                  <span className="ctx-item-label">Tune My Music (.csv)</span>
+                  <span className="ctx-item-badge">CSV</span>
                 </button>
 
                 <button
@@ -761,8 +761,8 @@ export const ContextMenu: React.FC<Props> = ({
                 }}
               >
                 <FileText size={14} style={{ color: '#06b6d4' }} />
-                <span className="ctx-item-label">Tune My Music (.txt)</span>
-                <span className="ctx-item-badge">TXT</span>
+                <span className="ctx-item-label">Tune My Music (.csv)</span>
+                <span className="ctx-item-badge">CSV</span>
               </button>
 
               <button

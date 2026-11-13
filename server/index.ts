@@ -705,7 +705,9 @@ const server = Bun.serve({
       if (path === '/api/import/tunemymusic/parse' && method === 'POST') {
         const body = await req.json();
         const text = (body.text || '').trim();
+        console.log(`[API Server] POST /api/import/tunemymusic/parse - ${text.length} chars received`);
         const tracks = parseTuneMyMusicText(text);
+        console.log(`[API Server] Parsed ${tracks.length} items from CSV`);
         return json({ success: true, tracks, total: tracks.length });
       }
 
@@ -719,12 +721,15 @@ const server = Bun.serve({
           }
         }
         if (!tracks || tracks.length === 0) {
+          console.warn('[API Server] POST /api/import/tunemymusic - No valid tracks found');
           return errorJson('No valid tracks found to import');
         }
 
+        console.log(`[API Server] POST /api/import/tunemymusic - Processing ${tracks.length} items for targetNodeId: ${body.targetNodeId || 'root'}`);
         const result = await connectAndImportTuneMyMusic(tracks, {
           targetNodeId: body.targetNodeId || null,
         });
+        console.log(`[API Server] Import response: ${result.importedTracks} tracks saved across ${result.artistsCount} artists.`);
         return json(result);
       }
 

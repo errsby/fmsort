@@ -2011,8 +2011,8 @@ export const App: React.FC = () => {
                       </div>
                       <div style={{ flex: 1 }}>
                         <div className="add-music-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <span>Import Tune My Music (.txt)</span>
-                          <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,211,238,0.15)', color: '#22d3ee', fontWeight: 600 }}>TXT</span>
+                          <span>Import Tune My Music (.csv)</span>
+                          <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,211,238,0.15)', color: '#22d3ee', fontWeight: 600 }}>CSV</span>
                         </div>
                         <div className="add-music-desc">Smart import playlists with Deezer &amp; Discogs connection</div>
                       </div>
