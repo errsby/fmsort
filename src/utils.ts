@@ -188,3 +188,49 @@ export function groupRawReleases(releases: UnifiedReleaseSummary[]): GroupedAlbu
   }
   return result;
 }
+
+/**
+ * Normalizes an artist and album title to canonical album keys.
+ * Strips release version suffixes (e.g. "(Deluxe Edition)", "[Remastered 2021]", etc.)
+ * so completion status seamlessly stretches across all versions of an album/track in any crate.
+ */
+export function getAlbumKeys(artistName?: string, albumName?: string): string[] {
+  const rawArtist = (artistName || '').trim();
+  const rawAlbum = (albumName || '').trim();
+  if (!rawAlbum) return [];
+
+  const cleanArtist = rawArtist.toLowerCase().replace(/^(the|a|an)\s+/i, '').trim();
+  const cleanAlbum = rawAlbum.toLowerCase();
+
+  // Strip parenthetical / bracketed edition tags like (Deluxe Edition), (Remastered), [Expanded], etc.
+  const baseAlbum = cleanAlbum
+    .replace(/\s*[\(\[](deluxe|remaster(ed)?|anniversary|expanded|bonus|edition|version|reissue|mono|stereo|special|collector'?s|live|explicit|clean|vinyl|lp|cd)[\)\]].*$/i, '')
+    .trim();
+
+  const keys = new Set<string>();
+  if (cleanArtist) {
+    keys.add(`${cleanArtist}:::${cleanAlbum}`);
+    if (baseAlbum && baseAlbum !== cleanAlbum) {
+      keys.add(`${cleanArtist}:::${baseAlbum}`);
+    }
+  }
+  keys.add(`album:::${cleanAlbum}`);
+  if (baseAlbum && baseAlbum !== cleanAlbum) {
+    keys.add(`album:::${baseAlbum}`);
+  }
+
+  return Array.from(keys);
+}
+
+/**
+ * Checks whether an album or track is marked as completed in the completedKeys set.
+ */
+export function isAlbumCompleted(
+  artistName: string | undefined,
+  albumName: string | undefined,
+  completedKeys: Set<string>
+): boolean {
+  if (!completedKeys || completedKeys.size === 0) return false;
+  const keys = getAlbumKeys(artistName, albumName);
+  return keys.some(k => completedKeys.has(k));
+}

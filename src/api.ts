@@ -544,3 +544,40 @@ export async function importTuneMyMusic(data: {
   });
   return result;
 }
+
+export interface AppSettings {
+  statusEnabled: boolean;
+  completedAlbumKeys: string[];
+}
+
+export async function fetchSettings(): Promise<AppSettings> {
+  const res = await fetch(`${API_BASE}/settings`);
+  if (!res.ok) {
+    return { statusEnabled: false, completedAlbumKeys: [] };
+  }
+  return res.json();
+}
+
+export async function saveSettings(settings: Partial<AppSettings>): Promise<AppSettings> {
+  const res = await fetch(`${API_BASE}/settings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) {
+    throw new Error('Failed to save settings');
+  }
+  return res.json();
+}
+
+export async function toggleAlbumsCompleted(keys: string[], completed: boolean): Promise<{ success: boolean; completedAlbumKeys: string[] }> {
+  const res = await fetch(`${API_BASE}/albums/toggle-completed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keys, completed }),
+  });
+  if (!res.ok) {
+    throw new Error('Failed to update album completion status');
+  }
+  return res.json();
+}

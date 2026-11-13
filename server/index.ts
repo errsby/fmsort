@@ -1000,6 +1000,58 @@ const server = Bun.serve({
         return json(result);
       }
 
+      // 14d. Settings & Status Tracking API
+      if (path === '/api/settings' && method === 'GET') {
+        const statusEnabled = getSetting('status_enabled') === 'true';
+        const rawKeys = getSetting('completed_album_keys');
+        let completedAlbumKeys: string[] = [];
+        try {
+          if (rawKeys) completedAlbumKeys = JSON.parse(rawKeys);
+        } catch {}
+        return json({ statusEnabled, completedAlbumKeys });
+      }
+
+      if (path === '/api/settings' && method === 'POST') {
+        const body = await req.json();
+        if (typeof body.statusEnabled === 'boolean') {
+          setSetting('status_enabled', body.statusEnabled ? 'true' : 'false');
+        }
+        if (Array.isArray(body.completedAlbumKeys)) {
+          setSetting('completed_album_keys', JSON.stringify(body.completedAlbumKeys));
+        }
+        const statusEnabled = getSetting('status_enabled') === 'true';
+        const rawKeys = getSetting('completed_album_keys');
+        let completedAlbumKeys: string[] = [];
+        try {
+          if (rawKeys) completedAlbumKeys = JSON.parse(rawKeys);
+        } catch {}
+        return json({ success: true, statusEnabled, completedAlbumKeys });
+      }
+
+      if (path === '/api/albums/toggle-completed' && method === 'POST') {
+        const body = await req.json();
+        const keysToAddOrRemove: string[] = Array.isArray(body.keys) ? body.keys : [body.key].filter(Boolean);
+        const completed: boolean = body.completed !== false; // default true
+
+        const rawKeys = getSetting('completed_album_keys');
+        const currentKeys = new Set<string>();
+        try {
+          if (rawKeys) JSON.parse(rawKeys).forEach((k: string) => currentKeys.add(k));
+        } catch {}
+
+        keysToAddOrRemove.forEach(k => {
+          if (completed) {
+            currentKeys.add(k);
+          } else {
+            currentKeys.delete(k);
+          }
+        });
+
+        const updatedArray = Array.from(currentKeys);
+        setSetting('completed_album_keys', JSON.stringify(updatedArray));
+        return json({ success: true, completedAlbumKeys: updatedArray });
+      }
+
       // 15. Static fallback if dist exists
       const distFilePath = 'dist' + (path === '/' ? '/index.html' : path);
       const distFile = Bun.file(distFilePath);

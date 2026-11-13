@@ -22,10 +22,12 @@ import {
   Layers,
   Image as ImageIcon,
   ChevronRight,
+  CheckCircle2,
+  RotateCcw,
 } from 'lucide-react';
 
 export type ContextTarget =
-  | { type: 'track'; track: Track; isMulti?: boolean; count?: number }
+  | { type: 'track'; track: Track; isMulti?: boolean; count?: number; selectedTracks?: Track[] }
   | { type: 'node'; node: LibraryNode; isMulti?: boolean; count?: number; selectedNodes?: LibraryNode[] }
   | { type: 'table'; activeNode: LibraryNode | null }
   | { type: 'sidebar' };
@@ -69,6 +71,11 @@ interface Props {
   onRefreshLibrary?: () => void;
   onOpenBackup?: () => void;
   onShowToast?: (message: string) => void;
+  // Status Tracking actions
+  statusEnabled?: boolean;
+  isAlbumCompleted?: (artist?: string, album?: string) => boolean;
+  onToggleAlbumCompleted?: (artist?: string, album?: string, completed?: boolean) => void;
+  onBatchToggleAlbumsCompleted?: (albums: { artist?: string; album: string }[], completed: boolean) => void;
 }
 
 export const ContextMenu: React.FC<Props> = ({
@@ -100,6 +107,10 @@ export const ContextMenu: React.FC<Props> = ({
   onRefreshLibrary,
   onOpenBackup,
   onShowToast,
+  statusEnabled,
+  isAlbumCompleted,
+  onToggleAlbumCompleted,
+  onBatchToggleAlbumsCompleted,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -179,9 +190,22 @@ export const ContextMenu: React.FC<Props> = ({
 
     // 1. Single Track or Multi-Track Selection
     if (target.type === 'track') {
-      const { track, isMulti, count } = target;
+      const { track, isMulti, count, selectedTracks } = target;
 
       if (isMulti && count && count > 1) {
+        const albumMap = new Map<string, { artist?: string; album: string }>();
+        if (selectedTracks) {
+          selectedTracks.forEach(t => {
+            if (t.al) {
+              const key = `${(t.a || '').toLowerCase()}:::${t.al.toLowerCase()}`;
+              if (!albumMap.has(key)) {
+                albumMap.set(key, { artist: t.a, album: t.al });
+              }
+            }
+          });
+        }
+        const distinctAlbums = Array.from(albumMap.values());
+
         return (
           <>
             {/* Header */}
@@ -196,6 +220,44 @@ export const ContextMenu: React.FC<Props> = ({
             </div>
 
             <div className="ctx-divider" />
+
+            {/* Batch Status Toggle for Tracks */}
+            {statusEnabled && distinctAlbums.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="ctx-item"
+                  onClick={() => {
+                    onClose();
+                    onBatchToggleAlbumsCompleted?.(distinctAlbums, true);
+                  }}
+                >
+                  <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
+                  <span className="ctx-item-label" style={{ fontWeight: 500 }}>
+                    Mark {distinctAlbums.length} Album{distinctAlbums.length > 1 ? 's' : ''} as Completed
+                  </span>
+                  <span className="ctx-item-badge" style={{ background: '#064e3b', color: '#a7f3d0', border: '1px solid #059669' }}>
+                    Status: Done
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  className="ctx-item"
+                  onClick={() => {
+                    onClose();
+                    onBatchToggleAlbumsCompleted?.(distinctAlbums, false);
+                  }}
+                >
+                  <RotateCcw size={14} style={{ color: '#f59e0b' }} />
+                  <span className="ctx-item-label">
+                    Mark {distinctAlbums.length} Album{distinctAlbums.length > 1 ? 's' : ''} as Incomplete
+                  </span>
+                </button>
+
+                <div className="ctx-divider" />
+              </>
+            )}
 
             <button
               type="button"
@@ -261,6 +323,45 @@ export const ContextMenu: React.FC<Props> = ({
           </div>
 
           <div className="ctx-divider" />
+
+          {/* Status Completion Toggle */}
+          {statusEnabled && track.al && (
+            <>
+              {(() => {
+                const isCompleted = isAlbumCompleted?.(track.a, track.al) || false;
+                return (
+                  <button
+                    type="button"
+                    className="ctx-item"
+                    onClick={() => {
+                      onClose();
+                      onToggleAlbumCompleted?.(track.a, track.al, !isCompleted);
+                    }}
+                  >
+                    {isCompleted ? (
+                      <RotateCcw size={14} style={{ color: '#f59e0b' }} />
+                    ) : (
+                      <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
+                    )}
+                    <span className="ctx-item-label" style={{ fontWeight: 500 }}>
+                      {isCompleted ? `Mark Album Incomplete ("${track.al}")` : `Mark Album Completed ("${track.al}")`}
+                    </span>
+                    <span
+                      className="ctx-item-badge"
+                      style={{
+                        background: isCompleted ? 'rgba(234, 179, 8, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                        color: isCompleted ? '#fde047' : '#86efac',
+                        border: `1px solid ${isCompleted ? 'rgba(234, 179, 8, 0.35)' : 'rgba(34, 197, 94, 0.35)'}`,
+                      }}
+                    >
+                      {isCompleted ? 'Status: Done' : 'Status: Incomplete'}
+                    </span>
+                  </button>
+                );
+              })()}
+              <div className="ctx-divider" />
+            </>
+          )}
 
           {/* Primary Track Actions */}
           <button
@@ -437,6 +538,44 @@ export const ContextMenu: React.FC<Props> = ({
 
             <div className="ctx-divider" />
 
+            {/* Batch Album Completion Status */}
+            {statusEnabled && albumCount > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="ctx-item"
+                  onClick={() => {
+                    onClose();
+                    const albumsToMark = albumNodes.map(n => ({ artist: n.tracks?.[0]?.a, album: n.name }));
+                    onBatchToggleAlbumsCompleted?.(albumsToMark, true);
+                  }}
+                >
+                  <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
+                  <span className="ctx-item-label" style={{ fontWeight: 500 }}>
+                    Mark {albumCount} Album{albumCount > 1 ? 's' : ''} as Completed
+                  </span>
+                  <span className="ctx-item-badge" style={{ background: '#064e3b', color: '#a7f3d0', border: '1px solid #059669' }}>
+                    Status: Done
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="ctx-item"
+                  onClick={() => {
+                    onClose();
+                    const albumsToMark = albumNodes.map(n => ({ artist: n.tracks?.[0]?.a, album: n.name }));
+                    onBatchToggleAlbumsCompleted?.(albumsToMark, false);
+                  }}
+                >
+                  <RotateCcw size={14} style={{ color: '#f59e0b' }} />
+                  <span className="ctx-item-label">
+                    Mark {albumCount} Album{albumCount > 1 ? 's' : ''} as Incomplete
+                  </span>
+                </button>
+                <div className="ctx-divider" />
+              </>
+            )}
+
             {/* Batch Artist Full Discography Import */}
             {artistCount > 0 && (
               <button
@@ -529,6 +668,46 @@ export const ContextMenu: React.FC<Props> = ({
           </div>
 
           <div className="ctx-divider" />
+
+          {/* Album Completion Status */}
+          {statusEnabled && isAlbum && (
+            <>
+              {(() => {
+                const albumArtist = node.tracks?.[0]?.a || '';
+                const isCompleted = isAlbumCompleted?.(albumArtist, node.name) || false;
+                return (
+                  <button
+                    type="button"
+                    className="ctx-item"
+                    onClick={() => {
+                      onClose();
+                      onToggleAlbumCompleted?.(albumArtist, node.name, !isCompleted);
+                    }}
+                  >
+                    {isCompleted ? (
+                      <RotateCcw size={14} style={{ color: '#f59e0b' }} />
+                    ) : (
+                      <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
+                    )}
+                    <span className="ctx-item-label" style={{ fontWeight: 500 }}>
+                      {isCompleted ? 'Mark as Incomplete' : 'Mark as Completed'}
+                    </span>
+                    <span
+                      className="ctx-item-badge"
+                      style={{
+                        background: isCompleted ? 'rgba(234, 179, 8, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                        color: isCompleted ? '#fde047' : '#86efac',
+                        border: `1px solid ${isCompleted ? 'rgba(234, 179, 8, 0.35)' : 'rgba(34, 197, 94, 0.35)'}`,
+                      }}
+                    >
+                      {isCompleted ? 'Status: Done' : 'Status: Incomplete'}
+                    </span>
+                  </button>
+                );
+              })()}
+              <div className="ctx-divider" />
+            </>
+          )}
 
           {/* New Artist Complete Discography Import */}
           {isArtist && (
@@ -736,6 +915,46 @@ export const ContextMenu: React.FC<Props> = ({
           </div>
 
           <div className="ctx-divider" />
+
+          {/* Status Completion Toggle for Active Album Page */}
+          {statusEnabled && activeNode?.type === 'Album' && (
+            <>
+              {(() => {
+                const activeArtist = activeNode.tracks?.[0]?.a || '';
+                const isCompleted = isAlbumCompleted?.(activeArtist, activeNode.name) || false;
+                return (
+                  <button
+                    type="button"
+                    className="ctx-item"
+                    onClick={() => {
+                      onClose();
+                      onToggleAlbumCompleted?.(activeArtist, activeNode.name, !isCompleted);
+                    }}
+                  >
+                    {isCompleted ? (
+                      <RotateCcw size={14} style={{ color: '#f59e0b' }} />
+                    ) : (
+                      <CheckCircle2 size={14} style={{ color: '#22c55e' }} />
+                    )}
+                    <span className="ctx-item-label" style={{ fontWeight: 500 }}>
+                      {isCompleted ? 'Mark Album as Incomplete' : 'Mark Album as Completed'}
+                    </span>
+                    <span
+                      className="ctx-item-badge"
+                      style={{
+                        background: isCompleted ? 'rgba(234, 179, 8, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                        color: isCompleted ? '#fde047' : '#86efac',
+                        border: `1px solid ${isCompleted ? 'rgba(234, 179, 8, 0.35)' : 'rgba(34, 197, 94, 0.35)'}`,
+                      }}
+                    >
+                      {isCompleted ? 'Status: Done' : 'Status: Incomplete'}
+                    </span>
+                  </button>
+                );
+              })()}
+              <div className="ctx-divider" />
+            </>
+          )}
 
           {/* Import Subdropdown */}
           <div

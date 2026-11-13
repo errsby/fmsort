@@ -15,6 +15,9 @@ import {
   importUniversalRelease,
   importArtistDiscography,
   fetchArtistProfile,
+  fetchSettings,
+  saveSettings,
+  toggleAlbumsCompleted,
   type SuggestedProject,
   type ArtistProfileData,
 } from './api';
@@ -24,6 +27,8 @@ import {
   flattenTracks,
   findNodeById,
   findNodePath,
+  isAlbumCompleted,
+  getAlbumKeys,
 } from './utils';
 
 import { HybridSearchModal } from './components/HybridSearchModal';
@@ -36,6 +41,7 @@ import { NewTrackModal } from './components/NewTrackModal';
 import { MoveTracksModal } from './components/MoveTracksModal';
 import { NodeEditModal } from './components/NodeEditModal';
 import { BackupModal } from './components/BackupModal';
+import { SettingsModal } from './components/SettingsModal';
 import { SocialWidgets } from './components/SocialWidgets';
 import { CoverArt, getFunkyPalette } from './components/CoverArt';
 import { ContextMenu } from './components/ContextMenu';
@@ -163,6 +169,22 @@ export const App: React.FC = () => {
   const [nodeEditOpen, setNodeEditOpen] = useState(false);
   const [nodeToEdit, setNodeToEdit] = useState<LibraryNode | null>(null);
   const [backupOpen, setBackupOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [statusEnabled, setStatusEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('fmsort_status_enabled') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [completedAlbumKeys, setCompletedAlbumKeys] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('fmsort_completed_album_keys');
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [addMusicMenuOpen, setAddMusicMenuOpen] = useState(false);
   const [heroBackdrop, setHeroBackdrop] = useState<string | null>(null);
@@ -374,6 +396,22 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     loadTree();
+    fetchSettings()
+      .then(s => {
+        if (typeof s.statusEnabled === 'boolean') {
+          setStatusEnabled(s.statusEnabled);
+          try {
+            localStorage.setItem('fmsort_status_enabled', String(s.statusEnabled));
+          } catch {}
+        }
+        if (Array.isArray(s.completedAlbumKeys)) {
+          setCompletedAlbumKeys(new Set(s.completedAlbumKeys));
+          try {
+            localStorage.setItem('fmsort_completed_album_keys', JSON.stringify(s.completedAlbumKeys));
+          } catch {}
+        }
+      })
+      .catch(err => console.warn('Could not load settings:', err));
   }, []);
 
   useEffect(() => {
@@ -523,6 +561,14 @@ export const App: React.FC = () => {
       return;
     }
 
+    // When status tracking is enabled, uncompleted albums do not display their ambient backdrop
+    const activeArtist = activeNode.tracks?.[0]?.a || (activePath.length > 1 && activePath[activePath.length - 2]?.type === 'Artist' ? activePath[activePath.length - 2].name : '');
+    const isActiveAlbumCompleted = isAlbumCompleted(activeArtist, activeNode.name, completedAlbumKeys);
+    if (statusEnabled && activeNode.type === 'Album' && !isActiveAlbumCompleted) {
+      setHeroBackdrop(null);
+      return;
+    }
+
     // 1. Initial immediate backdrop from node's cover or track's cover
     const immediateCover = activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || null;
     setHeroBackdrop(immediateCover);
@@ -545,7 +591,7 @@ export const App: React.FC = () => {
     return () => {
       isCurrent = false;
     };
-  }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url]);
+  }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url, statusEnabled, completedAlbumKeys]);
 
   // Reset artist profile and suggestions state on container change (auto-collapsed by default)
   useEffect(() => {
@@ -583,9 +629,13 @@ export const App: React.FC = () => {
     e.stopPropagation();
 
     const isMulti = selectedTrackIds.has(track.id) && selectedTrackIds.size > 1;
+    let activeTrackSelection = selectedTrackIds;
     if (!selectedTrackIds.has(track.id) && !isMulti) {
-      setSelectedTrackIds(new Set([track.id]));
+      activeTrackSelection = new Set([track.id]);
+      setSelectedTrackIds(activeTrackSelection);
     }
+
+    const currentSelectedTracks = activeFlatTracks.filter(t => activeTrackSelection.has(t.id));
 
     setContextMenu({
       isOpen: true,
@@ -595,7 +645,8 @@ export const App: React.FC = () => {
         type: 'track',
         track,
         isMulti,
-        count: isMulti ? selectedTrackIds.size : 1,
+        count: isMulti ? activeTrackSelection.size : 1,
+        selectedTracks: currentSelectedTracks.length > 0 ? currentSelectedTracks : [track],
       },
     });
   };
@@ -843,6 +894,90 @@ export const App: React.FC = () => {
     }
   };
 
+  // Settings & Status Tracking Handlers
+  const handleToggleStatus = async (enabled: boolean) => {
+    setStatusEnabled(enabled);
+    try {
+      localStorage.setItem('fmsort_status_enabled', String(enabled));
+    } catch {}
+    try {
+      await saveSettings({ statusEnabled: enabled });
+      showToast(enabled ? 'Album Completion Status enabled' : 'Album Completion Status disabled');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleResetCompleted = async () => {
+    setCompletedAlbumKeys(new Set());
+    try {
+      localStorage.removeItem('fmsort_completed_album_keys');
+    } catch {}
+    try {
+      await saveSettings({ completedAlbumKeys: [] });
+      showToast('Cleared all completed albums');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleToggleAlbumCompleted = async (artistName?: string, albumName?: string, targetCompleted?: boolean) => {
+    if (!albumName) return;
+    const keys = getAlbumKeys(artistName, albumName);
+    if (keys.length === 0) return;
+
+    const currentCompleted = isAlbumCompleted(artistName, albumName, completedAlbumKeys);
+    const newCompleted = targetCompleted !== undefined ? targetCompleted : !currentCompleted;
+
+    const nextSet = new Set(completedAlbumKeys);
+    keys.forEach(k => {
+      if (newCompleted) nextSet.add(k);
+      else nextSet.delete(k);
+    });
+    setCompletedAlbumKeys(nextSet);
+    try {
+      localStorage.setItem('fmsort_completed_album_keys', JSON.stringify(Array.from(nextSet)));
+    } catch {}
+
+    try {
+      const res = await toggleAlbumsCompleted(keys, newCompleted);
+      if (res.completedAlbumKeys) {
+        setCompletedAlbumKeys(new Set(res.completedAlbumKeys));
+      }
+      showToast(newCompleted ? `Marked "${albumName}" as completed` : `Marked "${albumName}" as incomplete`);
+    } catch (err) {
+      console.error('Failed to update album status:', err);
+    }
+  };
+
+  const handleBatchToggleAlbumsCompleted = async (albums: { artist?: string; album: string }[], completed: boolean) => {
+    const allKeys: string[] = [];
+    albums.forEach(a => {
+      getAlbumKeys(a.artist, a.album).forEach(k => allKeys.push(k));
+    });
+    if (allKeys.length === 0) return;
+
+    const nextSet = new Set(completedAlbumKeys);
+    allKeys.forEach(k => {
+      if (completed) nextSet.add(k);
+      else nextSet.delete(k);
+    });
+    setCompletedAlbumKeys(nextSet);
+    try {
+      localStorage.setItem('fmsort_completed_album_keys', JSON.stringify(Array.from(nextSet)));
+    } catch {}
+
+    try {
+      const res = await toggleAlbumsCompleted(allKeys, completed);
+      if (res.completedAlbumKeys) {
+        setCompletedAlbumKeys(new Set(res.completedAlbumKeys));
+      }
+      showToast(completed ? `Marked ${albums.length} album(s) as completed` : `Marked ${albums.length} album(s) as incomplete`);
+    } catch (err) {
+      console.error('Failed to batch update album status:', err);
+    }
+  };
+
   const toggleNodeExpansion = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setOpenNodes(prev => ({ ...prev, [id]: !prev[id] }));
@@ -852,9 +987,11 @@ export const App: React.FC = () => {
     if (child.id in collapsedSections) {
       return collapsedSections[child.id];
     }
+    // On artist pages, all albums/track items are collapsed by default when first opened
+    if (activeNode?.type === 'Artist') return true;
     // Subfolders within items (depth > 0) are closed by default
     if (depth > 0) return true;
-    // Immediate root items on the page (Folders, Albums, Artists, Playlists) are opened by default
+    // Immediate root items on other pages are opened by default
     return false;
   };
 
@@ -1524,24 +1661,13 @@ export const App: React.FC = () => {
           {activeCols.map((col, colIdx) => {
             const cellStyle = colIdx === 0 ? { paddingLeft: `${14 + depth * 18}px` } : undefined;
             if (col.key === 'title') {
+              const isTrackAlbumIncomplete = statusEnabled && Boolean(t.al) && !isAlbumCompleted(t.a, t.al, completedAlbumKeys);
               return (
                 <td key={col.key} style={cellStyle}>
                   <div className="tree-node-cell" style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
-                    {/* Tree hierarchy indentation guide lines */}
-                    {depth > 0 && (
-                      <div className="tree-depth-guides" aria-hidden="true">
-                        {Array.from({ length: depth }).map((_, i) => (
-                          <span
-                            key={i}
-                            className="tree-guide-line"
-                            style={{ left: `${-(depth - i) * 18 + 7}px` }}
-                          />
-                        ))}
-                      </div>
-                    )}
                     <span className="ar empty" style={{ width: 14 }} />
                     <CoverArt
-                      src={t.cover_url || n.cover_url}
+                      src={isTrackAlbumIncomplete ? null : (t.cover_url || n.cover_url)}
                       alt={t.t}
                       size={24}
                       type="track"
@@ -1593,10 +1719,16 @@ export const App: React.FC = () => {
         const isDropTarget = dropTargetNodeId === child.id;
         const isDragging = draggingNodeIds.includes(child.id) || draggingNodeId === child.id;
 
+        const isChildAlbum = child.type === 'Album';
+        const childArtist = child.tracks?.[0]?.a || (n.type === 'Artist' ? n.name : (activeNode?.type === 'Artist' ? activeNode.name : ''));
+        const isChildCompleted = isChildAlbum ? isAlbumCompleted(childArtist, child.name, completedAlbumKeys) : false;
+        const isAlbumIncomplete = statusEnabled && isChildAlbum && !isChildCompleted;
+        const isAlbumCompletedState = statusEnabled && isChildAlbum && isChildCompleted;
+
         nodesOut.push(
           <tr
             key={`h-${child.id}`}
-            className={`t container-row ${child.type.toLowerCase()}-row ${!hasSubItems ? 'is-empty' : ''} ${isNodeSelected ? 's is-selected' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
+            className={`t container-row ${child.type.toLowerCase()}-row ${!hasSubItems ? 'is-empty' : ''} ${isNodeSelected ? 's is-selected' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''} ${isAlbumIncomplete ? 'album-incomplete' : ''} ${isAlbumCompletedState ? 'album-completed' : ''}`}
             data-context-type="node"
             data-node-id={child.id}
             draggable={true}
@@ -1616,19 +1748,6 @@ export const App: React.FC = () => {
                 return (
                   <td key={col.key} style={cellStyle}>
                     <div className="tree-node-cell" style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
-                      {/* Tree hierarchy indentation guide lines */}
-                      {depth > 0 && (
-                        <div className="tree-depth-guides" aria-hidden="true">
-                          {Array.from({ length: depth }).map((_, i) => (
-                            <span
-                              key={i}
-                              className="tree-guide-line"
-                              style={{ left: `${-(depth - i) * 18 + 7}px` }}
-                            />
-                          ))}
-                        </div>
-                      )}
-
                       {/* Expand / Collapse Chevron */}
                       {hasSubItems ? (
                         <span
@@ -1645,9 +1764,9 @@ export const App: React.FC = () => {
                         <span className="ar empty" style={{ width: 14 }} />
                       )}
 
-                      {/* CoverArt (Folders always use text-generated thumbnails, never taken over by child album covers) */}
+                      {/* CoverArt (Folders always use text-generated thumbnails, uncompleted albums hide banner thumbnail when status tracking enabled) */}
                       <CoverArt
-                        src={child.type === 'Folder' ? null : (child.cover_url || child.tracks?.[0]?.cover_url || null)}
+                        src={child.type === 'Folder' || isAlbumIncomplete ? null : (child.cover_url || child.tracks?.[0]?.cover_url || null)}
                         alt={child.name}
                         size={24}
                         type={child.type === 'Artist' ? 'artist' : child.type === 'Playlist' ? 'playlist' : child.type === 'Folder' ? 'folder' : 'album'}
@@ -1655,15 +1774,24 @@ export const App: React.FC = () => {
                         rounded={child.type === 'Artist' ? 'full' : 4}
                       />
 
-                      {/* Type Badge */}
-                      <span className={`folder-item-type-plain badge-${child.type.toLowerCase()}`}>
-                        {child.type}
-                      </span>
-
                       {/* Name */}
                       <span className="ttl container-ttl">
                         {child.name}
                       </span>
+
+                      {/* Status Completed / Incomplete Indicator */}
+                      {statusEnabled && isChildAlbum && (
+                        <span className={`album-status-pill ${isChildCompleted ? 'completed' : 'incomplete'}`}>
+                          {isChildCompleted ? (
+                            <>
+                              <Check size={10} strokeWidth={3} />
+                              <span>Done</span>
+                            </>
+                          ) : (
+                            <span>Incomplete</span>
+                          )}
+                        </span>
+                      )}
 
                       {/* Selected Badge */}
                       {isNodeSelected && (
@@ -1821,52 +1949,80 @@ export const App: React.FC = () => {
             }}
           >
             {/* Active Container Hero Banner with Discogs / Ambient Background Artwork */}
-            {(activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist' || activeNode.type === 'Folder') && (
-              <div className="active-hero-banner">
-                {heroBackdrop && activeNode.type !== 'Folder' ? (
-                  <div className="hero-backdrop" aria-hidden="true">
-                    <div
-                      className="hero-backdrop-glow"
-                      style={{ backgroundImage: `url(${heroBackdrop})` }}
-                    />
-                    <div
-                      className="hero-backdrop-artwork"
-                      style={{ backgroundImage: `url(${heroBackdrop})` }}
-                    />
-                    <div className="hero-backdrop-scrim" />
-                  </div>
-                ) : activeNode.type === 'Folder' ? (
-                  <div className="hero-backdrop" aria-hidden="true">
-                    <div
-                      className="hero-backdrop-glow"
-                      style={{
-                        background: `radial-gradient(ellipse 90% 90% at 20% 30%, ${getFunkyPalette(activeNode.name)[1]}2e 0%, transparent 70%), radial-gradient(ellipse 70% 70% at 80% 60%, ${getFunkyPalette(activeNode.name)[2]}24 0%, transparent 65%)`,
-                        filter: 'blur(36px)',
-                      }}
-                    />
-                    <div className="hero-backdrop-scrim" />
-                  </div>
-                ) : null}
+            {(() => {
+              const isActiveAlbum = activeNode.type === 'Album';
+              const activeArtist = activeNode.tracks?.[0]?.a || (activePath.length > 1 && activePath[activePath.length - 2]?.type === 'Artist' ? activePath[activePath.length - 2].name : '');
+              const isActiveAlbumCompleted = isActiveAlbum ? isAlbumCompleted(activeArtist, activeNode.name, completedAlbumKeys) : false;
+              const isActiveAlbumIncomplete = statusEnabled && isActiveAlbum && !isActiveAlbumCompleted;
 
-                <div className="active-hero-content">
-                  <CoverArt
-                    src={activeNode.type === 'Folder' ? null : (activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || (activeNode.type === 'Artist' ? artistProfile?.picture : null) || heroBackdrop)}
-                    alt={activeNode.name}
-                    size={92}
-                    type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : activeNode.type === 'Folder' ? 'folder' : 'album'}
-                    seed={activeNode.name}
-                    rounded={activeNode.type === 'Artist' ? 'full' : 8}
-                  />
-                  <div className="active-hero-meta">
-                    <div className="active-hero-badge-row">
-                      <span className="active-hero-badge">{activeNode.type.toUpperCase()}</span>
-                      {activeNode.type === 'Album' && activeNode.tracks?.[0]?.f && (
-                        <span className="active-hero-tag">{activeNode.tracks[0].f}</span>
-                      )}
-                      {activeNode.type === 'Folder' && (
-                        <span className="active-hero-tag">{activeNode.children?.length || 0} CONTAINERS</span>
-                      )}
+              return (activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist' || activeNode.type === 'Folder') && (
+                <div className={`active-hero-banner ${isActiveAlbumIncomplete ? 'album-page-incomplete' : ''}`}>
+                  {heroBackdrop && activeNode.type !== 'Folder' && !isActiveAlbumIncomplete ? (
+                    <div className="hero-backdrop" aria-hidden="true">
+                      <div
+                        className="hero-backdrop-glow"
+                        style={{ backgroundImage: `url(${heroBackdrop})` }}
+                      />
+                      <div
+                        className="hero-backdrop-artwork"
+                        style={{ backgroundImage: `url(${heroBackdrop})` }}
+                      />
+                      <div className="hero-backdrop-scrim" />
                     </div>
+                  ) : activeNode.type === 'Folder' || isActiveAlbumIncomplete ? (
+                    <div className="hero-backdrop" aria-hidden="true">
+                      <div
+                        className="hero-backdrop-glow"
+                        style={{
+                          background: isActiveAlbumIncomplete
+                            ? 'radial-gradient(ellipse 90% 90% at 20% 30%, rgba(255, 255, 255, 0.03) 0%, transparent 70%)'
+                            : `radial-gradient(ellipse 90% 90% at 20% 30%, ${getFunkyPalette(activeNode.name)[1]}2e 0%, transparent 70%), radial-gradient(ellipse 70% 70% at 80% 60%, ${getFunkyPalette(activeNode.name)[2]}24 0%, transparent 65%)`,
+                          filter: 'blur(36px)',
+                        }}
+                      />
+                      <div className="hero-backdrop-scrim" />
+                    </div>
+                  ) : null}
+
+                  <div className="active-hero-content">
+                    <CoverArt
+                      src={activeNode.type === 'Folder' || isActiveAlbumIncomplete ? null : (activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || (activeNode.type === 'Artist' ? artistProfile?.picture : null) || heroBackdrop)}
+                      alt={activeNode.name}
+                      size={92}
+                      type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : activeNode.type === 'Folder' ? 'folder' : 'album'}
+                      seed={activeNode.name}
+                      rounded={activeNode.type === 'Artist' ? 'full' : 8}
+                    />
+                    <div className="active-hero-meta">
+                      <div className="active-hero-badge-row">
+                        <span className="active-hero-badge">{activeNode.type.toUpperCase()}</span>
+                        {statusEnabled && isActiveAlbum && (
+                          <button
+                            type="button"
+                            className={`active-hero-status-btn ${isActiveAlbumCompleted ? 'completed' : 'incomplete'}`}
+                            onClick={() => handleToggleAlbumCompleted(activeArtist, activeNode.name, !isActiveAlbumCompleted)}
+                            title={isActiveAlbumCompleted ? 'Mark album as incomplete' : 'Mark album as completed'}
+                          >
+                            {isActiveAlbumCompleted ? (
+                              <>
+                                <Check size={11} strokeWidth={3} />
+                                <span>COMPLETED</span>
+                              </>
+                            ) : (
+                              <>
+                                <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#ef4444' }} />
+                                <span>INCOMPLETE</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                        {activeNode.type === 'Album' && activeNode.tracks?.[0]?.f && (
+                          <span className="active-hero-tag">{activeNode.tracks[0].f}</span>
+                        )}
+                        {activeNode.type === 'Folder' && (
+                          <span className="active-hero-tag">{activeNode.children?.length || 0} CONTAINERS</span>
+                        )}
+                      </div>
                     <h2 className="active-hero-title">{activeNode.name}</h2>
                     <div className="active-hero-sub">
                       {activeNode.type === 'Album' && activeNode.tracks?.[0]?.a && (
@@ -1954,7 +2110,7 @@ export const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-            )}
+            ); })()}
 
             {/* Suggested Releases & Discography for Artists (integrated onto all artist pages, auto-collapsed) */}
             {activeNode.type === 'Artist' && (
@@ -2249,8 +2405,33 @@ export const App: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Menu Footer / System Actions: Export Button */}
+                    {/* Menu Footer / System Actions: Settings & Export */}
                     <div className="crumb-menu-footer-actions">
+                      <button
+                        type="button"
+                        className="crumb-menu-action-item"
+                        onClick={() => {
+                          setTreeDropdownOpen(false);
+                          setSettingsOpen(true);
+                        }}
+                        title="Library & Application Settings"
+                      >
+                        <div className="crumb-menu-action-left">
+                          <Settings size={14} style={{ color: '#a78bfa' }} />
+                          <span>Settings</span>
+                        </div>
+                        <span
+                          className="crumb-menu-action-badge"
+                          style={
+                            statusEnabled
+                              ? { background: 'rgba(99, 102, 241, 0.25)', color: '#c7d2fe', borderColor: '#6366f1' }
+                              : undefined
+                          }
+                        >
+                          {statusEnabled ? 'Status: ON' : 'Preferences'}
+                        </span>
+                      </button>
+
                       <button
                         type="button"
                         className="crumb-menu-action-item"
@@ -2520,10 +2701,24 @@ export const App: React.FC = () => {
         onLibraryRestored={() => loadTree()}
       />
 
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        statusEnabled={statusEnabled}
+        onToggleStatus={handleToggleStatus}
+        completedCount={completedAlbumKeys.size}
+        onResetCompleted={handleResetCompleted}
+      />
+
       {/* Custom Right-Click Context Menu */}
       <ContextMenu
         state={contextMenu}
         onClose={() => setContextMenu(prev => ({ ...prev, isOpen: false }))}
+        statusEnabled={statusEnabled}
+        isAlbumCompleted={(artist, album) => isAlbumCompleted(artist, album, completedAlbumKeys)}
+        onToggleAlbumCompleted={handleToggleAlbumCompleted}
+        onBatchToggleAlbumsCompleted={handleBatchToggleAlbumsCompleted}
         onInspectTrack={track => setActiveTrack(track)}
         onResolveIsrc={handleResolveIsrcAction}
         onBatchResolveIsrc={handleBatchResolveIsrcAction}
