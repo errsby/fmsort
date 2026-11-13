@@ -8,7 +8,9 @@
     "dev:server": "bun run --watch server/index.ts",
     "dev:client": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "migrate": "bun run server/migrations/runner.ts",
+    "export:db": "bun run server/exportMigration.ts"
   },
   "dependencies": {
     "boring-avatars": "^2.0.4",

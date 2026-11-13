@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { runMigrations } from './migrations/runner';
 
 const DB_PATH = 'data/fmsort.db';
 
@@ -43,50 +44,7 @@ export interface NodeRecord {
 }
 
 export function initDb() {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS nodes (
-      id TEXT PRIMARY KEY,
-      parent_id TEXT REFERENCES nodes(id) ON DELETE CASCADE,
-      type TEXT NOT NULL,
-      name TEXT NOT NULL,
-      sort_order INTEGER DEFAULT 0,
-      cover_url TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS tracks (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-      title TEXT NOT NULL,
-      artist TEXT NOT NULL,
-      album TEXT NOT NULL,
-      year INTEGER,
-      format TEXT,
-      catalog_no TEXT,
-      barcode TEXT,
-      mbid TEXT,
-      isrc TEXT,
-      length INTEGER DEFAULT 0,
-      bpm INTEGER DEFAULT 0,
-      key TEXT DEFAULT '',
-      sort_order INTEGER DEFAULT 0,
-      cover_url TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    );
-  `);
-
-  try {
-    db.exec("ALTER TABLE nodes ADD COLUMN cover_url TEXT DEFAULT '';");
-  } catch {}
-
-  try {
-    db.exec("ALTER TABLE tracks ADD COLUMN cover_url TEXT DEFAULT '';");
-  } catch {}
+  runMigrations(db);
 }
 
 function seedDefaultData() {
