@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   LibraryNode,
   SearchProvider,
@@ -101,6 +102,15 @@ export const HybridSearchModal: React.FC<Props> = ({
   // Destination crate & custom dropdown
   const [targetNodeId, setTargetNodeId] = useState<string>('');
   const [destDropdownOpen, setDestDropdownOpen] = useState(false);
+  const [destSearchText, setDestSearchText] = useState('');
+  const [destHighlightedIndex, setDestHighlightedIndex] = useState(0);
+  const [destCoords, setDestCoords] = useState<{
+    top?: number;
+    bottom?: number;
+    right: number;
+    maxHeight: number;
+    width: number;
+  }>({ right: 16, maxHeight: 300, width: 320 });
   const [importingKey, setImportingKey] = useState<string | null>(null);
   const [addedArtists, setAddedArtists] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +119,9 @@ export const HybridSearchModal: React.FC<Props> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const resultsContainerRef = useRef<HTMLDivElement>(null);
+  const destButtonRef = useRef<HTMLButtonElement>(null);
   const destDropdownRef = useRef<HTMLDivElement>(null);
+  const destInputRef = useRef<HTMLInputElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -138,11 +150,84 @@ export const HybridSearchModal: React.FC<Props> = ({
     }
   };
 
+  const updateDestPosition = useCallback(() => {
+    if (!destButtonRef.current) return;
+    const rect = destButtonRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const menuWidth = Math.min(340, window.innerWidth - 32);
+    const right = Math.max(12, window.innerWidth - rect.right);
+
+    // If space below is at least 240px or greater than space above, open downwards; otherwise open upwards
+    const openDownwards = spaceBelow >= 240 || spaceBelow >= spaceAbove;
+    if (openDownwards) {
+      setDestCoords({
+        top: Math.round(rect.bottom + 6),
+        right: Math.round(right),
+        maxHeight: Math.min(320, Math.max(160, spaceBelow - 16)),
+        width: menuWidth,
+      });
+    } else {
+      setDestCoords({
+        bottom: Math.round(window.innerHeight - rect.top + 6),
+        right: Math.round(right),
+        maxHeight: Math.min(320, Math.max(160, spaceAbove - 16)),
+        width: menuWidth,
+      });
+    }
+  }, []);
+
+  // Filtered destination containers matching type-to-search query
+  const filteredDestContainers = useMemo(() => {
+    const list: { id: string; name: string; pathString: string; type: string }[] = [
+      { id: 'uncategorized', name: '[Root] Uncategorized', pathString: 'Root', type: 'Folder' },
+      ...allContainers.map(c => {
+        const path = findNodePath(allTreeNodes, c.id);
+        const pathString = path ? path.map(p => p.name).join(' / ') : c.name;
+        return {
+          id: c.id,
+          name: c.name,
+          pathString,
+          type: c.type || 'Folder',
+        };
+      }),
+    ];
+    const q = destSearchText.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(item =>
+      item.name.toLowerCase().includes(q) ||
+      item.pathString.toLowerCase().includes(q) ||
+      item.type.toLowerCase().includes(q)
+    );
+  }, [destSearchText, allContainers, allTreeNodes]);
+
+  useEffect(() => {
+    setDestHighlightedIndex(0);
+  }, [destSearchText]);
+
+  // Window resize & scroll listeners to keep coordinates pinned
+  useEffect(() => {
+    if (!destDropdownOpen) return;
+    const handleUpdate = () => {
+      updateDestPosition();
+    };
+    window.addEventListener('resize', handleUpdate);
+    window.addEventListener('scroll', handleUpdate, true);
+    return () => {
+      window.removeEventListener('resize', handleUpdate);
+      window.removeEventListener('scroll', handleUpdate, true);
+    };
+  }, [destDropdownOpen, updateDestPosition]);
+
   // Close destination dropdown on outside click
   useEffect(() => {
     if (!destDropdownOpen) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (destDropdownRef.current && !destDropdownRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        destDropdownRef.current && !destDropdownRef.current.contains(target) &&
+        destButtonRef.current && !destButtonRef.current.contains(target)
+      ) {
         setDestDropdownOpen(false);
       }
     };
@@ -165,6 +250,8 @@ export const HybridSearchModal: React.FC<Props> = ({
       const defaultTarget = initialTargetNodeId || currentNode?.id || allTreeNodes?.[0]?.id || allContainers[0]?.id || 'uncategorized';
       setTargetNodeId(defaultTarget);
       setDestDropdownOpen(false);
+      setDestSearchText('');
+      setDestHighlightedIndex(0);
       setQuery(initialQuery || '');
       setArtistResults([]);
       setAlbumResults([]);
@@ -555,15 +642,56 @@ export const HybridSearchModal: React.FC<Props> = ({
     }
   };
 
+  const handleToggleDestDropdown = () => {
+    if (!destDropdownOpen) {
+      updateDestPosition();
+      setDestSearchText('');
+      const currentIdx = filteredDestContainers.findIndex(c => c.id === targetNodeId);
+      setDestHighlightedIndex(currentIdx >= 0 ? currentIdx : 0);
+      setDestDropdownOpen(true);
+      setTimeout(() => destInputRef.current?.focus(), 40);
+    } else {
+      setDestDropdownOpen(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const handleDestKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setDestHighlightedIndex(prev => (prev + 1 < filteredDestContainers.length ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setDestHighlightedIndex(prev => (prev - 1 >= 0 ? prev - 1 : filteredDestContainers.length - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const selected = filteredDestContainers[destHighlightedIndex];
+      if (selected) {
+        setTargetNodeId(selected.id);
+        setDestDropdownOpen(false);
+        inputRef.current?.focus();
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setDestDropdownOpen(false);
+      inputRef.current?.focus();
+    }
+  };
+
   // Keyboard navigation matching CMD+K command palette
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (destDropdownOpen) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setDestDropdownOpen(false);
+        inputRef.current?.focus();
+      }
+      return;
+    }
+
     if (e.key === 'Escape') {
       e.preventDefault();
-      if (destDropdownOpen) {
-        setDestDropdownOpen(false);
-      } else {
-        onClose();
-      }
+      onClose();
       return;
     }
 
@@ -1448,23 +1576,25 @@ export const HybridSearchModal: React.FC<Props> = ({
               </span>
             </div>
 
-            {/* Custom Interactive Destination Dropdown Menu */}
-            <div style={{ position: 'relative' }} ref={destDropdownRef}>
+            {/* Custom Interactive Destination Dropdown Trigger */}
+            <div style={{ position: 'relative' }}>
               <button
+                ref={destButtonRef}
                 type="button"
-                onClick={() => setDestDropdownOpen(!destDropdownOpen)}
+                onClick={handleToggleDestDropdown}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 6,
-                  background: 'rgba(99, 102, 241, 0.1)',
-                  border: '1px solid rgba(99, 102, 241, 0.25)',
+                  background: destDropdownOpen ? 'rgba(99, 102, 241, 0.22)' : 'rgba(99, 102, 241, 0.1)',
+                  border: destDropdownOpen ? '1px solid #818cf8' : '1px solid rgba(99, 102, 241, 0.3)',
                   color: '#c7d2fe',
                   borderRadius: 5,
                   padding: '3px 8px',
                   fontSize: 11,
                   cursor: 'pointer',
                   fontWeight: 500,
+                  transition: 'all 0.15s ease',
                 }}
                 title="Click to select which crate or folder to import into"
               >
@@ -1479,113 +1609,164 @@ export const HybridSearchModal: React.FC<Props> = ({
                   }}
                 />
               </button>
-
-              {/* Floating Custom Selection Popup */}
-              {destDropdownOpen && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: 'calc(100% + 6px)',
-                    right: 0,
-                    width: 290,
-                    maxHeight: 270,
-                    overflowY: 'auto',
-                    background: '#121217',
-                    border: '1px solid #2e2e3a',
-                    borderRadius: 8,
-                    boxShadow: '0 12px 32px rgba(0, 0, 0, 0.75)',
-                    zIndex: 60,
-                    padding: 4,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 2,
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: '4px 8px',
-                      fontSize: 10,
-                      color: 'var(--mu)',
-                      fontWeight: 600,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      borderBottom: '1px solid #1f1f26',
-                      marginBottom: 2,
-                    }}
-                  >
-                    Select Destination Crate
-                  </div>
-
-                  <div
-                    className={`cl ${targetNodeId === 'uncategorized' ? 'on' : ''}`}
-                    onClick={() => {
-                      setTargetNodeId('uncategorized');
-                      setDestDropdownOpen(false);
-                    }}
-                    style={{ padding: '6px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <Folder size={12} style={{ color: 'var(--mu)' }} />
-                      <span>[Root] Uncategorized</span>
-                    </div>
-                  </div>
-
-                  {allContainers.map(c => {
-                    const path = findNodePath(allTreeNodes, c.id);
-                    const pathString = path ? path.map(p => p.name).join(' / ') : c.name;
-                    const isSelected = targetNodeId === c.id;
-
-                    return (
-                      <div
-                        key={c.id}
-                        className={`cl ${isSelected ? 'on' : ''}`}
-                        onClick={() => {
-                          setTargetNodeId(c.id);
-                          setDestDropdownOpen(false);
-                        }}
-                        style={{
-                          padding: '6px 8px',
-                          borderRadius: 4,
-                          cursor: 'pointer',
-                          fontSize: 11,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, overflow: 'hidden' }}>
-                          <Folder size={12} style={{ color: isSelected ? '#818cf8' : 'var(--mu)', flexShrink: 0 }} />
-                          <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                            <span
-                              style={{
-                                fontWeight: isSelected ? 600 : 400,
-                                color: isSelected ? '#ffffff' : 'var(--fg)',
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {c.name}
-                            </span>
-                            {path && path.length > 1 && (
-                              <span style={{ fontSize: 9, color: 'var(--mu)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {pathString}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <span className="ty" style={{ fontSize: 9, flexShrink: 0, marginLeft: 6 }}>
-                          {c.type || 'Folder'}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           </div>
         </ErrorBoundary>
       </div>
+
+      {/* Floating Custom Selection Popup rendered in Portal (Never cut off!) */}
+      {destDropdownOpen && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={destDropdownRef}
+          onKeyDown={handleDestKeyDown}
+          style={{
+            position: 'fixed',
+            top: destCoords.top,
+            bottom: destCoords.bottom,
+            right: destCoords.right,
+            width: destCoords.width,
+            maxHeight: destCoords.maxHeight,
+            background: '#121217',
+            border: '1px solid #2e2e3a',
+            borderRadius: 8,
+            boxShadow: '0 16px 40px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(255, 255, 255, 0.08)',
+            zIndex: 999999,
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Search input in dropdown header */}
+          <div
+            style={{
+              padding: '6px 8px',
+              borderBottom: '1px solid #1f1f26',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: '#0d0d12',
+            }}
+          >
+            <Search size={13} style={{ color: '#818cf8', flexShrink: 0 }} />
+            <input
+              ref={destInputRef}
+              type="text"
+              placeholder="Filter crates & folders..."
+              value={destSearchText}
+              onChange={e => setDestSearchText(e.target.value)}
+              style={{
+                flex: 1,
+                background: 'transparent',
+                border: 'none',
+                outline: 'none',
+                color: '#ffffff',
+                fontSize: 11,
+                padding: '2px 0',
+              }}
+            />
+            {destSearchText && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDestSearchText('');
+                  destInputRef.current?.focus();
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#71717a',
+                  cursor: 'pointer',
+                  padding: 2,
+                  display: 'flex',
+                }}
+                title="Clear search"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* Scrollable list of crates */}
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: 4,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+            }}
+          >
+            {filteredDestContainers.length === 0 ? (
+              <div style={{ padding: '16px 12px', fontSize: 11, color: '#71717a', textAlign: 'center' }}>
+                No crates matching &ldquo;{destSearchText}&rdquo;
+              </div>
+            ) : (
+              filteredDestContainers.map((item, idx) => {
+                const isSelected = targetNodeId === item.id;
+                const isHighlighted = destHighlightedIndex === idx;
+
+                return (
+                  <div
+                    key={item.id}
+                    ref={el => {
+                      if (isHighlighted && el) {
+                        el.scrollIntoView({ block: 'nearest' });
+                      }
+                    }}
+                    onMouseEnter={() => setDestHighlightedIndex(idx)}
+                    onClick={() => {
+                      setTargetNodeId(item.id);
+                      setDestDropdownOpen(false);
+                      inputRef.current?.focus();
+                    }}
+                    style={{
+                      padding: '6px 8px',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      background: isHighlighted ? '#1f1f2a' : isSelected ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                      border: isSelected ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid transparent',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, overflow: 'hidden' }}>
+                      <Folder size={12} style={{ color: isSelected ? '#818cf8' : '#71717a', flexShrink: 0 }} />
+                      <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                        <span
+                          style={{
+                            fontWeight: isSelected ? 600 : 400,
+                            color: isSelected ? '#ffffff' : '#d4d4d8',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {item.name}
+                        </span>
+                        {item.pathString && item.pathString !== item.name && (
+                          <span style={{ fontSize: 9, color: '#71717a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.pathString}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 6 }}>
+                      {isSelected && <Check size={11} style={{ color: '#818cf8' }} />}
+                      <span className="ty" style={{ fontSize: 9 }}>
+                        {item.type}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
     </>
   );
 };
