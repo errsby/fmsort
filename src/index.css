@@ -462,16 +462,16 @@ textarea:focus {
 }
 
 /* =========================================================================
-   Crumb Library Tree Dropdown (under ../)
+   Crumb Library Navigation Menu (under ../)
    ========================================================================= */
 
 .crumb-tree-dropdown {
   position: absolute;
   bottom: calc(100% + 8px);
   left: 0;
-  width: 320px;
+  width: 340px;
   max-width: calc(100vw - 32px);
-  max-height: 480px;
+  max-height: 500px;
   background: rgba(18, 18, 22, 0.96);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -484,75 +484,156 @@ textarea:focus {
   overflow: hidden;
 }
 
-.crumb-tree-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 12px;
+.crumb-menu-search-row {
+  padding: 10px 10px 8px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   background: rgba(255, 255, 255, 0.02);
   flex-shrink: 0;
 }
 
-.crumb-tree-brand {
+.crumb-menu-search-box {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 7px;
+  padding: 0 8px;
+  height: 32px;
+  transition: all 0.15s ease;
+}
+
+.crumb-menu-search-box:focus-within {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.12);
+}
+
+.crumb-menu-search-icon {
+  color: #71717a;
+  flex-shrink: 0;
+}
+
+.crumb-menu-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  font-size: 12px;
+  color: #f4f4f5;
+  min-width: 0;
+}
+
+.crumb-menu-search-input::placeholder {
+  color: #71717a;
+}
+
+.crumb-menu-cmd-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  color: #a1a1aa;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 1px 5px;
   cursor: pointer;
-  user-select: none;
+  transition: all 0.12s ease;
+  flex-shrink: 0;
 }
 
-.crumb-tree-brand:hover .crumb-tree-title {
+.crumb-menu-cmd-key:hover {
+  background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
-.crumb-tree-icon {
+.crumb-menu-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
+}
+
+.crumb-menu-section-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.crumb-menu-section-icon {
   color: #38bdf8;
 }
 
-.crumb-tree-title {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: #f4f4f5;
-  transition: color 0.12s ease;
-}
-
-.crumb-tree-count {
+.crumb-menu-section-badge {
   font-size: 10px;
-  color: #71717a;
+  color: #a1a1aa;
   background: rgba(255, 255, 255, 0.05);
   padding: 1px 6px;
   border-radius: 4px;
-  font-weight: 500;
-}
-
-.crumb-tree-new-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: 5px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #e4e4e7;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.12s ease;
-}
-
-.crumb-tree-new-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.16);
+  font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
 .crumb-tree-list {
   flex: 1;
   overflow-y: auto;
   padding: 6px;
-  max-height: 420px;
+  max-height: 320px;
+}
+
+.crumb-menu-footer-actions {
+  padding: 6px 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.015);
+  flex-shrink: 0;
+}
+
+.crumb-menu-action-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #d4d4d8;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.12s ease;
+}
+
+.crumb-menu-action-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffffff;
+}
+
+.crumb-menu-action-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.crumb-menu-action-badge {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: #71717a;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .header-left {

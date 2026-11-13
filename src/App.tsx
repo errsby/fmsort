@@ -150,6 +150,7 @@ export const App: React.FC = () => {
 
   // Togglable Library Tree Dropdown under (../)
   const [treeDropdownOpen, setTreeDropdownOpen] = useState(false);
+  const [menuSearch, setMenuSearch] = useState('');
   const treeDropdownRef = useRef<HTMLDivElement>(null);
 
   const addMusicRef = useRef<HTMLDivElement>(null);
@@ -168,8 +169,10 @@ export const App: React.FC = () => {
   };
 
   const activeNode = useMemo(() => {
-    if (!activeNodeId) return null;
-    return findNodeById(tree, activeNodeId) || null;
+    if (!activeNodeId) {
+      return tree.length > 0 ? tree[0] : null;
+    }
+    return findNodeById(tree, activeNodeId) || (tree.length > 0 ? tree[0] : null);
   }, [tree, activeNodeId]);
 
   const activePath = useMemo(() => {
@@ -196,13 +199,32 @@ export const App: React.FC = () => {
     return tree.filter(n => n.name.toLowerCase().includes(q) || n.type.toLowerCase().includes(q));
   }, [tree, filterText]);
 
+  const filteredMenuNodes = useMemo(() => {
+    if (!menuSearch.trim()) return tree;
+    const q = menuSearch.toLowerCase();
+    const filterRec = (nodes: LibraryNode[]): LibraryNode[] => {
+      const result: LibraryNode[] = [];
+      for (const node of nodes) {
+        const matchesSelf = node.name.toLowerCase().includes(q) || node.type.toLowerCase().includes(q);
+        const filteredChildren = node.children ? filterRec(node.children) : [];
+        if (matchesSelf || filteredChildren.length > 0) {
+          result.push({
+            ...node,
+            children: filteredChildren.length > 0 ? filteredChildren : node.children,
+          });
+        }
+      }
+      return result;
+    };
+    return filterRec(tree);
+  }, [tree, menuSearch]);
+
   const handleGoBack = () => {
     if (activePath.length > 1) {
       const parent = activePath[activePath.length - 2];
       if (parent) selectNode(parent);
-    } else {
-      setActiveNodeId('');
-      setSelectedTrackIds(new Set());
+    } else if (tree.length > 0) {
+      selectNode(tree[0]);
     }
   };
 
@@ -212,10 +234,12 @@ export const App: React.FC = () => {
       setTree(data);
       if (preferredNodeId !== undefined) {
         if (preferredNodeId === '' || preferredNodeId === 'root') {
-          setActiveNodeId('');
+          setActiveNodeId(data.length > 0 ? data[0].id : '');
         } else if (findNodeById(data, preferredNodeId)) {
           setActiveNodeId(preferredNodeId);
         }
+      } else if (!activeNodeId && data.length > 0) {
+        setActiveNodeId(data[0].id);
       }
     } catch (err) {
       console.error('Failed to load library:', err);
@@ -990,150 +1014,7 @@ export const App: React.FC = () => {
             onImportRelease={handleImportFeedRelease}
             showToast={showToast}
           />
-        ) : !activeNode ? (
-          /* =========================================================================
-             Library Root Overview View (Drilldown Top Level)
-             ========================================================================= */
-          <div className="library-root-view" onContextMenu={handleTableContextMenu}>
-            <div className="library-root-header">
-              <div className="library-root-meta">
-                <div className="library-root-badge">AUDIO LIBRARY</div>
-                <h1 className="library-root-title">Music Collection</h1>
-                <p className="library-root-subtitle">
-                  {tree.length} {tree.length === 1 ? 'container' : 'containers'} · {allLibraryTracks.length} tracks · {fmtTotalRuntime(allLibraryTracks)}
-                </p>
-              </div>
-
-              <div className="library-root-actions">
-                <input
-                  type="search"
-                  placeholder="Filter crates &amp; artists…"
-                  value={filterText}
-                  onChange={e => setFilterText(e.target.value)}
-                  className="library-root-filter"
-                />
-                <button
-                  className="p"
-                  onClick={() => setNewContainerOpen(true)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                >
-                  <FolderPlus size={14} />
-                  <span>New Container</span>
-                </button>
-              </div>
-            </div>
-
-            {tree.length === 0 ? (
-              <div className="empty-library-hero">
-                <div style={{ width: 56, height: 56, borderRadius: '50%', background: '#1c1c24', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16, border: '1px solid #272732' }}>
-                  <Disc size={28} style={{ color: '#60a5fa' }} />
-                </div>
-                <h2 style={{ fontSize: 20, margin: '0 0 8px', fontWeight: 600 }}>Your Music Collection Starts Here</h2>
-                <p style={{ color: 'var(--mu)', fontSize: 13, maxWidth: 440, margin: '0 auto 20px', lineHeight: 1.5 }}>
-                  Create custom folders, artists, labels, and playlists, or search across Discogs&rsquo; 17.5M+ physical releases and Deezer streaming.
-                </p>
-                <div className="hero-actions">
-                  <button className="p" style={{ padding: '8px 16px', fontSize: 13 }} onClick={() => setImportModalOpen(true)}>
-                    <Sparkles size={15} />
-                    <span>Import Releases &amp; Artists</span>
-                  </button>
-                  <button style={{ padding: '8px 16px', fontSize: 13 }} onClick={() => setNewContainerOpen(true)}>
-                    <FolderPlus size={15} />
-                    <span>Create Container</span>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="library-root-grid">
-                {filteredRootNodes.map(node => {
-                  const nodeTracks = flattenTracks(node);
-                  const childCount = node.children?.length || 0;
-                  const backdrop = node.cover_url || node.tracks?.[0]?.cover_url || (node.children?.[0]?.cover_url) || null;
-
-                  return (
-                    <div
-                      key={node.id}
-                      className="library-root-card"
-                      onClick={() => selectNode(node)}
-                      onContextMenu={e => handleNodeContextMenu(e, node)}
-                      role="button"
-                      tabIndex={0}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') selectNode(node);
-                      }}
-                    >
-                      {backdrop && (
-                        <div className="card-backdrop-glow" style={{ backgroundImage: `url(${backdrop})` }} />
-                      )}
-
-                      <div className="card-content">
-                        <div className="card-cover-wrap">
-                          <CoverArt
-                            src={backdrop}
-                            alt={node.name}
-                            size={52}
-                            type={node.type === 'Artist' ? 'artist' : node.type === 'Playlist' ? 'playlist' : node.type === 'Folder' ? 'folder' : 'album'}
-                            seed={node.name}
-                            rounded={node.type === 'Artist' ? 'full' : 8}
-                          />
-                          <span className="card-type-badge">{node.type}</span>
-                        </div>
-
-                        <div className="card-info">
-                          <h3 className="card-title">{node.name}</h3>
-                          <div className="card-stats">
-                            {childCount > 0 && <span>{childCount} {childCount === 1 ? 'item' : 'items'}</span>}
-                            {childCount > 0 && nodeTracks.length > 0 && <span>·</span>}
-                            {nodeTracks.length > 0 && (
-                              <span>{nodeTracks.length} {nodeTracks.length === 1 ? 'track' : 'tracks'}</span>
-                            )}
-                            {nodeTracks.length > 0 && <span>· {fmtTotalRuntime(nodeTracks)}</span>}
-                            {childCount === 0 && nodeTracks.length === 0 && (
-                              <span style={{ color: '#71717a' }}>Empty container</span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="card-actions" onClick={e => e.stopPropagation()}>
-                          <button
-                            type="button"
-                            className="card-more-btn"
-                            title={`Manage ${node.name}`}
-                            onClick={() => {
-                              setNodeToEdit(node);
-                              setNodeEditOpen(true);
-                            }}
-                          >
-                            <MoreHorizontal size={14} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Create New Container Card */}
-                <div
-                  className="library-root-card new-card"
-                  onClick={() => setNewContainerOpen(true)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') setNewContainerOpen(true);
-                  }}
-                >
-                  <div className="new-card-inner">
-                    <div className="new-card-icon-wrap">
-                      <FolderPlus size={22} />
-                    </div>
-                    <div className="new-card-label">Create New Container</div>
-                    <div className="new-card-desc">Add a folder, artist, or album crate</div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
+        ) : activeNode ? (
           /* =========================================================================
              Container Detail View (Drilled Down View)
              ========================================================================= */
@@ -1249,17 +1130,19 @@ export const App: React.FC = () => {
                 style={{ padding: '4px 9px', fontSize: 12, width: 140 }}
               />
 
-              {/* Add Music Button inside container */}
-              <div style={{ position: 'relative' }}>
-                <button
-                  className="p"
-                  onClick={() => setAddMusicMenuOpen(!addMusicMenuOpen)}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                >
-                  <Plus size={14} />
-                  <span>Add Music</span>
-                </button>
-              </div>
+              {/* Add Music Button inside container — removed on folder type pages */}
+              {activeNode.type !== 'Folder' && (
+                <div style={{ position: 'relative' }}>
+                  <button
+                    className="p"
+                    onClick={() => setAddMusicMenuOpen(!addMusicMenuOpen)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <Plus size={14} />
+                    <span>Add Music</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Batch Actions Toolbar */}
@@ -1410,6 +1293,12 @@ export const App: React.FC = () => {
               </div>
             )}
           </div>
+        ) : (
+          <div className="empty-library-hero" style={{ margin: 'auto', padding: '60px 20px', textAlign: 'center' }}>
+            <Disc size={36} style={{ color: '#60a5fa', marginBottom: 16 }} />
+            <h2 style={{ fontSize: 18, color: '#fafafa', marginBottom: 6 }}>No crates in library</h2>
+            <p style={{ color: 'var(--mu)', fontSize: 13 }}>Import music using the footer below to get started.</p>
+          </div>
         )}
           </main>
 
@@ -1434,61 +1323,75 @@ export const App: React.FC = () => {
 
                 {treeDropdownOpen && (
                   <div className="crumb-tree-dropdown footer-popover" role="menu">
-                    {/* Dropdown Header */}
-                    <div className="crumb-tree-header">
-                      <div
-                        className="crumb-tree-brand"
-                        onClick={() => {
-                          setActiveNodeId('');
-                          setSelectedTrackIds(new Set());
-                          setTreeDropdownOpen(false);
-                        }}
-                        title="Library Root Overview"
-                      >
-                        <Library size={14} className="crumb-tree-icon" />
-                        <span className="crumb-tree-title">Library</span>
-                        <span className="crumb-tree-count">{tree.length} crates</span>
+                    {/* Menu Header with Integrated Search Box (⌘K) */}
+                    <div className="crumb-menu-search-row">
+                      <div className="crumb-menu-search-box">
+                        <Search size={14} className="crumb-menu-search-icon" />
+                        <input
+                          type="search"
+                          className="crumb-menu-search-input"
+                          placeholder="Search crates or jump to… (⌘K)"
+                          value={menuSearch}
+                          onChange={e => setMenuSearch(e.target.value)}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          className="crumb-menu-cmd-key"
+                          onClick={() => {
+                            setTreeDropdownOpen(false);
+                            setCommandPaletteOpen(true);
+                          }}
+                          title="Open Command Palette (⌘K)"
+                        >
+                          ⌘K
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        className="crumb-tree-new-btn"
-                        onClick={() => {
-                          setTreeDropdownOpen(false);
-                          setNewContainerOpen(true);
-                        }}
-                        title="Create New Container"
-                      >
-                        <FolderPlus size={13} />
-                        <span>New</span>
-                      </button>
                     </div>
 
-                    {/* Dropdown Tree List */}
+                    {/* Menu Section Header */}
+                    <div className="crumb-menu-section-header">
+                      <div className="crumb-menu-section-title">
+                        <Library size={13} className="crumb-menu-section-icon" />
+                        <span>Crates &amp; Folders</span>
+                      </div>
+                      <span className="crumb-menu-section-badge">{tree.length}</span>
+                    </div>
+
+                    {/* Menu Directory List (Tree) */}
                     <div className="crumb-tree-list">
                       {loading ? (
                         <div style={{ color: 'var(--mu)', padding: '16px 12px', fontSize: 12 }}>Loading library...</div>
                       ) : tree.length === 0 ? (
                         <div className="empty-sidebar-box" style={{ padding: 14 }}>
-                          <FolderPlus size={20} style={{ color: 'var(--mu)', marginBottom: 6 }} />
+                          <Folder size={20} style={{ color: 'var(--mu)', marginBottom: 6 }} />
                           <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 3, color: '#f4f4f5' }}>Blank Library</div>
                           <p style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 10px', lineHeight: 1.4 }}>
-                            Create your first container to organize your library.
+                            No crates in your library yet.
                           </p>
-                          <button
-                            className="p"
-                            style={{ fontSize: 11, width: '100%', justifyContent: 'center' }}
-                            onClick={() => {
-                              setTreeDropdownOpen(false);
-                              setNewContainerOpen(true);
-                            }}
-                          >
-                            <Plus size={13} />
-                            <span>New Container</span>
-                          </button>
                         </div>
                       ) : (
-                        tree.map(n => renderTreeNode(n, 0))
+                        (menuSearch.trim() ? filteredMenuNodes : tree).map(n => renderTreeNode(n, 0))
                       )}
+                    </div>
+
+                    {/* Menu Footer / System Actions: Export Button */}
+                    <div className="crumb-menu-footer-actions">
+                      <button
+                        type="button"
+                        className="crumb-menu-action-item"
+                        onClick={() => {
+                          setTreeDropdownOpen(false);
+                          setBackupOpen(true);
+                        }}
+                        title="Export and Backup Library"
+                      >
+                        <div className="crumb-menu-action-left">
+                          <Layers size={14} style={{ color: '#38bdf8' }} />
+                          <span>Export Library</span>
+                        </div>
+                        <span className="crumb-menu-action-badge">Backup / JSON</span>
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1497,12 +1400,9 @@ export const App: React.FC = () => {
               {/* Breadcrumb path (WITHOUT dropdown arrows/menus) */}
               <nav className="unified-crumbs" aria-label="Breadcrumb">
                 <span
-                  className={`crumb-link root-crumb ${!activeNode ? 'is-active' : ''}`}
-                  onClick={() => {
-                    setActiveNodeId('');
-                    setSelectedTrackIds(new Set());
-                  }}
-                  title="Library Overview"
+                  className="crumb-link root-crumb"
+                  onClick={() => setTreeDropdownOpen(!treeDropdownOpen)}
+                  title="Toggle Library Navigation Menu"
                 >
                   <Library size={13} style={{ marginRight: 4 }} />
                   <span>Library</span>
@@ -1526,29 +1426,8 @@ export const App: React.FC = () => {
               </nav>
             </div>
 
-            {/* Center: Search Command Bar */}
-            <div className="footer-nav-center">
-              <button className="cmd footer-search-cmd" onClick={() => setCommandPaletteOpen(true)}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                  <Search size={14} style={{ color: 'var(--mu)' }} />
-                  <span>Search or jump to…</span>
-                </span>
-                <span className="mono">⌘K</span>
-              </button>
-            </div>
-
-            {/* Right: Actions (Container, Add Music, Backup) */}
+            {/* Right: Actions (Add Music) */}
             <div className="footer-nav-right">
-              <button
-                type="button"
-                className="footer-action-btn"
-                onClick={() => setNewContainerOpen(true)}
-                title="Create New Container"
-              >
-                <FolderPlus size={13} />
-                <span>Container</span>
-              </button>
-
               <div style={{ position: 'relative' }} ref={addMusicRef}>
                 <button
                   type="button"
@@ -1598,16 +1477,6 @@ export const App: React.FC = () => {
                   </div>
                 )}
               </div>
-
-              <button
-                type="button"
-                className="btn-icon"
-                onClick={() => setBackupOpen(true)}
-                title="Backup &amp; Restore Library"
-                style={{ width: 30, height: 30 }}
-              >
-                <Layers size={14} />
-              </button>
             </div>
           </footer>
         </div>
