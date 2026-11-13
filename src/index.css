@@ -2620,6 +2620,30 @@ tr.t:hover .cover-art-wrapper {
   text-transform: uppercase;
 }
 
+/* Context Submenu Flyout */
+.ctx-submenu-trigger {
+  position: relative;
+}
+
+.ctx-submenu {
+  position: absolute;
+  left: calc(100% + 4px);
+  top: -4px;
+  min-width: 240px;
+  max-width: 300px;
+  background: rgba(18, 18, 22, 0.98);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.5);
+  padding: 5px;
+  z-index: 10005;
+  display: flex;
+  flex-direction: column;
+  animation: ctxAppear 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 /* Toast notifications */
 .fmsort-toast {
   position: fixed;

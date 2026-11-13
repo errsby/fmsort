@@ -26,6 +26,7 @@ import {
 } from './utils';
 
 import { HybridSearchModal } from './components/HybridSearchModal';
+import { TuneMyMusicImportModal } from './components/TuneMyMusicImportModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CommandPaletteModal } from './components/CommandPaletteModal';
 import { TrackEditDrawer } from './components/TrackEditDrawer';
@@ -63,6 +64,8 @@ import {
   ChevronLeft,
   ChevronDown,
   ChevronUp,
+  FileText,
+  FolderInput,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -137,6 +140,10 @@ export const App: React.FC = () => {
 
   // Modals state
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [tuneImportOpen, setTuneImportOpen] = useState(false);
+  const [tuneImportTargetNode, setTuneImportTargetNode] = useState<LibraryNode | null>(null);
+  const [searchInitialQuery, setSearchInitialQuery] = useState<string>('');
+  const [searchInitialTargetNodeId, setSearchInitialTargetNodeId] = useState<string>('');
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [newContainerOpen, setNewContainerOpen] = useState(false);
   const [newTrackOpen, setNewTrackOpen] = useState(false);
@@ -376,6 +383,7 @@ export const App: React.FC = () => {
         setTreeDropdownOpen(false);
         setContextMenu(prev => ({ ...prev, isOpen: false }));
         setImportModalOpen(false);
+        setTuneImportOpen(false);
         setCommandPaletteOpen(false);
         setNewContainerOpen(false);
         setNewTrackOpen(false);
@@ -400,6 +408,11 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeNodeId, activePath]);
 
+
+  const handleOpenTuneImport = (node?: LibraryNode | null) => {
+    setTuneImportTargetNode(node || selectedNode || activeNode || null);
+    setTuneImportOpen(true);
+  };
 
   const handleImportSuggestedProject = async (project: SuggestedProject) => {
     if (!activeNode) return;
@@ -838,6 +851,59 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleUncategorizedDragOver = (e: React.DragEvent) => {
+    if (draggingNodeId || draggingTrackIds.length > 0) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      setDropTargetNodeId('uncategorized');
+    }
+  };
+
+  const handleUncategorizedDragLeave = (e: React.DragEvent) => {
+    const currentTarget = e.currentTarget as HTMLElement;
+    const related = e.relatedTarget as Node | null;
+    if (!related || !currentTarget.contains(related)) {
+      if (dropTargetNodeId === 'uncategorized') {
+        setDropTargetNodeId(null);
+      }
+    }
+  };
+
+  const handleUncategorizedDrop = async (e: React.DragEvent) => {
+    if (draggingNodeId) {
+      e.preventDefault();
+      e.stopPropagation();
+      setDropTargetNodeId(null);
+
+      const draggedNode = findNodeById(tree, draggingNodeId);
+      try {
+        await updateNode(draggingNodeId, { parent_id: null });
+        showToast(`Moved "${draggedNode?.name || 'Container'}" to Uncategorized (Root)`);
+        setDraggingNodeId(null);
+        await loadTree(activeNode?.id);
+      } catch (err: any) {
+        showToast(err?.message || 'Failed to move container to uncategorized');
+      }
+    } else if (draggingTrackIds.length > 0) {
+      e.preventDefault();
+      e.stopPropagation();
+      setDropTargetNodeId(null);
+
+      try {
+        let uncategorizedNode = tree.find(n => n.name.toLowerCase() === 'uncategorized' && !n.parent_id);
+        if (!uncategorizedNode) {
+          uncategorizedNode = await createNode({ name: 'Uncategorized', type: 'Folder', parent_id: null });
+        }
+        await moveTracksBatch(draggingTrackIds, uncategorizedNode.id);
+        showToast(`Moved ${draggingTrackIds.length} track(s) to Uncategorized`);
+        setDraggingTrackIds([]);
+        await loadTree(activeNode?.id);
+      } catch (err: any) {
+        showToast(err?.message || 'Failed to move tracks to uncategorized');
+      }
+    }
+  };
+
   const handleTrackClick = (track: Track, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedNodeId(null);
@@ -888,6 +954,7 @@ export const App: React.FC = () => {
 
       if (
         importModalOpen ||
+        tuneImportOpen ||
         commandPaletteOpen ||
         newContainerOpen ||
         newTrackOpen ||
@@ -913,6 +980,25 @@ export const App: React.FC = () => {
           setSelectedNodeId(null);
           setSelectedTrackIds(new Set());
         }
+        return;
+      }
+
+      // Music Search & Add keybind: 's' / 'S', '/', or ⌘I / Ctrl+I
+      // Opens the search UI with the selected item as target, or uncategorized if none selected
+      const isSearchShortcut =
+        (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 's' || e.key === 'S' || e.key === '/')) ||
+        ((e.metaKey || e.ctrlKey) && (e.key === 'i' || e.key === 'I'));
+
+      if (isSearchShortcut) {
+        e.preventDefault();
+        const targetId = selectedNode
+          ? selectedNode.id
+          : firstSelectedTrack
+            ? (firstSelectedTrack.parent_id || 'uncategorized')
+            : 'uncategorized';
+        setSearchInitialQuery('');
+        setSearchInitialTargetNodeId(targetId);
+        setImportModalOpen(true);
         return;
       }
 
@@ -991,6 +1077,7 @@ export const App: React.FC = () => {
     selectedTrackIds,
     firstSelectedTrack,
     importModalOpen,
+    tuneImportOpen,
     commandPaletteOpen,
     newContainerOpen,
     newTrackOpen,
@@ -1222,133 +1309,45 @@ export const App: React.FC = () => {
         const isDropTarget = dropTargetNodeId === child.id;
         const isDragging = draggingNodeId === child.id;
 
-        if (child.type === 'Album' || child.type === 'Artist' || child.type === 'Playlist') {
-          // Folder item with same backdrop design as full page
-          nodesOut.push(
-            <tr
-              key={`h-${child.id}`}
-              className={`folder-item-hero-row ${!hasSubItems ? 'is-empty' : ''} ${isNodeSelected ? 'is-selected' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
-              data-context-type="node"
-              data-node-id={child.id}
-              draggable={true}
-              onDragStart={e => handleNodeDragStart(e, child)}
-              onDragEnd={handleDragEnd}
-              onDragOver={e => handleNodeDragOver(e, child)}
-              onDragLeave={e => handleNodeDragLeave(e, child)}
-              onDrop={e => handleNodeDrop(e, child)}
-              onClick={e => handleNodeClick(child, hasSubItems, isCollapsed, e)}
-              onDoubleClick={() => selectNode(child)}
-              onContextMenu={e => handleNodeContextMenu(e, child)}
-            >
-              <td colSpan={colSpan}>
-                <div
-                  className={`folder-item-hero ${hasSubItems && isCollapsed ? 'is-collapsed' : 'is-uncollapsed'}`}
-                  style={{ paddingLeft: `${10 + depth * 16}px` }}
-                >
-                  {/* Backdrop Layer */}
-                  {backdropImg && (
-                    <div className="hero-backdrop" aria-hidden="true">
-                      <div
-                        className="hero-backdrop-glow"
-                        style={{ backgroundImage: `url(${backdropImg})` }}
-                      />
-                      <div
-                        className="hero-backdrop-artwork folder-backdrop-artwork"
-                        style={{ backgroundImage: `url(${backdropImg})` }}
-                      />
-                      <div className="hero-backdrop-scrim folder-backdrop-scrim" />
-                    </div>
-                  )}
-
-                  {/* Foreground Content - Compact Inlined Row */}
-                  <div className="folder-item-content">
-                    {hasSubItems ? (
-                      <span
-                        className={`ar ${isCollapsed ? '' : 'o'}`}
-                        title={isCollapsed ? 'Expand' : 'Collapse'}
-                        onClick={e => {
-                          e.stopPropagation();
-                          toggleSectionCollapse(child.id, isCollapsed);
-                        }}
-                      >
-                        ›
-                      </span>
-                    ) : (
-                      <span className="ar empty" style={{ width: 14 }} />
-                    )}
-
-                    <CoverArt
-                      src={backdropImg}
-                      alt={child.name}
-                      size={24}
-                      type={child.type === 'Artist' ? 'artist' : child.type === 'Playlist' ? 'playlist' : 'album'}
-                      seed={child.name}
-                      rounded={child.type === 'Artist' ? 'full' : 4}
+        // Unified container item (Folder, Album, Artist, Playlist) with hero design and consistent selection
+        nodesOut.push(
+          <tr
+            key={`h-${child.id}`}
+            className={`folder-item-hero-row ${!hasSubItems ? 'is-empty' : ''} ${isNodeSelected ? 'is-selected' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
+            data-context-type="node"
+            data-node-id={child.id}
+            draggable={true}
+            onDragStart={e => handleNodeDragStart(e, child)}
+            onDragEnd={handleDragEnd}
+            onDragOver={e => handleNodeDragOver(e, child)}
+            onDragLeave={e => handleNodeDragLeave(e, child)}
+            onDrop={e => handleNodeDrop(e, child)}
+            onClick={e => handleNodeClick(child, hasSubItems, isCollapsed, e)}
+            onDoubleClick={() => selectNode(child)}
+            onContextMenu={e => handleNodeContextMenu(e, child)}
+          >
+            <td colSpan={colSpan}>
+              <div
+                className={`folder-item-hero ${hasSubItems && isCollapsed ? 'is-collapsed' : 'is-uncollapsed'}`}
+                style={{ paddingLeft: `${10 + depth * 16}px` }}
+              >
+                {/* Backdrop Layer */}
+                {backdropImg && (
+                  <div className="hero-backdrop" aria-hidden="true">
+                    <div
+                      className="hero-backdrop-glow"
+                      style={{ backgroundImage: `url(${backdropImg})` }}
                     />
-
-                    <span className="folder-item-type-plain">{child.type}</span>
-                    <span className="folder-item-name">{child.name}</span>
-                    {isDropTarget && (
-                      <span className="drop-target-badge">
-                        {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : `Move into "${child.name}"`}
-                      </span>
-                    )}
-                    {child.type === 'Album' && child.tracks?.[0]?.a && (
-                      <span className="folder-item-artist">· {child.tracks[0].a}</span>
-                    )}
-                    {child.type === 'Artist' ? (
-                      childTracks.length > 0 ? (
-                        <span className="m">
-                          {childTracks.length} {childTracks.length === 1 ? 'track' : 'tracks'} · {fmtTotalRuntime(childTracks)}
-                        </span>
-                      ) : null
-                    ) : (
-                      childTracks.length > 0 ? (
-                        <span className="m">
-                          {childTracks.length} {childTracks.length === 1 ? 'track' : 'tracks'} · {fmtTotalRuntime(childTracks)}
-                        </span>
-                      ) : null
-                    )}
-
-                    {/* Actions on right */}
-                    <div className="folder-item-actions" onClick={e => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className="node-more-btn"
-                        title={`Manage ${child.name}`}
-                        onClick={() => {
-                          setNodeToEdit(child);
-                          setNodeEditOpen(true);
-                        }}
-                      >
-                        <MoreHorizontal size={13} />
-                      </button>
-                    </div>
+                    <div
+                      className="hero-backdrop-artwork folder-backdrop-artwork"
+                      style={{ backgroundImage: `url(${backdropImg})` }}
+                    />
+                    <div className="hero-backdrop-scrim folder-backdrop-scrim" />
                   </div>
-                </div>
-              </td>
-            </tr>
-          );
-        } else {
-          // Child folder row
-          nodesOut.push(
-            <tr
-              key={`h-${child.id}`}
-              className={`h ${isNodeSelected ? 'is-selected' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
-              data-context-type="node"
-              data-node-id={child.id}
-              draggable={true}
-              onDragStart={e => handleNodeDragStart(e, child)}
-              onDragEnd={handleDragEnd}
-              onDragOver={e => handleNodeDragOver(e, child)}
-              onDragLeave={e => handleNodeDragLeave(e, child)}
-              onDrop={e => handleNodeDrop(e, child)}
-              onClick={e => handleNodeClick(child, hasSubItems, isCollapsed, e)}
-              onDoubleClick={() => selectNode(child)}
-              onContextMenu={e => handleNodeContextMenu(e, child)}
-            >
-              <td colSpan={colSpan} style={{ paddingLeft: `${14 + depth * 16}px` }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                )}
+
+                {/* Foreground Content - Compact Inlined Row */}
+                <div className="folder-item-content">
                   {hasSubItems ? (
                     <span
                       className={`ar ${isCollapsed ? '' : 'o'}`}
@@ -1363,30 +1362,55 @@ export const App: React.FC = () => {
                   ) : (
                     <span className="ar empty" style={{ width: 14 }} />
                   )}
+
                   <CoverArt
-                    src={child.cover_url}
+                    src={backdropImg}
                     alt={child.name}
                     size={24}
-                    type="folder"
+                    type={child.type === 'Artist' ? 'artist' : child.type === 'Playlist' ? 'playlist' : child.type === 'Folder' ? 'folder' : 'album'}
                     seed={child.name}
-                    rounded={4}
+                    rounded={child.type === 'Artist' ? 'full' : 4}
                   />
-                  <span className="ty">{child.type}</span>
-                  <span style={{ fontWeight: 600, color: '#f4f4f5' }}>{child.name}</span>
+
+                  <span className="folder-item-type-plain">{child.type}</span>
+                  <span className="folder-item-name">{child.name}</span>
                   {isDropTarget && (
                     <span className="drop-target-badge">
                       {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : `Move into "${child.name}"`}
                     </span>
                   )}
+                  {child.type === 'Album' && child.tracks?.[0]?.a && (
+                    <span className="folder-item-artist">· {child.tracks[0].a}</span>
+                  )}
                   <span className="m">
-                    {child.children?.length ? `${child.children.length} items` : ''}
-                    {childTracks.length > 0 ? ` · ${childTracks.length} tracks · ${fmtTotalRuntime(childTracks)}` : ''}
+                    {child.type === 'Folder' && child.children?.length ? `${child.children.length} items` : ''}
+                    {childTracks.length > 0 ? (
+                      <>
+                        {child.type === 'Folder' && child.children?.length ? ' · ' : ''}
+                        {childTracks.length} {childTracks.length === 1 ? 'track' : 'tracks'} · {fmtTotalRuntime(childTracks)}
+                      </>
+                    ) : null}
                   </span>
+
+                  {/* Actions on right */}
+                  <div className="folder-item-actions" onClick={e => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="node-more-btn"
+                      title={`Manage ${child.name}`}
+                      onClick={() => {
+                        setNodeToEdit(child);
+                        setNodeEditOpen(true);
+                      }}
+                    >
+                      <MoreHorizontal size={13} />
+                    </button>
+                  </div>
                 </div>
-              </td>
-            </tr>
-          );
-        }
+              </div>
+            </td>
+          </tr>
+        );
 
         if (hasSubItems && !isCollapsed) {
           nodesOut.push(...renderSections(child, depth + 1));
@@ -1402,7 +1426,12 @@ export const App: React.FC = () => {
       <div className="app-shell">
         {/* Main Viewport: Scrollable Content + Docked Integrated Footer */}
         <div className="main-viewport">
-          <main className="main-content-scroll">
+          <main
+            className="main-content-scroll"
+            onDragOver={handleUncategorizedDragOver}
+            onDragLeave={handleUncategorizedDragLeave}
+            onDrop={handleUncategorizedDrop}
+          >
         {currentPage === 'feed' ? (
           <SocialFeedPage
             tree={tree}
@@ -1417,6 +1446,13 @@ export const App: React.FC = () => {
           <div
             className="container-detail-view"
             onContextMenu={handleTableContextMenu}
+            onDragOver={handleUncategorizedDragOver}
+            onDragLeave={handleUncategorizedDragLeave}
+            onDrop={handleUncategorizedDrop}
+            onClick={() => {
+              setSelectedNodeId(null);
+              setSelectedTrackIds(new Set());
+            }}
           >
             {/* Active Container Hero Banner with Discogs / Ambient Background Artwork */}
             {(activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist' || activeNode.type === 'Folder') && (
@@ -1592,7 +1628,12 @@ export const App: React.FC = () => {
             )}
 
             {/* Table */}
-            <div className="tw">
+            <div
+              className="tw"
+              onDragOver={handleUncategorizedDragOver}
+              onDragLeave={handleUncategorizedDragLeave}
+              onDrop={handleUncategorizedDrop}
+            >
                 <table>
                   <thead>
                     <tr>
@@ -1929,21 +1970,51 @@ export const App: React.FC = () => {
                 </button>
 
                 {addMusicMenuOpen && (
-                  <div className="add-music-dropdown footer-popover" style={{ right: 0, left: 'auto', bottom: 'calc(100% + 8px)', top: 'auto' }}>
+                  <div className="add-music-dropdown footer-popover" style={{ right: 0, left: 'auto', bottom: 'calc(100% + 8px)', top: 'auto', minWidth: 260 }}>
                     <button
                       type="button"
                       className="add-music-option"
                       onClick={() => {
                         setAddMusicMenuOpen(false);
+                        const targetId = selectedNode
+                          ? selectedNode.id
+                          : firstSelectedTrack
+                            ? (firstSelectedTrack.parent_id || 'uncategorized')
+                            : 'uncategorized';
+                        setSearchInitialQuery('');
+                        setSearchInitialTargetNodeId(targetId);
                         setImportModalOpen(true);
                       }}
                     >
                       <div style={{ padding: 6, borderRadius: 6, background: '#1e3a5f', color: '#60a5fa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <Sparkles size={16} />
                       </div>
-                      <div>
-                        <div className="add-music-title">Search &amp; Import Releases</div>
+                      <div style={{ flex: 1 }}>
+                        <div className="add-music-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span>Search &amp; Import Releases</span>
+                          <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: 'rgba(255,255,255,0.1)', color: 'var(--mu)', fontWeight: 600 }}>S</span>
+                        </div>
                         <div className="add-music-desc">Search artists &amp; albums from Discogs 17.5M+ and Deezer</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="add-music-option"
+                      onClick={() => {
+                        setAddMusicMenuOpen(false);
+                        handleOpenTuneImport(selectedNode || activeNode);
+                      }}
+                    >
+                      <div style={{ padding: 6, borderRadius: 6, background: '#164e63', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <FileText size={16} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div className="add-music-title" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span>Import Tune My Music (.txt)</span>
+                          <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 3, background: 'rgba(34,211,238,0.15)', color: '#22d3ee', fontWeight: 600 }}>TXT</span>
+                        </div>
+                        <div className="add-music-desc">Smart import playlists with Deezer &amp; Discogs connection</div>
                       </div>
                     </button>
 
@@ -1990,11 +2061,34 @@ export const App: React.FC = () => {
       >
         <HybridSearchModal
           isOpen={importModalOpen}
-          onClose={() => setImportModalOpen(false)}
-          currentNode={activeNode}
+          onClose={() => {
+            setImportModalOpen(false);
+            setSearchInitialQuery('');
+            setSearchInitialTargetNodeId('');
+          }}
+          currentNode={selectedNode || activeNode}
           allTreeNodes={tree}
+          initialQuery={searchInitialQuery}
+          initialTargetNodeId={searchInitialTargetNodeId}
           onImportSuccess={newDestId => {
             loadTree(newDestId);
+          }}
+        />
+      </ErrorBoundary>
+
+      {/* Tune My Music Import Modal */}
+      <ErrorBoundary
+        componentName="Tune My Music Import Modal"
+        onReset={() => setTuneImportOpen(false)}
+      >
+        <TuneMyMusicImportModal
+          isOpen={tuneImportOpen}
+          onClose={() => setTuneImportOpen(false)}
+          currentNode={tuneImportTargetNode || selectedNode || activeNode}
+          allTreeNodes={tree}
+          onImportSuccess={destId => {
+            loadTree(destId);
+            showToast('Tune My Music import completed');
           }}
         />
       </ErrorBoundary>
@@ -2075,7 +2169,9 @@ export const App: React.FC = () => {
         onBatchDeleteTracks={handleBatchDeleteTracksAction}
         onSelectNode={node => selectNode(node)}
         onAddMusicToNode={node => {
-          setActiveNodeId(node.id);
+          setSelectedNodeId(node.id);
+          setSearchInitialQuery('');
+          setSearchInitialTargetNodeId(node.id);
           setImportModalOpen(true);
         }}
         onAddTrackToNode={node => {
@@ -2093,7 +2189,13 @@ export const App: React.FC = () => {
         onDeleteNode={handleDeleteNodeAction}
         onRefreshArtwork={handleRefreshArtworkAction}
         onResolveNodeIsrcs={handleResolveNodeIsrcsAction}
-        onOpenImport={() => setImportModalOpen(true)}
+        onOpenImport={() => {
+          const target = selectedNode ? selectedNode.id : 'uncategorized';
+          setSearchInitialQuery('');
+          setSearchInitialTargetNodeId(target);
+          setImportModalOpen(true);
+        }}
+        onOpenTuneImport={handleOpenTuneImport}
         onOpenNewTrack={() => setNewTrackOpen(true)}
         onOpenNewContainer={() => setNewContainerOpen(true)}
         onOpenCommandPalette={() => setCommandPaletteOpen(true)}
@@ -2104,6 +2206,14 @@ export const App: React.FC = () => {
         onOpenBackup={() => setBackupOpen(true)}
         onShowToast={showToast}
       />
+
+      {/* Uncategorized Drop Target Visual Indicator */}
+      {dropTargetNodeId === 'uncategorized' && (
+        <div className="drop-uncategorized-indicator">
+          <FolderInput size={16} />
+          <span>Drop here to move to Uncategorized (Root level)</span>
+        </div>
+      )}
 
       {/* Floating Toast Notification */}
       {toastMessage && (

@@ -39,6 +39,8 @@ interface Props {
   currentNode: LibraryNode | null;
   allTreeNodes: LibraryNode[];
   onImportSuccess: (destNodeId: string) => void;
+  initialQuery?: string;
+  initialTargetNodeId?: string;
 }
 
 type FilterCategory = 'all' | 'albums' | 'vinyl' | 'digital' | 'artists';
@@ -49,6 +51,8 @@ export const HybridSearchModal: React.FC<Props> = ({
   currentNode,
   allTreeNodes,
   onImportSuccess,
+  initialQuery,
+  initialTargetNodeId,
 }) => {
   const [provider, setProvider] = useState<SearchProvider>('hybrid');
   const [hasDiscogsToken, setHasDiscogsToken] = useState<boolean | null>(null);
@@ -102,9 +106,9 @@ export const HybridSearchModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (isOpen) {
-      const defaultTarget = currentNode?.id || allTreeNodes?.[0]?.id || allContainers[0]?.id || '';
+      const defaultTarget = initialTargetNodeId || currentNode?.id || allTreeNodes?.[0]?.id || allContainers[0]?.id || 'uncategorized';
       setTargetNodeId(defaultTarget);
-      setQuery('');
+      setQuery(initialQuery || '');
       setArtistResults([]);
       setAlbumResults([]);
       setSelectedVersions({});
@@ -115,14 +119,20 @@ export const HybridSearchModal: React.FC<Props> = ({
       checkTokenStatus();
       const timer = setTimeout(() => {
         try {
-          inputRef.current?.focus();
+          if (inputRef.current) {
+            inputRef.current.focus();
+            if (initialQuery) {
+              const len = inputRef.current.value.length;
+              inputRef.current.setSelectionRange(len, len);
+            }
+          }
         } catch {
           // ignore focus failure
         }
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [isOpen, currentNode, allTreeNodes]);
+  }, [isOpen, currentNode, allTreeNodes, initialQuery, initialTargetNodeId]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -558,6 +568,7 @@ export const HybridSearchModal: React.FC<Props> = ({
                   onChange={e => setTargetNodeId(e.target.value)}
                   style={{ marginLeft: 6 }}
                 >
+                  <option value="uncategorized">[Root] Uncategorized (Root Library)</option>
                   {allContainers.map(c => (
                     <option key={c.id} value={c.id}>
                       [{c.type || 'Folder'}] {c.name || 'Untitled'}

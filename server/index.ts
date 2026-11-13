@@ -40,6 +40,10 @@ import {
   getArtistSuggestedProjects,
 } from './deezer';
 import { getArtistProfile } from './artistProfile';
+import {
+  parseTuneMyMusicText,
+  connectAndImportTuneMyMusic,
+} from './tunemymusic';
 
 initDb();
 
@@ -351,12 +355,16 @@ const server = Bun.serve({
       if (path === '/api/artists/import' && method === 'POST') {
         const body = await req.json();
         const { name, targetNodeId, thumb, cover_url } = body;
-        if (!name || !targetNodeId) {
-          return errorJson('Missing artist name or targetNodeId');
+        if (!name) {
+          return errorJson('Missing artist name');
         }
 
+        const parentId = (targetNodeId && targetNodeId !== 'uncategorized' && targetNodeId !== 'root')
+          ? targetNodeId
+          : null;
+
         const newArtistNode = createNode({
-          parent_id: targetNodeId,
+          parent_id: parentId,
           type: 'Artist',
           name: name.trim(),
           cover_url: thumb || cover_url || '',
@@ -402,9 +410,13 @@ const server = Bun.serve({
         const body = await req.json();
         const { source, releaseId, targetNodeId, createAlbumContainer = true, coverUrl } = body;
 
-        if (!source || !releaseId || !targetNodeId) {
-          return errorJson('Missing source, releaseId, or targetNodeId');
+        if (!source || !releaseId) {
+          return errorJson('Missing source or releaseId');
         }
+
+        const parentId = (targetNodeId && targetNodeId !== 'uncategorized' && targetNodeId !== 'root')
+          ? targetNodeId
+          : null;
 
         let releaseTitle = 'Untitled Album';
         let releaseCover = coverUrl || '';
@@ -453,10 +465,10 @@ const server = Bun.serve({
           })
         );
 
-        let destNodeId = targetNodeId;
+        let destNodeId = parentId || targetNodeId || '';
         if (createAlbumContainer) {
           const newAlbumNode = createNode({
-            parent_id: targetNodeId,
+            parent_id: parentId,
             type: 'Album',
             name: releaseTitle,
             cover_url: releaseCover,
@@ -687,6 +699,33 @@ const server = Bun.serve({
         }
         importLibrary(body);
         return json({ success: true, tree: getFullTree() });
+      }
+
+      // 14b. Tune My Music Parse: POST /api/import/tunemymusic/parse
+      if (path === '/api/import/tunemymusic/parse' && method === 'POST') {
+        const body = await req.json();
+        const text = (body.text || '').trim();
+        const tracks = parseTuneMyMusicText(text);
+        return json({ success: true, tracks, total: tracks.length });
+      }
+
+      // 14c. Tune My Music Connect & Import: POST /api/import/tunemymusic
+      if (path === '/api/import/tunemymusic' && method === 'POST') {
+        const body = await req.json();
+        let tracks = body.tracks;
+        if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
+          if (body.text) {
+            tracks = parseTuneMyMusicText(body.text);
+          }
+        }
+        if (!tracks || tracks.length === 0) {
+          return errorJson('No valid tracks found to import');
+        }
+
+        const result = await connectAndImportTuneMyMusic(tracks, {
+          targetNodeId: body.targetNodeId || null,
+        });
+        return json(result);
       }
 
       // 15. Static fallback if dist exists

@@ -21,6 +21,7 @@ import {
   Music,
   Layers,
   Image as ImageIcon,
+  ChevronRight,
 } from 'lucide-react';
 
 export type ContextTarget =
@@ -57,6 +58,7 @@ interface Props {
   onResolveNodeIsrcs?: (node: LibraryNode) => void;
   // Global actions
   onOpenImport?: () => void;
+  onOpenTuneImport?: (node?: LibraryNode | null) => void;
   onOpenNewTrack?: () => void;
   onOpenNewContainer?: () => void;
   onOpenCommandPalette?: () => void;
@@ -83,6 +85,7 @@ export const ContextMenu: React.FC<Props> = ({
   onRefreshArtwork,
   onResolveNodeIsrcs,
   onOpenImport,
+  onOpenTuneImport,
   onOpenNewTrack,
   onOpenNewContainer,
   onOpenCommandPalette,
@@ -92,6 +95,7 @@ export const ContextMenu: React.FC<Props> = ({
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [submenuOpen, setSubmenuOpen] = useState<'import' | null>(null);
   const [position, setPosition] = useState<{ x: number; y: number }>({ x: state.x, y: state.y });
 
   // Auto-adjust positioning to stay inside the viewport
@@ -411,17 +415,60 @@ export const ContextMenu: React.FC<Props> = ({
             <span className="ctx-item-shortcut">Enter</span>
           </button>
 
-          <button
-            type="button"
-            className="ctx-item"
-            onClick={() => {
-              onClose();
-              onAddMusicToNode?.(node);
-            }}
+          {/* Import Subdropdown */}
+          <div
+            className="ctx-item ctx-submenu-trigger"
+            onMouseEnter={() => setSubmenuOpen('import')}
+            onMouseLeave={() => setSubmenuOpen(null)}
           >
-            <Sparkles size={14} style={{ color: '#60a5fa' }} />
-            <span className="ctx-item-label">Search &amp; Import Releases...</span>
-          </button>
+            <FolderInput size={14} style={{ color: '#818cf8' }} />
+            <span className="ctx-item-label">Import</span>
+            <ChevronRight size={13} style={{ color: 'var(--mu)', marginLeft: 'auto' }} />
+
+            {submenuOpen === 'import' && (
+              <div className="ctx-submenu">
+                <button
+                  type="button"
+                  className="ctx-item"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onClose();
+                    onOpenTuneImport?.(node);
+                  }}
+                >
+                  <FileText size={14} style={{ color: '#06b6d4' }} />
+                  <span className="ctx-item-label">Tune My Music (.txt)</span>
+                  <span className="ctx-item-badge">TXT</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="ctx-item"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onClose();
+                    onAddMusicToNode?.(node);
+                  }}
+                >
+                  <Sparkles size={14} style={{ color: '#60a5fa' }} />
+                  <span className="ctx-item-label">Search Releases (Discogs / Deezer)</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="ctx-item"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onClose();
+                    onOpenBackup?.();
+                  }}
+                >
+                  <Copy size={14} />
+                  <span className="ctx-item-label">Backup &amp; Restore Archive</span>
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             type="button"
@@ -544,17 +591,60 @@ export const ContextMenu: React.FC<Props> = ({
 
           <div className="ctx-divider" />
 
-          <button
-            type="button"
-            className="ctx-item"
-            onClick={() => {
-              onClose();
-              onOpenImport?.();
-            }}
+          {/* Import Subdropdown */}
+          <div
+            className="ctx-item ctx-submenu-trigger"
+            onMouseEnter={() => setSubmenuOpen('import')}
+            onMouseLeave={() => setSubmenuOpen(null)}
           >
-            <Sparkles size={14} style={{ color: '#60a5fa' }} />
-            <span className="ctx-item-label">Search &amp; Import Releases</span>
-          </button>
+            <FolderInput size={14} style={{ color: '#818cf8' }} />
+            <span className="ctx-item-label">Import</span>
+            <ChevronRight size={13} style={{ color: 'var(--mu)', marginLeft: 'auto' }} />
+
+            {submenuOpen === 'import' && (
+              <div className="ctx-submenu">
+                <button
+                  type="button"
+                  className="ctx-item"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onClose();
+                    onOpenTuneImport?.(activeNode);
+                  }}
+                >
+                  <FileText size={14} style={{ color: '#06b6d4' }} />
+                  <span className="ctx-item-label">Tune My Music (.txt)</span>
+                  <span className="ctx-item-badge">TXT</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="ctx-item"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onClose();
+                    onOpenImport?.();
+                  }}
+                >
+                  <Sparkles size={14} style={{ color: '#60a5fa' }} />
+                  <span className="ctx-item-label">Search Releases (Discogs / Deezer)</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="ctx-item"
+                  onClick={e => {
+                    e.stopPropagation();
+                    onClose();
+                    onOpenBackup?.();
+                  }}
+                >
+                  <Copy size={14} />
+                  <span className="ctx-item-label">Backup &amp; Restore Archive</span>
+                </button>
+              </div>
+            )}
+          </div>
 
           <button
             type="button"
@@ -649,17 +739,60 @@ export const ContextMenu: React.FC<Props> = ({
           <span className="ctx-item-label">New Root Folder</span>
         </button>
 
-        <button
-          type="button"
-          className="ctx-item"
-          onClick={() => {
-            onClose();
-            onOpenImport?.();
-          }}
+        {/* Import Subdropdown */}
+        <div
+          className="ctx-item ctx-submenu-trigger"
+          onMouseEnter={() => setSubmenuOpen('import')}
+          onMouseLeave={() => setSubmenuOpen(null)}
         >
-          <Sparkles size={14} style={{ color: '#60a5fa' }} />
-          <span className="ctx-item-label">Search &amp; Import Releases</span>
-        </button>
+          <FolderInput size={14} style={{ color: '#818cf8' }} />
+          <span className="ctx-item-label">Import</span>
+          <ChevronRight size={13} style={{ color: 'var(--mu)', marginLeft: 'auto' }} />
+
+          {submenuOpen === 'import' && (
+            <div className="ctx-submenu">
+              <button
+                type="button"
+                className="ctx-item"
+                onClick={e => {
+                  e.stopPropagation();
+                  onClose();
+                  onOpenTuneImport?.(null);
+                }}
+              >
+                <FileText size={14} style={{ color: '#06b6d4' }} />
+                <span className="ctx-item-label">Tune My Music (.txt)</span>
+                <span className="ctx-item-badge">TXT</span>
+              </button>
+
+              <button
+                type="button"
+                className="ctx-item"
+                onClick={e => {
+                  e.stopPropagation();
+                  onClose();
+                  onOpenImport?.();
+                }}
+              >
+                <Sparkles size={14} style={{ color: '#60a5fa' }} />
+                <span className="ctx-item-label">Search Releases (Discogs / Deezer)</span>
+              </button>
+
+              <button
+                type="button"
+                className="ctx-item"
+                onClick={e => {
+                  e.stopPropagation();
+                  onClose();
+                  onOpenBackup?.();
+                }}
+              >
+                <Copy size={14} />
+                <span className="ctx-item-label">Backup &amp; Restore Archive</span>
+              </button>
+            </div>
+          )}
+        </div>
 
         <div className="ctx-divider" />
 

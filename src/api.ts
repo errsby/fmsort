@@ -385,3 +385,49 @@ export async function importLibrary(data: any): Promise<{ tree: LibraryNode[] }>
   if (!res.ok) throw new Error('Failed to restore library');
   return res.json();
 }
+
+export interface ParsedTuneTrack {
+  title: string;
+  artist: string;
+  album: string;
+  isrc: string;
+}
+
+export interface TuneImportResponse {
+  success: boolean;
+  totalParsed: number;
+  importedTracks: number;
+  artistsCount: number;
+  albumsCount: number;
+  matchedArtworks: number;
+  matchedIsrcs: number;
+  destNodeId: string;
+  tree: LibraryNode[];
+}
+
+export async function parseTuneMyMusic(text: string): Promise<{ tracks: ParsedTuneTrack[]; total: number }> {
+  const res = await fetch(`${API_BASE}/import/tunemymusic/parse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw new Error('Failed to parse Tune My Music file');
+  return res.json();
+}
+
+export async function importTuneMyMusic(data: {
+  text?: string;
+  tracks?: ParsedTuneTrack[];
+  targetNodeId?: string | null;
+}): Promise<TuneImportResponse> {
+  const res = await fetch(`${API_BASE}/import/tunemymusic`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to import Tune My Music data');
+  }
+  return res.json();
+}
