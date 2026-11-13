@@ -235,9 +235,6 @@ export const App: React.FC = () => {
     return 'ws-1';
   });
 
-  const [hoverPreviewNode, setHoverPreviewNode] = useState<LibraryNode | null>(null);
-  const [hoverPreviewPos, setHoverPreviewPos] = useState<{ left: number } | null>(null);
-  const hoverTimeoutRef = useRef<any>(null);
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
   const [workspacePickerSearch, setWorkspacePickerSearch] = useState('');
   const workspacePickerRef = useRef<HTMLDivElement>(null);
@@ -491,17 +488,8 @@ export const App: React.FC = () => {
     target: null,
   });
 
-  // Toast feedback state
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const toastTimeoutRef = useRef<any>(null);
-
-  const showToast = (msg: string) => {
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    setToastMessage(msg);
-    toastTimeoutRef.current = setTimeout(() => {
-      setToastMessage(null);
-    }, 2800);
-  };
+  // Toast notifications disabled
+  const showToast = (_msg: string) => {};
 
   // Universal drag & drop state (tracks, folders, albums, artists)
   const [draggingTrackIds, setDraggingTrackIds] = useState<number[]>([]);
@@ -1077,28 +1065,6 @@ export const App: React.FC = () => {
     }
 
     clearDragState();
-  };
-
-  const handleWorkspaceChipMouseEnter = (node: LibraryNode | null, e: React.MouseEvent<HTMLDivElement>) => {
-    if (!node) return;
-    if (draggingTrackIds.length > 0 || draggedTracksRef.current.length > 0 || draggingNodeIds.length > 0 || draggedNodesRef.current.length > 0) {
-      return;
-    }
-    const rect = e.currentTarget.getBoundingClientRect();
-    const wrapperRect = workspacesDockRef.current?.getBoundingClientRect();
-    const leftPos = rect.left - (wrapperRect?.left || 0);
-
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    hoverTimeoutRef.current = setTimeout(() => {
-      setHoverPreviewNode(node);
-      setHoverPreviewPos({ left: Math.max(0, leftPos - 10) });
-    }, 220);
-  };
-
-  const handleWorkspaceChipMouseLeave = () => {
-    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
-    setHoverPreviewNode(null);
-    setHoverPreviewPos(null);
   };
 
   // Navigational Submenu Drag & Move with Screen Clamping & Workspace Drawer Collision Avoidance
@@ -4317,14 +4283,6 @@ export const App: React.FC = () => {
         onPasteItems={pasteClipboard}
       />
 
-      {/* Floating Toast Notification */}
-      {toastMessage && (
-        <div className="fmsort-toast" role="status">
-          <Check size={15} style={{ color: '#4ade80' }} />
-          <span>{toastMessage}</span>
-        </div>
-      )}
-
       {/* 1. Detached-but-Connected Floating Library Window (Independently Movable) */}
       {treeDropdownOpen && (
         <div
@@ -4756,13 +4714,10 @@ export const App: React.FC = () => {
                       closeWorkspace(ws.id);
                     }
                   }}
-                  onMouseEnter={e => handleWorkspaceChipMouseEnter(wsNode, e)}
-                  onMouseLeave={handleWorkspaceChipMouseLeave}
                   onDragEnter={e => handleWorkspaceChipDragEnter(e, ws.id)}
                   onDragOver={e => handleWorkspaceChipDragOver(e, ws.id)}
                   onDragLeave={handleWorkspaceChipDragLeave}
                   onDrop={e => handleWorkspaceChipDrop(e, ws.id)}
-                  title={`Switch to "${wsNode?.name || 'Workspace'}" (⌘${wsIdx + 1}) · Middle-click to close · Drag items here`}
                 >
                   <div className="workspace-chip-icon">
                     <CoverArt
@@ -4886,40 +4841,6 @@ export const App: React.FC = () => {
               </div>
             )}
           </div>
-
-          {/* Hover Preview Card Tooltip */}
-          {hoverPreviewNode && hoverPreviewPos && (
-            <div
-              className="workspace-preview-popover bottom-align"
-              style={{ left: hoverPreviewPos.left }}
-            >
-              <div className="workspace-preview-media">
-                <CoverArt
-                  src={hoverPreviewNode.cover_url || null}
-                  alt={hoverPreviewNode.name}
-                  size={36}
-                  type={hoverPreviewNode.type === 'Artist' ? 'artist' : 'folder'}
-                  seed={hoverPreviewNode.name}
-                  rounded={hoverPreviewNode.type === 'Artist' ? 'full' : 4}
-                />
-              </div>
-              <div className="workspace-preview-info">
-                <h4 className="workspace-preview-title">{hoverPreviewNode.name}</h4>
-                <div className="workspace-preview-meta">
-                  <span>{hoverPreviewNode.type}</span>
-                  <span>·</span>
-                  <span>{flattenTracks(hoverPreviewNode).length} tracks</span>
-                  {hoverPreviewNode.children && hoverPreviewNode.children.length > 0 && (
-                    <>
-                      <span>·</span>
-                      <span>{hoverPreviewNode.children.length} subfolders</span>
-                    </>
-                  )}
-                </div>
-                <div className="workspace-preview-hint">Click chip to switch · Drag items to move</div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </>

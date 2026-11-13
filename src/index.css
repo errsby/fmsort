@@ -3274,16 +3274,20 @@ tr.album-incomplete .cover-art-wrapper {
   z-index: 9999;
   min-width: 220px;
   max-width: 280px;
-  background: rgba(18, 18, 22, 0.94);
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  background: rgba(18, 18, 22, 0.96);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 2px 6px rgba(0, 0, 0, 0.4);
   padding: 5px;
   display: flex;
   flex-direction: column;
-  animation: ctxAppear 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: ctxAppear 0.1s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
 }
 
@@ -3417,6 +3421,10 @@ tr.album-incomplete .cover-art-wrapper {
   top: -4px;
   min-width: 240px;
   max-width: 300px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   background: rgba(18, 18, 22, 0.98);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -3427,27 +3435,19 @@ tr.album-incomplete .cover-art-wrapper {
   z-index: 10005;
   display: flex;
   flex-direction: column;
-  animation: ctxAppear 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: ctxAppear 0.1s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Toast notifications */
-.fmsort-toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  background: #18181b;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
-  padding: 10px 16px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #fafafa;
-  animation: toastSlideUp 0.18s ease-out;
+.ctx-menu.opens-left .ctx-submenu,
+.ctx-submenu.opens-left {
+  left: auto;
+  right: calc(100% + 4px);
+}
+
+.ctx-menu.opens-up .ctx-submenu,
+.ctx-submenu.opens-up {
+  top: auto;
+  bottom: -4px;
 }
 
 @keyframes toastSlideUp {
@@ -5491,60 +5491,6 @@ tr.h.is-selected td {
   stroke: currentColor;
 }
 
-/* Hover Preview Card Tooltip */
-.workspace-preview-popover {
-  position: absolute;
-  bottom: calc(100% + 10px);
-  left: 0;
-  z-index: 100;
-  background: #18181f;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  padding: 12px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  display: flex;
-  gap: 12px;
-  min-width: 250px;
-  max-width: 320px;
-  pointer-events: none;
-  animation: popoverFadeUp 0.12s ease;
-}
-
-.workspace-preview-media {
-  flex-shrink: 0;
-}
-
-.workspace-preview-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.workspace-preview-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: #f4f4f5;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin: 0;
-}
-
-.workspace-preview-meta {
-  font-size: 11px;
-  color: #a1a1aa;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.workspace-preview-hint {
-  font-size: 10px;
-  color: #71717a;
-  margin-top: 4px;
-}
-
 .workspace-add-container {
   position: relative;
   display: flex;
@@ -6108,7 +6054,6 @@ tr.h.is-selected td {
   margin: 0 2px;
 }
 
-.floating-workspaces-container.bottom-left .workspace-preview-popover.bottom-align,
 .floating-workspaces-container.bottom-left .workspace-picker-popover.bottom-align {
   position: absolute;
   bottom: calc(100% + 10px);

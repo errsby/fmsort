@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Track, LibraryNode, ClipboardState } from '../types';
 import { CoverArt } from './CoverArt';
 import {
@@ -136,32 +136,67 @@ export const ContextMenu: React.FC<Props> = ({
   const menuRef = useRef<HTMLDivElement>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [submenuOpen, setSubmenuOpen] = useState<string | null>(null);
-  const [position, setPosition] = useState<{ x: number; y: number }>({ x: state.x, y: state.y });
+  const [opensLeft, setOpensLeft] = useState(false);
+  const [opensUp, setOpensUp] = useState(false);
 
-  // Auto-adjust positioning to stay inside the viewport
-  useEffect(() => {
-    if (!state.isOpen) return;
+  // Position: forms with mouse cursor right at the corner of the menu
+  const [position, setPosition] = useState<{ x: number; y: number }>(() => {
+    const winW = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const estW = 240;
+    const estH = 340;
+    const pad = 8;
 
-    const updatePosition = () => {
-      const menuWidth = 240;
-      const menuHeight = 360;
-      const pad = 12;
+    let x = state.x;
+    let y = state.y;
+    if (x + estW > winW - pad) x = Math.max(pad, state.x - estW);
+    if (y + estH > winH - pad) y = Math.max(pad, state.y - estH);
+    return { x: Math.round(x), y: Math.round(y) };
+  });
 
-      let x = state.x;
-      let y = state.y;
+  // Accurately position menu at cursor corner and respect window boundaries without overflowing
+  useLayoutEffect(() => {
+    if (!state.isOpen || !menuRef.current) return;
 
-      if (x + menuWidth > window.innerWidth - pad) {
-        x = Math.max(pad, window.innerWidth - menuWidth - pad);
+    const el = menuRef.current;
+    const rect = el.getBoundingClientRect();
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    const pad = 8;
+    const menuW = rect.width || 240;
+    const menuH = rect.height || 340;
+
+    let x = state.x;
+    let y = state.y;
+    let flippedX = false;
+    let flippedY = false;
+
+    // Horizontal check: if menu would go off the right edge, flip to open left of mouse cursor
+    if (x + menuW > winW - pad) {
+      x = state.x - menuW;
+      flippedX = true;
+      if (x < pad) {
+        x = winW - menuW - pad;
       }
-      if (y + menuHeight > window.innerHeight - pad) {
-        y = Math.max(pad, window.innerHeight - menuHeight - pad);
+    }
+
+    // Vertical check: if menu would go off the bottom edge, flip to open upward from mouse cursor
+    if (y + menuH > winH - pad) {
+      y = state.y - menuH;
+      flippedY = true;
+      if (y < pad) {
+        y = winH - menuH - pad;
       }
+    }
 
-      setPosition({ x, y });
-    };
+    // Clamp strictly within screen boundaries
+    x = Math.max(pad, Math.min(winW - menuW - pad, Math.round(x)));
+    y = Math.max(pad, Math.min(winH - menuH - pad, Math.round(y)));
 
-    updatePosition();
-  }, [state.isOpen, state.x, state.y]);
+    setPosition({ x, y });
+    setOpensLeft(flippedX || x + menuW + 240 > winW - pad);
+    setOpensUp(flippedY || y + 260 > winH - pad);
+  }, [state.isOpen, state.x, state.y, state.target]);
 
   // Click outside and keydown dismissal
   useEffect(() => {
@@ -199,11 +234,10 @@ export const ContextMenu: React.FC<Props> = ({
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
     setCopiedKey(label);
-    if (onShowToast) onShowToast(`Copied ${label} to clipboard`);
     setTimeout(() => {
       setCopiedKey(null);
       onClose();
-    }, 450);
+    }, 350);
   };
 
   const renderContent = () => {
@@ -1603,7 +1637,7 @@ export const ContextMenu: React.FC<Props> = ({
   return (
     <div
       ref={menuRef}
-      className="ctx-menu"
+      className={`ctx-menu ${opensLeft ? 'opens-left' : ''} ${opensUp ? 'opens-up' : ''}`}
       style={{
         left: position.x,
         top: position.y,
