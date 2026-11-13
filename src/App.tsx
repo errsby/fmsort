@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from 'react';
 import type { LibraryNode, Track, ColumnDef, ColumnKey, ClipboardState } from './types';
 import {
   fetchTree,
@@ -240,6 +240,11 @@ export const App: React.FC = () => {
   const workspacePickerRef = useRef<HTMLDivElement>(null);
   const workspaceAddContainerRef = useRef<HTMLDivElement>(null);
   const workspacesDockRef = useRef<HTMLDivElement>(null);
+  const [pickerPosition, setPickerPosition] = useState<{ x: number; y: number; openBelow: boolean }>({
+    x: 0,
+    y: 0,
+    openBelow: false,
+  });
 
   // Detached-but-connected Library Window & Workspace Drawer (Independently Movable & Resizable)
   const initialNavMenuStateRef = useRef<NavMenuSavedState>(getInitialNavMenuState());
@@ -522,6 +527,79 @@ export const App: React.FC = () => {
       setControlDrawerAlignRight(false);
     }
   }, [wsDrawerPosition, selectedTrackIds.size, selectedNodeIds.size]);
+
+  // Accurate Screen-Boundary Positioning & Non-Overlapping Alignment for Workspace Selection Popup
+  useLayoutEffect(() => {
+    if (!workspacePickerOpen || !workspaceAddContainerRef.current) return;
+
+    const btnRect = workspaceAddContainerRef.current.getBoundingClientRect();
+    const winW = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
+    const popupW = 340;
+    const pad = 10;
+
+    // Horizontal placement: align right edge of popup with right edge of + button
+    let x = btnRect.right - popupW;
+    if (x < pad) {
+      x = Math.max(pad, btnRect.left);
+    }
+    if (x + popupW > winW - pad) {
+      x = winW - popupW - pad;
+    }
+
+    // Vertical placement: determine whether to open above or below the dock
+    const hasSelection = selectedTrackIds.size > 0 || selectedNodeIds.size > 0;
+    const selectionBarAbove = hasSelection && !controlDrawerOpenBelow;
+    const selectionBarBelow = hasSelection && controlDrawerOpenBelow;
+    const selectionOffset = 44;
+
+    const spaceAbove = btnRect.top - (selectionBarAbove ? selectionOffset : 0) - pad;
+    const spaceBelow = winH - btnRect.bottom - (selectionBarBelow ? selectionOffset : 0) - pad;
+
+    // Open above by default if dock is in lower portion of window, unless space above is cramped (< 300px)
+    const openBelow = spaceAbove < 300 && spaceBelow > spaceAbove;
+    let y = 0;
+
+    if (openBelow) {
+      y = btnRect.bottom + 8 + (selectionBarBelow ? selectionOffset : 0);
+    } else {
+      y = btnRect.top - 8 - (selectionBarAbove ? selectionOffset : 0);
+    }
+
+    // Collision avoidance with Library Drawer if it's currently open
+    if (treeDropdownOpen && dropdownContainerRef.current) {
+      const libRect = dropdownContainerRef.current.getBoundingClientRect();
+      const popupTop = openBelow ? y : y - Math.min(460, spaceAbove);
+      const popupBottom = openBelow ? y + Math.min(460, spaceBelow) : y;
+
+      const verticalOverlap = !(popupBottom < libRect.top || popupTop > libRect.bottom);
+      const horizontalOverlap = !(x + popupW < libRect.left || x > libRect.right);
+
+      if (verticalOverlap && horizontalOverlap) {
+        if (libRect.right + 8 + popupW <= winW - pad) {
+          x = libRect.right + 8;
+        } else if (libRect.left - 8 - popupW >= pad) {
+          x = libRect.left - 8 - popupW;
+        }
+      }
+    }
+
+    setPickerPosition({
+      x: Math.round(x),
+      y: Math.round(y),
+      openBelow,
+    });
+  }, [
+    workspacePickerOpen,
+    wsDrawerPosition,
+    controlDrawerOpenBelow,
+    selectedTrackIds.size,
+    selectedNodeIds.size,
+    treeDropdownOpen,
+    menuPosition,
+    menuWidth,
+    menuHeight,
+  ]);
 
   const [menuSearch, setMenuSearch] = useState('');
 
@@ -2678,8 +2756,14 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Deselect All on Escape
+      // Deselect All or Dismiss Popups on Escape
       if (e.key === 'Escape') {
+        if (workspacePickerOpen) {
+          e.preventDefault();
+          setWorkspacePickerOpen(false);
+          setWorkspacePickerSearch('');
+          return;
+        }
         if (selectedNodeIds.size > 0 || selectedTrackIds.size > 0) {
           e.preventDefault();
           setSelectedNodeIds(new Set());
@@ -3181,6 +3265,90 @@ export const App: React.FC = () => {
           </div>
         </div>
         {isOpen && hasChildren && n.children.map(c => renderTreeNode(c, depth + 1))}
+      </React.Fragment>
+    );
+  };
+
+  // Filtered nodes for the unified workspace crate selection popup
+  const filteredPickerNodes = useMemo(() => {
+    const baseNodes = displayedNavNodes;
+    if (!workspacePickerSearch.trim()) return baseNodes;
+
+    const q = workspacePickerSearch.trim().toLowerCase();
+    const filterRec = (nodes: LibraryNode[]): LibraryNode[] => {
+      const out: LibraryNode[] = [];
+      for (const n of nodes) {
+        const matchesSelf = n.name.toLowerCase().includes(q) || (n.type && n.type.toLowerCase().includes(q));
+        const filteredChildren = n.children ? filterRec(n.children) : [];
+        if (matchesSelf || filteredChildren.length > 0) {
+          out.push({
+            ...n,
+            children: filteredChildren.length > 0 ? filteredChildren : n.children,
+          });
+        }
+      }
+      return out;
+    };
+    return filterRec(baseNodes);
+  }, [displayedNavNodes, workspacePickerSearch]);
+
+  // Render tree node in unified workspace crate picker popup
+  const renderPickerTreeNode = (n: LibraryNode, depth: number) => {
+    const hasChildren = n.children && n.children.length > 0;
+    const isSearching = Boolean(workspacePickerSearch.trim());
+    const isOpen = isSearching || (openNodes[n.id] ?? false);
+    const isCurrentActive = activeNode?.id === n.id;
+    const isPinned = pinnedCrateIds.includes(n.id);
+    const openWs = workspaces.find(w => w.nodeId === n.id);
+
+    return (
+      <React.Fragment key={`ws-pick-${n.id}`}>
+        <div
+          className={`workspace-picker-tree-item ${isCurrentActive ? 'is-active-view' : ''} ${openWs ? 'is-open-ws' : ''}`}
+          style={{ paddingLeft: `${8 + depth * 14}px` }}
+          onClick={() => {
+            if (openWs) {
+              switchWorkspace(openWs.id);
+            } else {
+              openInNewWorkspace(n);
+            }
+            setWorkspacePickerOpen(false);
+            setWorkspacePickerSearch('');
+          }}
+          title={openWs ? `Switch to "${n.name}" workspace` : `Open "${n.name}" in new workspace`}
+        >
+          <span
+            className={`ar ${isOpen ? 'o' : ''} ${isPinned ? 'is-pinned-arrow' : ''}`}
+            onClick={e => {
+              if (hasChildren) {
+                toggleNodeExpansion(n.id, e);
+              }
+            }}
+            style={isPinned ? { color: '#f59e0b' } : undefined}
+          >
+            {hasChildren || isPinned ? '›' : ''}
+          </span>
+          <CoverArt
+            src={n.cover_url || null}
+            alt={n.name}
+            size={18}
+            type={n.type === 'Artist' ? 'artist' : n.type === 'Playlist' ? 'playlist' : n.type === 'Folder' ? 'folder' : 'album'}
+            seed={n.name}
+            rounded={n.type === 'Artist' ? 'full' : 3}
+          />
+          <span className="workspace-picker-item-name">{n.name}</span>
+          <div className="workspace-picker-item-meta">
+            {openWs ? (
+              <span className="workspace-picker-active-badge">ACTIVE</span>
+            ) : (
+              <span className="workspace-picker-type-badge">{n.type}</span>
+            )}
+            {n.tracks && n.tracks.length > 0 && (
+              <span className="workspace-picker-count-badge">{n.tracks.length}</span>
+            )}
+          </div>
+        </div>
+        {isOpen && hasChildren && n.children.map(c => renderPickerTreeNode(c, depth + 1))}
       </React.Fragment>
     );
   };
@@ -4767,77 +4935,99 @@ export const App: React.FC = () => {
             </button>
 
             {workspacePickerOpen && (
-              <div className="workspace-picker-popover bottom-align" ref={workspacePickerRef} role="menu">
+              <div
+                className={`workspace-picker-popover studio-glass-picker ${pickerPosition.openBelow ? 'open-below' : 'open-above'}`}
+                ref={workspacePickerRef}
+                role="dialog"
+                aria-label="Library & Workspace Selection"
+                style={{
+                  position: 'fixed',
+                  left: `${pickerPosition.x}px`,
+                  ...(pickerPosition.openBelow
+                    ? { top: `${pickerPosition.y}px`, bottom: 'auto' }
+                    : { bottom: `calc(100vh - ${pickerPosition.y}px)`, top: 'auto' }),
+                  width: '340px',
+                  maxHeight: pickerPosition.openBelow
+                    ? `calc(100vh - ${pickerPosition.y + 16}px)`
+                    : `calc(${pickerPosition.y - 16}px)`,
+                  zIndex: 1200,
+                }}
+              >
+                {/* 1. Header with Title & Quick Switch / Duplicate View */}
                 <div className="workspace-picker-header">
                   <div className="workspace-picker-header-title">
-                    <Layers size={13} style={{ color: '#818cf8' }} />
-                    <span>Workspaces</span>
+                    <FolderPlus size={14} style={{ color: '#60a5fa' }} />
+                    <span>Open as Workspace</span>
                   </div>
-                  <span className="workspace-picker-shortcut">⌘1..{Math.min(workspaces.length, 9)}</span>
-                </div>
-
-                <div className="workspace-picker-quick-actions">
-                  {activeNode && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    {activeNode && (
+                      <button
+                        type="button"
+                        className="workspace-picker-duplicate-btn"
+                        onClick={() => {
+                          const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                          setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
+                          setActiveWorkspaceId(newWsId);
+                          setWorkspacePickerOpen(false);
+                          setWorkspacePickerSearch('');
+                        }}
+                        title={`Duplicate current view ("${activeNode.name}")`}
+                      >
+                        <Copy size={11} />
+                        <span>Duplicate View</span>
+                      </button>
+                    )}
                     <button
                       type="button"
-                      className="workspace-picker-quick-btn"
+                      className="workspace-picker-close-btn"
                       onClick={() => {
-                        const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-                        setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
-                        setActiveWorkspaceId(newWsId);
                         setWorkspacePickerOpen(false);
                         setWorkspacePickerSearch('');
-                        showToast(`Duplicated workspace for "${activeNode.name}"`);
                       }}
+                      title="Close (Esc)"
                     >
-                      <Copy size={12} style={{ color: '#a78bfa' }} />
-                      <span>Duplicate View ("{activeNode.name}")</span>
+                      <X size={13} />
                     </button>
-                  )}
+                  </div>
                 </div>
 
-                <div className="header-ws-search-wrap" style={{ margin: '6px 0' }}>
-                  <Search size={12} className="header-ws-search-icon" />
+                {/* 2. Unified Search Filter Bar */}
+                <div className="workspace-picker-search-bar">
+                  <Search size={12} className="workspace-picker-search-icon" />
                   <input
                     type="search"
-                    className="header-ws-search-input"
-                    placeholder="Search and open crate..."
+                    className="workspace-picker-search-input"
+                    placeholder="Filter library crates & folders..."
                     value={workspacePickerSearch}
                     onChange={e => setWorkspacePickerSearch(e.target.value)}
                     autoFocus
                   />
+                  {workspacePickerSearch && (
+                    <button
+                      type="button"
+                      className="workspace-picker-clear-search"
+                      onClick={() => setWorkspacePickerSearch('')}
+                      title="Clear filter"
+                    >
+                      <X size={11} />
+                    </button>
+                  )}
                 </div>
 
-                {workspacePickerSearch.trim() && (
-                  <div className="header-ws-search-results">
-                    {allContainers
-                      .filter(c => c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
-                      .slice(0, 8)
-                      .map(c => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          className="header-ws-search-item"
-                          onClick={() => {
-                            openInNewWorkspace(c);
-                            setWorkspacePickerOpen(false);
-                            setWorkspacePickerSearch('');
-                          }}
-                        >
-                          <CoverArt
-                            src={c.cover_url || null}
-                            alt={c.name}
-                            size={18}
-                            type="folder"
-                            seed={c.name}
-                            rounded={3}
-                          />
-                          <span className="header-ws-search-item-title">{c.name}</span>
-                          <span className="header-ws-search-item-badge">{c.type}</span>
-                        </button>
-                      ))}
-                  </div>
-                )}
+                {/* 3. Unified Directory Tree List (Inspired by Library Drawer) */}
+                <div className="workspace-picker-tree-list custom-fmsort-scrollbar">
+                  {loading ? (
+                    <div style={{ color: 'var(--mu)', padding: '20px 12px', fontSize: 12, textAlign: 'center' }}>
+                      Loading library...
+                    </div>
+                  ) : filteredPickerNodes.length === 0 ? (
+                    <div style={{ color: 'var(--mu)', padding: '24px 12px', fontSize: 12, textAlign: 'center' }}>
+                      No matching crates or folders found
+                    </div>
+                  ) : (
+                    filteredPickerNodes.map(n => renderPickerTreeNode(n, 0))
+                  )}
+                </div>
               </div>
             )}
           </div>
