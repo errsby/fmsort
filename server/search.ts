@@ -368,7 +368,7 @@ export async function executeHybridSearch(query: string): Promise<SearchResult> 
     return {
       artists: [],
       albums: [],
-      counts: { artists: 0, albums: 0, totalVersions: 0, deezerCount: 0, discogsCount: 0 },
+      counts: { artists: 0, albums: 0, tracks: 0, totalVersions: 0, deezerCount: 0, discogsCount: 0 },
       discogsConfigured: isDiscogsConfigured(),
     };
   }

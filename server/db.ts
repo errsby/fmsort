@@ -450,6 +450,7 @@ export function getSetting(key: string): string | null {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
   return row ? row.value : null;
 }
+(globalThis as any).__fmsort_getSetting = getSetting;
 
 export function setSetting(key: string, value: string): void {
   db.prepare(`

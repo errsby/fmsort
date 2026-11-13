@@ -1,6 +1,13 @@
 import fs from 'fs';
 import path from 'path';
-import { getSetting } from './db';
+
+const getSetting = (key: string): string | null => {
+  try {
+    return (globalThis as any).__fmsort_getSetting?.(key) || null;
+  } catch {
+    return null;
+  }
+};
 
 function loadEnvFile() {
   try {
