@@ -29,6 +29,7 @@ import {
   findNodePath,
   isAlbumCompleted,
   getAlbumKeys,
+  getDistinctCompletedCount,
 } from './utils';
 
 import { HybridSearchModal } from './components/HybridSearchModal';
@@ -1308,8 +1309,39 @@ export const App: React.FC = () => {
         moveTracksOpen ||
         nodeEditOpen ||
         backupOpen ||
+        settingsOpen ||
         columnMenuOpen
       ) {
+        return;
+      }
+
+      // Settings Modal on ⌘, / Ctrl+,
+      if ((e.metaKey || e.ctrlKey) && (e.key === ',' || e.key === '<')) {
+        e.preventDefault();
+        setSettingsOpen(true);
+        return;
+      }
+
+      // Export / Backup on ⌘E / Ctrl+E
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'e' || e.key === 'E')) {
+        e.preventDefault();
+        setBackupOpen(true);
+        return;
+      }
+
+      // Back navigation: Backspace (when nothing selected), Alt+Left, or '['
+      if (
+        (e.key === '[' || (e.altKey && e.key === 'ArrowLeft') || (e.key === 'Backspace' && selectedNodeIds.size === 0 && selectedTrackIds.size === 0))
+      ) {
+        e.preventDefault();
+        handleGoBack();
+        return;
+      }
+
+      // Forward navigation: Alt+Right or ']'
+      if (e.key === ']' || (e.altKey && e.key === 'ArrowRight')) {
+        e.preventDefault();
+        window.history.forward();
         return;
       }
 
@@ -1348,10 +1380,50 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Music Search & Add keybind: 's' / 'S', '/', or ⌘I / Ctrl+I
-      // Opens the search UI with the selected item as target, or uncategorized if none selected
+      // Toggle Album Completion Status on 'c' / 'C'
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'c' || e.key === 'C')) {
+        if (selectedNode && selectedNode.type === 'Album') {
+          e.preventDefault();
+          handleToggleAlbumCompleted(selectedNode.tracks?.[0]?.a, selectedNode.name);
+          return;
+        }
+        if (firstSelectedTrack && firstSelectedTrack.al) {
+          e.preventDefault();
+          handleToggleAlbumCompleted(firstSelectedTrack.a, firstSelectedTrack.al);
+          return;
+        }
+        if (activeNode && activeNode.type === 'Album') {
+          e.preventDefault();
+          const activeArtist = activeNode.tracks?.[0]?.a || (activePath.length > 1 && activePath[activePath.length - 2]?.type === 'Artist' ? activePath[activePath.length - 2].name : '');
+          handleToggleAlbumCompleted(activeArtist, activeNode.name);
+          return;
+        }
+      }
+
+      // Create New Container on 'n' / 'N'
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'n' || e.key === 'N')) {
+        e.preventDefault();
+        setNewContainerOpen(true);
+        return;
+      }
+
+      // Add Track Manually on 't' / 'T'
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 't' || e.key === 'T')) {
+        e.preventDefault();
+        setNewTrackOpen(true);
+        return;
+      }
+
+      // Spacebar to inspect selected track
+      if (e.key === ' ' && firstSelectedTrack) {
+        e.preventDefault();
+        setActiveTrack(firstSelectedTrack);
+        return;
+      }
+
+      // Music Search & Add keybind: 'a' / 'A', 's' / 'S', '/', or ⌘I / Ctrl+I
       const isSearchShortcut =
-        (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 's' || e.key === 'S' || e.key === '/')) ||
+        (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'a' || e.key === 'A' || e.key === 's' || e.key === 'S' || e.key === '/')) ||
         ((e.metaKey || e.ctrlKey) && (e.key === 'i' || e.key === 'I'));
 
       if (isSearchShortcut) {
@@ -1360,7 +1432,7 @@ export const App: React.FC = () => {
           ? selectedNode.id
           : firstSelectedTrack
             ? (firstSelectedTrack.parent_id || 'uncategorized')
-            : 'uncategorized';
+            : (activeNode?.id || 'uncategorized');
         setSearchInitialQuery('');
         setSearchInitialTargetNodeId(targetId);
         setImportModalOpen(true);
@@ -1459,7 +1531,11 @@ export const App: React.FC = () => {
     moveTracksOpen,
     nodeEditOpen,
     backupOpen,
+    settingsOpen,
     columnMenuOpen,
+    activeNode,
+    activeNodeId,
+    activePath,
   ]);
 
   // Helper to sort tracks
@@ -1778,28 +1854,6 @@ export const App: React.FC = () => {
                       <span className="ttl container-ttl">
                         {child.name}
                       </span>
-
-                      {/* Status Completed / Incomplete Indicator */}
-                      {statusEnabled && isChildAlbum && (
-                        <span className={`album-status-pill ${isChildCompleted ? 'completed' : 'incomplete'}`}>
-                          {isChildCompleted ? (
-                            <>
-                              <Check size={10} strokeWidth={3} />
-                              <span>Done</span>
-                            </>
-                          ) : (
-                            <span>Incomplete</span>
-                          )}
-                        </span>
-                      )}
-
-                      {/* Selected Badge */}
-                      {isNodeSelected && (
-                        <span className="folder-item-selected-badge">
-                          <Check size={11} strokeWidth={3} />
-                          Selected
-                        </span>
-                      )}
 
                       {/* Drop Target Badge */}
                       {isDropTarget && (
@@ -2405,7 +2459,7 @@ export const App: React.FC = () => {
                       )}
                     </div>
 
-                    {/* Menu Footer / System Actions: Settings & Export */}
+                    {/* Menu Footer / System Actions: Settings */}
                     <div className="crumb-menu-footer-actions">
                       <button
                         type="button"
@@ -2430,22 +2484,6 @@ export const App: React.FC = () => {
                         >
                           {statusEnabled ? 'Status: ON' : 'Preferences'}
                         </span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className="crumb-menu-action-item"
-                        onClick={() => {
-                          setTreeDropdownOpen(false);
-                          setBackupOpen(true);
-                        }}
-                        title="Export and Backup Library"
-                      >
-                        <div className="crumb-menu-action-left">
-                          <Layers size={14} style={{ color: '#38bdf8' }} />
-                          <span>Export Library</span>
-                        </div>
-                        <span className="crumb-menu-action-badge">Backup / JSON</span>
                       </button>
                     </div>
                   </div>
@@ -2707,8 +2745,9 @@ export const App: React.FC = () => {
         onClose={() => setSettingsOpen(false)}
         statusEnabled={statusEnabled}
         onToggleStatus={handleToggleStatus}
-        completedCount={completedAlbumKeys.size}
+        completedCount={getDistinctCompletedCount(completedAlbumKeys)}
         onResetCompleted={handleResetCompleted}
+        onOpenExport={() => setBackupOpen(true)}
       />
 
       {/* Custom Right-Click Context Menu */}

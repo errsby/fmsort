@@ -1,5 +1,16 @@
 import React from 'react';
-import { Settings, CheckCircle2, ShieldCheck, Sparkles, X, RotateCcw } from 'lucide-react';
+import {
+  Settings,
+  CheckCircle2,
+  ShieldCheck,
+  Sparkles,
+  X,
+  RotateCcw,
+  Layers,
+  ArrowLeft,
+  Search,
+  SlidersHorizontal,
+} from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
@@ -8,6 +19,7 @@ interface Props {
   onToggleStatus: (enabled: boolean) => void;
   completedCount: number;
   onResetCompleted: () => void;
+  onOpenExport?: () => void;
 }
 
 export const SettingsModal: React.FC<Props> = ({
@@ -17,6 +29,7 @@ export const SettingsModal: React.FC<Props> = ({
   onToggleStatus,
   completedCount,
   onResetCompleted,
+  onOpenExport,
 }) => {
   if (!isOpen) return null;
 
@@ -27,7 +40,7 @@ export const SettingsModal: React.FC<Props> = ({
         className="dlg on"
         role="dialog"
         aria-label="Application Settings"
-        style={{ maxWidth: 520, padding: '20px 24px' }}
+        style={{ maxWidth: 560, padding: '20px 24px', maxHeight: '88vh', overflowY: 'auto' }}
       >
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
@@ -49,7 +62,7 @@ export const SettingsModal: React.FC<Props> = ({
             </div>
             <div>
               <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#f4f4f5' }}>Settings</h2>
-              <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 1 }}>Preferences &amp; Library Status</div>
+              <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 1 }}>Preferences, Library Status &amp; Shortcuts</div>
             </div>
           </div>
           <button
@@ -108,7 +121,7 @@ export const SettingsModal: React.FC<Props> = ({
                 </div>
                 <p style={{ margin: '0 0 10px', color: 'var(--mu)', fontSize: 12, lineHeight: 1.45 }}>
                   When enabled, uncompleted albums are greyed out and do not display cover banner thumbnails.
-                  Marking an album as completed (via right-click) reveals its artwork and full vibrancy.
+                  Marking an album as completed (via right-click or shortcut <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '0 4px', borderRadius: 3, color: '#fafafa' }}>C</kbd>) reveals its artwork and full vibrancy.
                   Completion status automatically stretches across all versions of the album across all your crates.
                 </p>
               </div>
@@ -194,28 +207,117 @@ export const SettingsModal: React.FC<Props> = ({
             )}
           </div>
 
-          {/* Quick Shortcuts Guide */}
+          {/* Export & Backup Section */}
           <div
             style={{
               border: '1px solid var(--bd)',
               background: 'rgba(255, 255, 255, 0.02)',
               borderRadius: 8,
-              padding: 12,
+              padding: 14,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <Sparkles size={14} style={{ color: '#38bdf8' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+                  <Layers size={16} style={{ color: '#38bdf8' }} />
+                  <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#fafafa' }}>
+                    Library Backup &amp; Export
+                  </h4>
+                </div>
+                <p style={{ margin: 0, color: 'var(--mu)', fontSize: 12, lineHeight: 1.45 }}>
+                  Export your entire crates hierarchy, tracks, and metadata to a portable JSON backup file, or restore from an existing archive.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onOpenExport?.();
+                }}
+                style={{
+                  background: 'rgba(56, 189, 248, 0.12)',
+                  border: '1px solid rgba(56, 189, 248, 0.35)',
+                  color: '#7dd3fc',
+                  padding: '6px 14px',
+                  borderRadius: 5,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0,
+                }}
+                title="Open Export & Backup Archive (⌘E)"
+              >
+                <Layers size={14} />
+                <span>Export / Backup</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Comprehensive Key Shortcuts Reference */}
+          <div
+            style={{
+              border: '1px solid var(--bd)',
+              background: 'rgba(255, 255, 255, 0.02)',
+              borderRadius: 8,
+              padding: 14,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+              <Sparkles size={15} style={{ color: '#a78bfa' }} />
               <h4 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#f4f4f5' }}>
                 Key Shortcuts Reference
               </h4>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', fontSize: 11, color: 'var(--mu)' }}>
-              <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘K</kbd> Command Palette</div>
-              <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘F</kbd> Quick Track Filter</div>
-              <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘A</kbd> Select All in crate</div>
-              <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>S</kbd> / <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>/</kbd> Search &amp; Add Music</div>
-              <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Shift</kbd> + Click Range select</div>
-              <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌫</kbd> Delete selected</div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* Category: Navigation */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#818cf8', marginBottom: 5 }}>
+                  Navigation &amp; Views
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 12px', fontSize: 11, color: 'var(--mu)' }}>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Backspace</kbd> / <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>[</kbd> Go back up / parent</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Alt + →</kbd> / <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>]</kbd> Go forward in history</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Enter</kbd> Open container / Inspect track</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Space</kbd> Preview &amp; inspect track</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Esc</kbd> Close modal / Clear selection</div>
+                </div>
+              </div>
+
+              {/* Category: Music & Catalog */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#38bdf8', marginBottom: 5 }}>
+                  Releases &amp; Catalog
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 12px', fontSize: 11, color: 'var(--mu)' }}>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>A</kbd> / <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘I</kbd> Search releases (Discogs)</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>T</kbd> Add track manually</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>N</kbd> New container (Folder / Album)</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>C</kbd> Toggle Album Completed status</div>
+                </div>
+              </div>
+
+              {/* Category: Tools & Batch */}
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#34d399', marginBottom: 5 }}>
+                  Tools &amp; Organization
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 12px', fontSize: 11, color: 'var(--mu)' }}>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘K</kbd> Command Palette / Quick jump</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘F</kbd> Filter tracks in crate</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘A</kbd> Select all items in view</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>M</kbd> Move selected tracks / items</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>R</kbd> Resolve missing ISRC codes</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>E</kbd> Rename / edit container</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘E</kbd> Export &amp; backup library</div>
+                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌫</kbd> Delete selected items</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -226,7 +328,7 @@ export const SettingsModal: React.FC<Props> = ({
             type="button"
             className="p"
             onClick={onClose}
-            style={{ padding: '6px 18px', fontSize: 12, borderRadius: 5 }}
+            style={{ padding: '6px 20px', fontSize: 12, borderRadius: 5 }}
           >
             Done
           </button>

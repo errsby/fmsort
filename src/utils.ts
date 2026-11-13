@@ -190,14 +190,15 @@ export function groupRawReleases(releases: UnifiedReleaseSummary[]): GroupedAlbu
 }
 
 /**
- * Normalizes an artist and album title to canonical album keys.
+ * Normalizes an artist and album title to a canonical album key.
  * Strips release version suffixes (e.g. "(Deluxe Edition)", "[Remastered 2021]", etc.)
  * so completion status seamlessly stretches across all versions of an album/track in any crate.
+ * Exactly 1 canonical key is generated per album, ensuring completion counts are 1-to-1.
  */
-export function getAlbumKeys(artistName?: string, albumName?: string): string[] {
+export function getCanonicalAlbumKey(artistName?: string, albumName?: string): string {
   const rawArtist = (artistName || '').trim();
   const rawAlbum = (albumName || '').trim();
-  if (!rawAlbum) return [];
+  if (!rawAlbum) return '';
 
   const cleanArtist = rawArtist.toLowerCase().replace(/^(the|a|an)\s+/i, '').trim();
   const cleanAlbum = rawAlbum.toLowerCase();
@@ -205,21 +206,14 @@ export function getAlbumKeys(artistName?: string, albumName?: string): string[] 
   // Strip parenthetical / bracketed edition tags like (Deluxe Edition), (Remastered), [Expanded], etc.
   const baseAlbum = cleanAlbum
     .replace(/\s*[\(\[](deluxe|remaster(ed)?|anniversary|expanded|bonus|edition|version|reissue|mono|stereo|special|collector'?s|live|explicit|clean|vinyl|lp|cd)[\)\]].*$/i, '')
-    .trim();
+    .trim() || cleanAlbum;
 
-  const keys = new Set<string>();
-  if (cleanArtist) {
-    keys.add(`${cleanArtist}:::${cleanAlbum}`);
-    if (baseAlbum && baseAlbum !== cleanAlbum) {
-      keys.add(`${cleanArtist}:::${baseAlbum}`);
-    }
-  }
-  keys.add(`album:::${cleanAlbum}`);
-  if (baseAlbum && baseAlbum !== cleanAlbum) {
-    keys.add(`album:::${baseAlbum}`);
-  }
+  return cleanArtist ? `${cleanArtist}:::${baseAlbum}` : `_:::${baseAlbum}`;
+}
 
-  return Array.from(keys);
+export function getAlbumKeys(artistName?: string, albumName?: string): string[] {
+  const key = getCanonicalAlbumKey(artistName, albumName);
+  return key ? [key] : [];
 }
 
 /**
@@ -231,6 +225,42 @@ export function isAlbumCompleted(
   completedKeys: Set<string>
 ): boolean {
   if (!completedKeys || completedKeys.size === 0) return false;
-  const keys = getAlbumKeys(artistName, albumName);
-  return keys.some(k => completedKeys.has(k));
+  const canonicalKey = getCanonicalAlbumKey(artistName, albumName);
+  if (!canonicalKey) return false;
+
+  if (completedKeys.has(canonicalKey)) return true;
+
+  // Fallback checks for legacy alias keys or partial artist matches
+  const parts = canonicalKey.split(':::');
+  const baseAlbum = parts[1] || '';
+  if (baseAlbum) {
+    if (completedKeys.has(`album:::${baseAlbum}`)) return true;
+    if (completedKeys.has(`_:::${baseAlbum}`)) return true;
+    // If querying without artist (e.g. from standalone track), check if any completed key ends with :::baseAlbum
+    if (!parts[0] || parts[0] === '_') {
+      for (const k of completedKeys) {
+        if (k.endsWith(`:::${baseAlbum}`)) return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Accurately counts the number of distinct albums marked completed.
+ * Deduplicates any legacy alias keys (e.g. album:::xyz and artist:::xyz).
+ */
+export function getDistinctCompletedCount(completedKeys: Set<string> | string[]): number {
+  if (!completedKeys) return 0;
+  const keysArray = Array.isArray(completedKeys) ? completedKeys : Array.from(completedKeys);
+  const distinct = new Set<string>();
+  keysArray.forEach(k => {
+    if (k.startsWith('album:::')) {
+      distinct.add(`_:::${k.slice('album:::'.length)}`);
+    } else {
+      distinct.add(k);
+    }
+  });
+  return distinct.size;
 }

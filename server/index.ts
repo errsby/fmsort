@@ -1001,12 +1001,34 @@ const server = Bun.serve({
       }
 
       // 14d. Settings & Status Tracking API
+      const cleanLegacyKeys = (keys: string[]): string[] => {
+        const primaryAlbums = new Set<string>();
+        keys.forEach(k => {
+          if (k.includes(':::') && !k.startsWith('album:::') && !k.startsWith('_:::')) {
+            const albumName = k.split(':::')[1];
+            if (albumName) primaryAlbums.add(albumName);
+          }
+        });
+        const result = new Set<string>();
+        keys.forEach(k => {
+          if (k.startsWith('album:::') || k.startsWith('_:::')) {
+            const albumName = k.replace(/^(album|_):::/, '');
+            if (!primaryAlbums.has(albumName)) {
+              result.add(`_:::${albumName}`);
+            }
+          } else {
+            result.add(k);
+          }
+        });
+        return Array.from(result);
+      };
+
       if (path === '/api/settings' && method === 'GET') {
         const statusEnabled = getSetting('status_enabled') === 'true';
         const rawKeys = getSetting('completed_album_keys');
         let completedAlbumKeys: string[] = [];
         try {
-          if (rawKeys) completedAlbumKeys = JSON.parse(rawKeys);
+          if (rawKeys) completedAlbumKeys = cleanLegacyKeys(JSON.parse(rawKeys));
         } catch {}
         return json({ statusEnabled, completedAlbumKeys });
       }
@@ -1017,13 +1039,14 @@ const server = Bun.serve({
           setSetting('status_enabled', body.statusEnabled ? 'true' : 'false');
         }
         if (Array.isArray(body.completedAlbumKeys)) {
-          setSetting('completed_album_keys', JSON.stringify(body.completedAlbumKeys));
+          const cleaned = cleanLegacyKeys(body.completedAlbumKeys);
+          setSetting('completed_album_keys', JSON.stringify(cleaned));
         }
         const statusEnabled = getSetting('status_enabled') === 'true';
         const rawKeys = getSetting('completed_album_keys');
         let completedAlbumKeys: string[] = [];
         try {
-          if (rawKeys) completedAlbumKeys = JSON.parse(rawKeys);
+          if (rawKeys) completedAlbumKeys = cleanLegacyKeys(JSON.parse(rawKeys));
         } catch {}
         return json({ success: true, statusEnabled, completedAlbumKeys });
       }
@@ -1036,7 +1059,7 @@ const server = Bun.serve({
         const rawKeys = getSetting('completed_album_keys');
         const currentKeys = new Set<string>();
         try {
-          if (rawKeys) JSON.parse(rawKeys).forEach((k: string) => currentKeys.add(k));
+          if (rawKeys) cleanLegacyKeys(JSON.parse(rawKeys)).forEach((k: string) => currentKeys.add(k));
         } catch {}
 
         keysToAddOrRemove.forEach(k => {
@@ -1044,10 +1067,14 @@ const server = Bun.serve({
             currentKeys.add(k);
           } else {
             currentKeys.delete(k);
+            // Also delete any fallback/legacy variations
+            const albumName = k.includes(':::') ? k.split(':::')[1] : k;
+            currentKeys.delete(`album:::${albumName}`);
+            currentKeys.delete(`_:::${albumName}`);
           }
         });
 
-        const updatedArray = Array.from(currentKeys);
+        const updatedArray = cleanLegacyKeys(Array.from(currentKeys));
         setSetting('completed_album_keys', JSON.stringify(updatedArray));
         return json({ success: true, completedAlbumKeys: updatedArray });
       }
