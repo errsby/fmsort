@@ -67,8 +67,6 @@ import {
   Info,
   Radio,
   Library,
-  ChevronLeft,
-  ChevronRight,
   ChevronDown,
   ChevronUp,
   FileText,
@@ -143,6 +141,101 @@ export interface Workspace {
   historyIndex: number;
 }
 
+interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width?: number;
+  height?: number;
+}
+
+const clampMenuCoordinates = (
+  proposedX: number,
+  proposedY: number,
+  menuWidth: number,
+  menuHeight: number,
+  dockRect?: Rect | null
+): { x: number; y: number } => {
+  const winW = typeof window !== 'undefined' ? window.innerWidth : 1280;
+  const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
+  const SCREEN_PAD = 10;
+  const DOCK_PAD = 12;
+
+  // 1. Strictly clamp within window boundaries so it NEVER goes off screen/app
+  const minX = SCREEN_PAD;
+  const maxX = Math.max(minX, winW - menuWidth - SCREEN_PAD);
+  const minY = SCREEN_PAD;
+  const maxY = Math.max(minY, winH - menuHeight - SCREEN_PAD);
+
+  let x = Math.max(minX, Math.min(maxX, proposedX));
+  let y = Math.max(minY, Math.min(maxY, proposedY));
+
+  // 2. Prevent collision with workspace drawer at bottom-left
+  if (dockRect && dockRect.width && dockRect.width > 0 && dockRect.height && dockRect.height > 0) {
+    const forbiddenRight = dockRect.right + DOCK_PAD;
+    const forbiddenTop = dockRect.top - DOCK_PAD;
+
+    // Check if the menu overlaps the forbidden bottom-left zone
+    const isColliding = x < forbiddenRight && (y + menuHeight) > forbiddenTop;
+
+    if (isColliding) {
+      const horizontalOverlap = forbiddenRight - x;
+      const verticalOverlap = (y + menuHeight) - forbiddenTop;
+
+      // Can it fit above the workspace drawer without going off-screen top?
+      const canFitAbove = forbiddenTop - menuHeight >= minY;
+
+      if (canFitAbove && verticalOverlap <= horizontalOverlap) {
+        // Push above the workspace drawer
+        y = forbiddenTop - menuHeight;
+      } else {
+        // Push to the right of the workspace drawer
+        x = forbiddenRight;
+        // Re-clamp X in case pushing right exceeded screen width
+        x = Math.max(minX, Math.min(maxX, x));
+      }
+    }
+  }
+
+  return { x: Math.round(x), y: Math.round(y) };
+};
+
+interface NavMenuSavedState {
+  isOpen: boolean;
+  isPinned: boolean;
+  position: { x: number; y: number } | null;
+  height: number;
+}
+
+const getInitialNavMenuState = (): NavMenuSavedState => {
+  try {
+    const saved = localStorage.getItem('fmsort_nav_menu_state');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        isOpen: Boolean(parsed.isOpen),
+        isPinned: Boolean(parsed.isPinned),
+        position:
+          parsed.position &&
+          typeof parsed.position.x === 'number' &&
+          !isNaN(parsed.position.x) &&
+          typeof parsed.position.y === 'number' &&
+          !isNaN(parsed.position.y)
+            ? { x: parsed.position.x, y: parsed.position.y }
+            : null,
+        height: typeof parsed.height === 'number' && parsed.height >= 260 ? parsed.height : 480,
+      };
+    }
+  } catch {}
+  return {
+    isOpen: false,
+    isPinned: false,
+    position: null,
+    height: 480,
+  };
+};
+
 export const App: React.FC = () => {
   const [workspaces, setWorkspaces] = useState<Workspace[]>(() => {
     try {
@@ -163,19 +256,6 @@ export const App: React.FC = () => {
     } catch {}
     return 'ws-1';
   });
-  const [workspacesCollapsed, setWorkspacesCollapsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('fmsort_workspaces_collapsed') === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('fmsort_workspaces_collapsed', String(workspacesCollapsed));
-    } catch {}
-  }, [workspacesCollapsed]);
 
   const [hoverPreviewNode, setHoverPreviewNode] = useState<LibraryNode | null>(null);
   const [hoverPreviewPos, setHoverPreviewPos] = useState<{ left: number } | null>(null);
@@ -186,14 +266,54 @@ export const App: React.FC = () => {
   const workspaceAddContainerRef = useRef<HTMLDivElement>(null);
   const workspacesDockRef = useRef<HTMLDivElement>(null);
 
-  // Navigational Submenu Draggable, Resizable & Pinnable
-  const [isMenuPinned, setIsMenuPinned] = useState(false);
-  const isMenuPinnedRef = useRef(false);
+  // Navigational Submenu Draggable, Resizable & Pinnable with State Persistence
+  const initialNavMenuStateRef = useRef<NavMenuSavedState>(getInitialNavMenuState());
+  const [treeDropdownOpen, setTreeDropdownOpen] = useState<boolean>(initialNavMenuStateRef.current.isOpen);
+  const [isMenuPinned, setIsMenuPinned] = useState<boolean>(initialNavMenuStateRef.current.isPinned);
+  const isMenuPinnedRef = useRef(isMenuPinned);
   isMenuPinnedRef.current = isMenuPinned;
   const isDraggingMenuRef = useRef(false);
-  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
-  const [menuHeight, setMenuHeight] = useState<number>(480);
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(initialNavMenuStateRef.current.position);
+  const [menuHeight, setMenuHeight] = useState<number>(initialNavMenuStateRef.current.height);
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
+  const treeDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Save floating nav menu state across page closes and reloads
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        'fmsort_nav_menu_state',
+        JSON.stringify({
+          isOpen: treeDropdownOpen,
+          isPinned: isMenuPinned,
+          position: menuPosition,
+          height: menuHeight,
+        })
+      );
+    } catch (e) {
+      console.warn('Could not save nav menu state to localStorage', e);
+    }
+  }, [treeDropdownOpen, isMenuPinned, menuPosition, menuHeight]);
+
+  // Re-clamp floating nav menu on window resize and workspace changes to avoid collision
+  useEffect(() => {
+    const handleWindowResize = () => {
+      if (menuPosition) {
+        const dropdownEl = dropdownContainerRef.current;
+        const width = dropdownEl?.getBoundingClientRect().width || 340;
+        const dockEl = workspacesDockRef.current?.querySelector('.floating-workspaces-dock-wrapper') || workspacesDockRef.current;
+        const dockRect = dockEl?.getBoundingClientRect();
+        const clamped = clampMenuCoordinates(menuPosition.x, menuPosition.y, width, menuHeight, dockRect);
+        if (clamped.x !== menuPosition.x || clamped.y !== menuPosition.y) {
+          setMenuPosition(clamped);
+        }
+      }
+    };
+
+    handleWindowResize();
+    window.addEventListener('resize', handleWindowResize);
+    return () => window.removeEventListener('resize', handleWindowResize);
+  }, [menuPosition, menuHeight, workspaces.length]);
 
   // "Select Multiple" Mode state
   const [selectMultipleMode, setSelectMultipleMode] = useState(false);
@@ -367,10 +487,7 @@ export const App: React.FC = () => {
     return selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null;
   }, [selectedNodeIds]);
 
-  // Togglable Library Tree Dropdown under (../)
-  const [treeDropdownOpen, setTreeDropdownOpen] = useState(false);
   const [menuSearch, setMenuSearch] = useState('');
-  const treeDropdownRef = useRef<HTMLDivElement>(null);
 
   const addMusicRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
@@ -779,7 +896,7 @@ export const App: React.FC = () => {
     setHoverPreviewPos(null);
   };
 
-  // Navigational Submenu Drag & Move
+  // Navigational Submenu Drag & Move with Screen Clamping & Workspace Drawer Collision Avoidance
   const handleMenuDragStart = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
@@ -794,14 +911,25 @@ export const App: React.FC = () => {
     const offsetX = e.clientX - rect.left;
     const offsetY = e.clientY - rect.top;
 
+    const dockEl = workspacesDockRef.current?.querySelector('.floating-workspaces-dock-wrapper') || workspacesDockRef.current;
+    const dockRect = dockEl?.getBoundingClientRect();
+
     isDraggingMenuRef.current = true;
-    setMenuPosition({ x: Math.round(rect.left), y: Math.round(rect.top) });
+    const initialPos = clampMenuCoordinates(rect.left, rect.top, rect.width, menuHeight, dockRect);
+    setMenuPosition(initialPos);
 
     const handleMouseMove = (moveEv: MouseEvent) => {
       moveEv.preventDefault();
-      const newX = Math.max(10, Math.min(window.innerWidth - rect.width - 10, moveEv.clientX - offsetX));
-      const newY = Math.max(10, Math.min(window.innerHeight - 100, moveEv.clientY - offsetY));
-      setMenuPosition({ x: Math.round(newX), y: Math.round(newY) });
+      const curDockEl = workspacesDockRef.current?.querySelector('.floating-workspaces-dock-wrapper') || workspacesDockRef.current;
+      const curDockRect = curDockEl?.getBoundingClientRect();
+      const clamped = clampMenuCoordinates(
+        moveEv.clientX - offsetX,
+        moveEv.clientY - offsetY,
+        rect.width,
+        menuHeight,
+        curDockRect
+      );
+      setMenuPosition(clamped);
     };
 
     const handleMouseUp = () => {
@@ -816,17 +944,38 @@ export const App: React.FC = () => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Navigational Submenu Vertical Resize
+  // Navigational Submenu Vertical Resize with Collision Avoidance & Screen Clamping
   const handleMenuResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     const startY = e.clientY;
     const startHeight = menuHeight;
 
+    const dropdownEl = dropdownContainerRef.current;
+    const curRect = dropdownEl?.getBoundingClientRect();
+    const curY = curRect?.top || (menuPosition ? menuPosition.y : 60);
+    const curX = curRect?.left || (menuPosition ? menuPosition.x : 24);
+
+    const dockEl = workspacesDockRef.current?.querySelector('.floating-workspaces-dock-wrapper') || workspacesDockRef.current;
+    const dockRect = dockEl?.getBoundingClientRect();
+
     const handleMouseMove = (moveEv: MouseEvent) => {
       const deltaY = moveEv.clientY - startY;
-      const newHeight = Math.max(260, Math.min(window.innerHeight - 80, startHeight + deltaY));
-      setMenuHeight(newHeight);
+      let newHeight = Math.max(260, startHeight + deltaY);
+
+      // Constraint 1: Screen bottom boundary
+      const maxScreenHeight = window.innerHeight - curY - 10;
+      newHeight = Math.min(newHeight, maxScreenHeight);
+
+      // Constraint 2: Cannot collide with workspace drawer if horizontally overlapping
+      if (dockRect && dockRect.width && dockRect.width > 0 && curX < dockRect.right + 12) {
+        const maxDrawerHeight = dockRect.top - 12 - curY;
+        if (maxDrawerHeight >= 260) {
+          newHeight = Math.min(newHeight, maxDrawerHeight);
+        }
+      }
+
+      setMenuHeight(Math.round(newHeight));
     };
 
     const handleMouseUp = () => {
@@ -966,9 +1115,6 @@ export const App: React.FC = () => {
       }
       if (!isMenuPinnedRef.current && treeDropdownRef.current && !treeDropdownRef.current.contains(e.target as Node)) {
         setTreeDropdownOpen(false);
-    if (!isMenuPinnedRef.current) {
-      setMenuPosition(null);
-    }
       }
       if (
         workspacePickerRef.current &&
@@ -991,9 +1137,6 @@ export const App: React.FC = () => {
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 't') {
         e.preventDefault();
         setWorkspacePickerOpen(prev => !prev);
-      } else if ((e.metaKey || e.ctrlKey) && (e.key === '\\' || e.key === '|')) {
-        e.preventDefault();
-        setWorkspacesCollapsed(prev => !prev);
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w') {
         e.preventDefault();
         closeWorkspace(activeWorkspaceId);
@@ -1013,7 +1156,6 @@ export const App: React.FC = () => {
       } else if (e.key === 'Escape') {
         if (!isMenuPinnedRef.current) {
           setTreeDropdownOpen(false);
-          setMenuPosition(null);
         }
         setWorkspacePickerOpen(false);
         setSelectedTrackIds(new Set());
@@ -3996,38 +4138,9 @@ export const App: React.FC = () => {
         role="region"
         aria-label="Workspaces Switcher"
       >
-        <div className={`floating-workspaces-dock-wrapper ${workspacesCollapsed ? 'is-collapsed' : ''}`}>
-          {/* Collapse / Expand Toggle Button on the LEFT SIDE of the UI */}
-          {workspacesCollapsed ? (
-            <div
-              className="workspace-collapsed-pill"
-              onClick={() => setWorkspacesCollapsed(false)}
-              title="Expand Workspaces (⌘\)"
-            >
-              <ChevronRight size={12} className="workspace-collapse-chevron is-collapsed" />
-              <div className="workspace-collapsed-icon">
-                <Layers size={12} />
-              </div>
-              <span className="workspace-collapsed-text">
-                {workspaces.length} {workspaces.length === 1 ? 'Workspace' : 'Workspaces'}
-              </span>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="workspace-dock-collapse-btn on-left"
-              onClick={() => setWorkspacesCollapsed(true)}
-              title="Collapse Workspaces (⌘\)"
-              aria-label="Collapse workspaces"
-            >
-              <ChevronLeft size={12} className="workspace-collapse-chevron is-open" />
-            </button>
-          )}
-
-          {!workspacesCollapsed ? (
-            <>
-              {/* Workspace Chips List */}
-              <div className="footer-workspaces-dock">
+        <div className="floating-workspaces-dock-wrapper">
+          {/* Workspace Chips List */}
+          <div className="footer-workspaces-dock">
                 {workspaces.map((ws, wsIdx) => {
                   const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
                   const isActive = ws.id === activeWorkspaceId;
@@ -4170,11 +4283,9 @@ export const App: React.FC = () => {
                   </div>
                 )}
               </div>
-            </>
-          ) : null}
 
           {/* Hover Preview Card Tooltip */}
-          {hoverPreviewNode && hoverPreviewPos && !workspacesCollapsed && (
+          {hoverPreviewNode && hoverPreviewPos && (
             <div
               className="workspace-preview-popover bottom-align"
               style={{ left: hoverPreviewPos.left }}

@@ -5162,27 +5162,6 @@ tr.h.is-selected td {
   letter-spacing: 0.01em;
 }
 
-/* Collapse Toggle Button inside dock */
-.workspace-dock-collapse-btn {
-  background: transparent;
-  border: none;
-  color: var(--mu);
-  padding: 3px 4px;
-  border-radius: 4px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-  margin-left: 2px;
-}
-
-.workspace-dock-collapse-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fafafa;
-}
-
 /* Pinned Crates Section in Navigational Submenu */
 .crumb-menu-pinned-section {
   padding: 4px 0 2px;
@@ -5716,37 +5695,6 @@ tr.h.is-selected td {
   transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
   max-width: calc(100vw - 32px);
   transform-origin: bottom left;
-}
-
-.floating-workspaces-container.bottom-left .floating-workspaces-dock-wrapper.is-collapsed {
-  padding: 4px 10px 4px 8px;
-  border-radius: 20px;
-}
-
-.workspace-dock-collapse-btn.on-left {
-  margin-right: 2px;
-  margin-left: 0;
-  padding: 3px 5px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #a1a1aa;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.14s ease;
-  flex-shrink: 0;
-}
-
-.workspace-dock-collapse-btn.on-left:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #ffffff;
-}
-
-.workspace-collapse-chevron {
-  transition: transform 0.18s ease;
 }
 
 .floating-workspaces-container.bottom-left .workspace-preview-popover.bottom-align,
