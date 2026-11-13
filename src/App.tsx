@@ -150,6 +150,7 @@ export const App: React.FC = () => {
   const [artistProfile, setArtistProfile] = useState<ArtistProfileData | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [artistInfoExpanded, setArtistInfoExpanded] = useState(false);
+  const [showArtistSuggestions, setShowArtistSuggestions] = useState(false);
   const filterInputRef = useRef<HTMLInputElement>(null);
 
   // Custom Context Menu State
@@ -398,14 +399,6 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [activeNodeId, activePath]);
 
-  const isArtistWithoutSubitems = useMemo(() => {
-    return Boolean(
-      activeNode &&
-      activeNode.type === 'Artist' &&
-      (!activeNode.children || activeNode.children.length === 0) &&
-      activeFlatTracks.length === 0
-    );
-  }, [activeNode, activeFlatTracks]);
 
   const handleImportSuggestedProject = async (project: SuggestedProject) => {
     if (!activeNode) return;
@@ -514,9 +507,10 @@ export const App: React.FC = () => {
     };
   }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url]);
 
-  // Reset artist profile state on container change (loaded on-demand only when user uncollapses)
+  // Reset artist profile and suggestions state on container change (auto-collapsed by default)
   useEffect(() => {
     setArtistInfoExpanded(false);
+    setShowArtistSuggestions(false);
     setArtistProfile(null);
     setLoadingProfile(false);
   }, [activeNode?.id]);
@@ -1532,6 +1526,17 @@ export const App: React.FC = () => {
                             <span>Artist Info</span>
                             {artistInfoExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                           </button>
+                          <span> · </span>
+                          <button
+                            type="button"
+                            className={`artist-info-toggle-pill ${showArtistSuggestions ? 'active' : ''}`}
+                            onClick={() => setShowArtistSuggestions(prev => !prev)}
+                            title="Show suggested releases & discography"
+                          >
+                            <Sparkles size={11} />
+                            <span>Suggested Releases</span>
+                            {showArtistSuggestions ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                          </button>
                         </>
                       )}
                     </div>
@@ -1548,17 +1553,45 @@ export const App: React.FC = () => {
               </div>
             )}
 
-            {/* Table or Artist Projects Suggestions for Artists without Subitems */}
-            {isArtistWithoutSubitems ? (
-              <ArtistProjectsSuggestions
-                artistNode={activeNode}
-                onImportProject={handleImportSuggestedProject}
-                onFinishImport={() => loadTree(activeNode.id)}
-                onOpenSearchModal={() => setImportModalOpen(true)}
-                onNewTrack={() => setNewTrackOpen(true)}
-              />
-            ) : (
-              <div className="tw">
+            {/* Suggested Releases & Discography for Artists (integrated onto all artist pages, auto-collapsed) */}
+            {activeNode.type === 'Artist' && (
+              <div className="artist-discography-section">
+                <div className="artist-discography-toggle-bar">
+                  <button
+                    type="button"
+                    className={`artist-discography-toggle-btn ${showArtistSuggestions ? 'expanded' : ''}`}
+                    onClick={() => setShowArtistSuggestions(prev => !prev)}
+                    title={showArtistSuggestions ? 'Collapse suggested releases' : 'Expand suggested releases'}
+                  >
+                    <div className="discography-toggle-left">
+                      <Sparkles size={14} className="discography-toggle-icon" />
+                      <span className="discography-toggle-title">Suggested Releases &amp; Discography</span>
+                    </div>
+                    <div className="discography-toggle-right">
+                      <span className="discography-toggle-hint">
+                        {showArtistSuggestions ? 'Hide Catalog' : 'Explore Catalog'}
+                      </span>
+                      {showArtistSuggestions ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </div>
+                  </button>
+                </div>
+
+                {showArtistSuggestions && (
+                  <div className="artist-discography-content-wrap">
+                    <ArtistProjectsSuggestions
+                      artistNode={activeNode}
+                      onImportProject={handleImportSuggestedProject}
+                      onFinishImport={() => loadTree(activeNode.id)}
+                      onOpenSearchModal={() => setImportModalOpen(true)}
+                      onNewTrack={() => setNewTrackOpen(true)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Table */}
+            <div className="tw">
                 <table>
                   <thead>
                     <tr>
@@ -1649,6 +1682,48 @@ export const App: React.FC = () => {
                           );
                         }
 
+                        if (activeNode.type === 'Artist') {
+                          return (
+                            <tr>
+                              <td
+                                colSpan={COLUMNS.filter(c => visibleColumns[c.key]).length + 1}
+                                style={{ padding: '60px 20px', color: 'var(--mu)', textAlign: 'center' }}
+                              >
+                                <div style={{ maxWidth: 400, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                  <Disc size={36} style={{ color: '#52525b', marginBottom: 12 }} />
+                                  <div style={{ fontWeight: 600, fontSize: 14, color: '#f4f4f5', marginBottom: 16 }}>
+                                    {activeNode.name} has no content yet
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 8 }}>
+                                    <button
+                                      type="button"
+                                      className="p"
+                                      onClick={() => setShowArtistSuggestions(true)}
+                                    >
+                                      <Sparkles size={13} />
+                                      <span>Explore Suggested Releases</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setImportModalOpen(true)}
+                                    >
+                                      <Search size={13} />
+                                      <span>Search Catalog</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setNewTrackOpen(true)}
+                                    >
+                                      <Plus size={13} />
+                                      <span>Add Track</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        }
+
                         return (
                           <tr>
                             <td
@@ -1683,7 +1758,6 @@ export const App: React.FC = () => {
                   </tbody>
                 </table>
               </div>
-            )}
           </div>
         ) : (
           <div className="empty-library-hero" style={{ margin: 'auto', padding: '60px 20px', textAlign: 'center' }}>

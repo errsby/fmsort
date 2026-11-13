@@ -103,24 +103,82 @@ export const ArtistProjectsSuggestions: React.FC<ArtistProjectsSuggestionsProps>
 
   return (
     <div className="artist-suggestions-container">
-      {/* Header bar */}
-      <div className="artist-suggestions-header">
-        <div className="artist-suggestions-title-group">
-          <div className="artist-suggestions-icon-wrap">
-            <Sparkles size={16} />
+      {/* Successfully Imported Alert Banner */}
+      {importedIds.size > 0 && (
+        <div className="artist-suggestions-imported-banner">
+          <div className="imported-banner-left">
+            <Check size={16} className="imported-banner-icon" />
+            <span>
+              <strong>{importedIds.size} {importedIds.size === 1 ? 'project' : 'projects'}</strong> added to {artistNode.name}!
+            </span>
           </div>
-          <div>
-            <div className="artist-suggestions-title">
-              Suggested Projects for <span>{artistNode.name}</span>
+          {onFinishImport && (
+            <button
+              type="button"
+              className="artist-suggestions-view-btn"
+              onClick={onFinishImport}
+            >
+              <span>View in Library</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Functional Action & Filter Bar */}
+      <div className="artist-suggestions-filter-bar">
+        <div className="artist-suggestions-filter-left">
+          {!loading && projects.length > 0 && (
+            <div className="artist-suggestions-tabs">
+              <button
+                type="button"
+                className={`artist-suggestions-tab ${filterTab === 'all' ? 'active' : ''}`}
+                onClick={() => setFilterTab('all')}
+              >
+                All Releases <span className="tab-count">{projects.length}</span>
+              </button>
+              {albumCount > 0 && (
+                <button
+                  type="button"
+                  className={`artist-suggestions-tab ${filterTab === 'album' ? 'active' : ''}`}
+                  onClick={() => setFilterTab('album')}
+                >
+                  Albums <span className="tab-count">{albumCount}</span>
+                </button>
+              )}
+              {epCount > 0 && (
+                <button
+                  type="button"
+                  className={`artist-suggestions-tab ${filterTab === 'ep' ? 'active' : ''}`}
+                  onClick={() => setFilterTab('ep')}
+                >
+                  EPs <span className="tab-count">{epCount}</span>
+                </button>
+              )}
+              {singleCount > 0 && (
+                <button
+                  type="button"
+                  className={`artist-suggestions-tab ${filterTab === 'single' ? 'active' : ''}`}
+                  onClick={() => setFilterTab('single')}
+                >
+                  Singles <span className="tab-count">{singleCount}</span>
+                </button>
+              )}
             </div>
-            <div className="artist-suggestions-subtitle">
-              {loading
-                ? 'Searching digital catalogs for albums, EPs, and discography...'
-                : projects.length > 0
-                ? `${projects.length} releases discovered — click "+ Import" to add any project directly to this artist`
-                : 'No releases found automatically'}
+          )}
+
+          {!loading && projects.length > 0 && (
+            <div className="artist-suggestions-search-wrap">
+              <Search size={13} className="search-icon" />
+              <input
+                type="text"
+                placeholder="Filter releases..."
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                className="artist-suggestions-search-input"
+              />
             </div>
-          </div>
+          )}
         </div>
 
         <div className="artist-suggestions-actions">
@@ -155,81 +213,6 @@ export const ArtistProjectsSuggestions: React.FC<ArtistProjectsSuggestionsProps>
         </div>
       </div>
 
-      {/* Successfully Imported Alert Banner */}
-      {importedIds.size > 0 && (
-        <div className="artist-suggestions-imported-banner">
-          <div className="imported-banner-left">
-            <Check size={16} className="imported-banner-icon" />
-            <span>
-              <strong>{importedIds.size} {importedIds.size === 1 ? 'project' : 'projects'}</strong> added to {artistNode.name}!
-            </span>
-          </div>
-          {onFinishImport && (
-            <button
-              type="button"
-              className="artist-suggestions-view-btn"
-              onClick={onFinishImport}
-            >
-              <span>View in Library</span>
-              <span aria-hidden="true">→</span>
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Filter bar */}
-      {!loading && projects.length > 0 && (
-        <div className="artist-suggestions-filter-bar">
-          <div className="artist-suggestions-tabs">
-            <button
-              type="button"
-              className={`artist-suggestions-tab ${filterTab === 'all' ? 'active' : ''}`}
-              onClick={() => setFilterTab('all')}
-            >
-              All Releases <span className="tab-count">{projects.length}</span>
-            </button>
-            {albumCount > 0 && (
-              <button
-                type="button"
-                className={`artist-suggestions-tab ${filterTab === 'album' ? 'active' : ''}`}
-                onClick={() => setFilterTab('album')}
-              >
-                Albums <span className="tab-count">{albumCount}</span>
-              </button>
-            )}
-            {epCount > 0 && (
-              <button
-                type="button"
-                className={`artist-suggestions-tab ${filterTab === 'ep' ? 'active' : ''}`}
-                onClick={() => setFilterTab('ep')}
-              >
-                EPs <span className="tab-count">{epCount}</span>
-              </button>
-            )}
-            {singleCount > 0 && (
-              <button
-                type="button"
-                className={`artist-suggestions-tab ${filterTab === 'single' ? 'active' : ''}`}
-                onClick={() => setFilterTab('single')}
-              >
-                Singles <span className="tab-count">{singleCount}</span>
-              </button>
-            )}
-          </div>
-
-          <div className="artist-suggestions-search-wrap">
-            <Search size={13} className="search-icon" />
-            <input
-              type="text"
-              placeholder="Filter releases..."
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              className="artist-suggestions-search-input"
-            />
-          </div>
-        </div>
-      )}
-
       {/* Main Content Area */}
       {loading ? (
         <div className="artist-suggestions-grid">
@@ -248,7 +231,6 @@ export const ArtistProjectsSuggestions: React.FC<ArtistProjectsSuggestionsProps>
         <div className="artist-suggestions-empty">
           <Disc size={36} style={{ color: '#71717a', marginBottom: 12 }} />
           <div className="empty-title">Suggestions Unavailable</div>
-          <p className="empty-desc">{error}. You can still search manually or add items.</p>
           <div className="empty-actions">
             <button className="artist-suggestions-btn primary" onClick={onOpenSearchModal}>
               <Search size={13} />
@@ -264,13 +246,8 @@ export const ArtistProjectsSuggestions: React.FC<ArtistProjectsSuggestionsProps>
         <div className="artist-suggestions-empty">
           <Disc size={36} style={{ color: '#71717a', marginBottom: 12 }} />
           <div className="empty-title">
-            {projects.length === 0 ? 'No releases found for this artist' : 'No matching releases'}
+            {projects.length === 0 ? 'No releases found' : 'No matching releases'}
           </div>
-          <p className="empty-desc">
-            {projects.length === 0
-              ? `We couldn't find automatic release suggestions for "${artistNode.name}". Search across all providers to add projects.`
-              : 'Try clearing your filter to view all available releases.'}
-          </p>
           <div className="empty-actions">
             {projects.length > 0 && query ? (
               <button className="artist-suggestions-btn secondary" onClick={() => setQuery('')}>
