@@ -268,16 +268,18 @@ const server = Bun.serve({
               } catch {}
             };
 
-            // Tier 1: Fast Phase (Deezer releases & artists in ~50ms, grouped into canonical albums)
+            // Tier 1: Fast Phase (Deezer releases, artists, & tracks in ~50ms, grouped into canonical albums)
             let fastRes: any = null;
             try {
               fastRes = await executeFastSearch(query);
               sendEvent('fast', {
                 artists: fastRes.artists,
                 albums: fastRes.albums,
+                tracks: fastRes.tracks || [],
                 counts: {
                   artists: fastRes.artists.length,
                   albums: fastRes.albums.length,
+                  tracks: fastRes.tracks?.length || 0,
                   totalVersions: fastRes.albums.reduce((acc: number, a: any) => acc + a.versions.length, 0),
                   deezerCount: fastRes.deezerCount,
                   discogsCount: 0,
@@ -301,7 +303,8 @@ const server = Bun.serve({
               const fullRes = await executeEnrichedSearch(
                 query,
                 fastRes?.rawDeezerList || [],
-                fastRes?.artists || []
+                fastRes?.artists || [],
+                fastRes?.tracks || []
               );
 
               if (isAborted) return;
@@ -309,6 +312,7 @@ const server = Bun.serve({
               sendEvent('discogs', {
                 artists: fullRes.artists,
                 albums: fullRes.albums,
+                tracks: fullRes.tracks || [],
                 counts: fullRes.counts,
                 discogsLoading: false,
                 discogsConfigured: true,
@@ -345,6 +349,7 @@ const server = Bun.serve({
         return json({
           artists: result.artists,
           albums: result.albums,
+          tracks: result.tracks || [],
           releases: result.albums.map(a => a.versions[0]).filter(Boolean),
           counts: result.counts,
           discogsConfigured: result.discogsConfigured,
@@ -372,6 +377,81 @@ const server = Bun.serve({
 
         const updatedTree = getFullTree();
         return json({ success: true, destNodeId: newArtistNode.id, tree: updatedTree });
+      }
+
+      // 11b. Import single track: POST /api/tracks/import-single
+      if (path === '/api/tracks/import-single' && method === 'POST') {
+        const body = await req.json();
+        const {
+          trackId,
+          title,
+          artist,
+          album,
+          duration = 0,
+          coverUrl = '',
+          isrc = '',
+          targetNodeId,
+          createAlbumContainer = true,
+        } = body;
+
+        if (!title) {
+          return errorJson('Missing track title');
+        }
+
+        const parentId = (targetNodeId && targetNodeId !== 'uncategorized' && targetNodeId !== 'root')
+          ? targetNodeId
+          : null;
+
+        let destNodeId = parentId;
+
+        if (createAlbumContainer) {
+          const albumName = album || 'Singles & Releases';
+          const existingAlbum = parentId
+            ? (db.query('SELECT id FROM nodes WHERE parent_id = ? AND type = "Album" AND LOWER(name) = LOWER(?)').get(parentId, albumName) as any)
+            : (db.query('SELECT id FROM nodes WHERE parent_id IS NULL AND type = "Album" AND LOWER(name) = LOWER(?)').get(albumName) as any);
+
+          if (existingAlbum) {
+            destNodeId = existingAlbum.id;
+          } else {
+            const newAlbum = createNode({
+              parent_id: parentId,
+              type: 'Album',
+              name: albumName,
+              cover_url: coverUrl || '',
+            });
+            destNodeId = newAlbum.id;
+          }
+        } else if (!destNodeId) {
+          let uncat = db.query('SELECT id FROM nodes WHERE parent_id IS NULL AND LOWER(name) = "uncategorized"').get() as any;
+          if (!uncat) {
+            uncat = createNode({ parent_id: null, type: 'Folder', name: 'Uncategorized', cover_url: '' });
+          }
+          destNodeId = uncat.id;
+        }
+
+        const newTrack = createTrack({
+          node_id: destNodeId,
+          t: title,
+          a: artist || 'Unknown Artist',
+          al: album || 'Singles & Releases',
+          y: 0,
+          f: 'Digital Track',
+          c: '—',
+          bc: '—',
+          mb: trackId ? `deezer-${trackId}` : '',
+          isrc: isrc || '—',
+          len: duration || 0,
+          bpm: 0,
+          key: '',
+          cover_url: coverUrl || '',
+        });
+
+        return json({
+          success: true,
+          track: newTrack,
+          destNodeId,
+          tree: getFullTree(),
+        });
       }
 
       // 11. Deezer Search: GET /api/deezer/search?q=...

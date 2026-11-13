@@ -46,6 +46,61 @@ export async function searchDeezerArtists(query: string): Promise<DeezerArtistSu
   return results;
 }
 
+export interface DeezerTrackSummary {
+  id: number;
+  title: string;
+  artist: string;
+  album: string;
+  duration: number;
+  cover: string;
+  preview: string;
+  isrc?: string;
+  year?: number;
+}
+
+/**
+ * Searches Deezer catalog for individual tracks matching query.
+ */
+export async function searchDeezerTracks(query: string): Promise<DeezerTrackSummary[]> {
+  const q = query.trim();
+  if (!q) return [];
+  const cacheKey = `tracks:${q.toLowerCase()}`;
+  const cached = cache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  try {
+    const url = `https://api.deezer.com/search/track?q=${encodeURIComponent(q)}&limit=25`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'FMSort/1.0.0 ( https://github.com/err/fmsort )',
+        'Accept': 'application/json',
+      },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (!data.data || !Array.isArray(data.data)) return [];
+
+    const tracks: DeezerTrackSummary[] = data.data.map((t: any) => ({
+      id: t.id,
+      title: t.title || t.title_short || 'Untitled',
+      artist: t.artist?.name || 'Unknown Artist',
+      album: t.album?.title || 'Singles & Releases',
+      duration: t.duration || 0,
+      cover: t.album?.cover_medium || t.album?.cover || t.artist?.picture_medium || '',
+      preview: t.preview || '',
+      isrc: t.isrc || '',
+    }));
+
+    cache.set(cacheKey, { data: tracks, timestamp: Date.now() });
+    return tracks;
+  } catch (err: any) {
+    console.warn('[Deezer track search error]', err.message);
+    return [];
+  }
+}
+
 export interface DeezerReleaseSummary {
   id: number;
   title: string;
@@ -74,6 +129,7 @@ export interface DeezerTrackDetail {
   bpm: number;
   key: string;
   cover_url?: string;
+  preview?: string;
 }
 
 export interface DeezerReleaseDetail {
@@ -211,6 +267,7 @@ export async function getDeezerReleaseDetails(albumId: string | number): Promise
       bpm: tr.bpm || 0,
       key: '',
       cover_url: coverUrl,
+      preview: tr.preview || '',
     });
   }
 

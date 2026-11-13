@@ -132,9 +132,22 @@ export interface GroupedAlbum {
   versions: ReleaseVersion[];
 }
 
+export interface UnifiedTrackSummary {
+  id: number | string;
+  title: string;
+  artist: string;
+  album: string;
+  duration: number;
+  cover: string;
+  preview: string;
+  isrc?: string;
+  source?: 'deezer' | 'discogs';
+}
+
 export interface HybridSearchResponse {
   artists: UnifiedArtistSummary[];
   albums?: GroupedAlbum[];
+  tracks?: UnifiedTrackSummary[];
   releases: UnifiedReleaseSummary[];
   discogsConfigured: boolean;
   discogsLoading?: boolean;
@@ -142,6 +155,7 @@ export interface HybridSearchResponse {
   counts?: {
     artists: number;
     albums?: number;
+    tracks?: number;
     totalVersions?: number;
     deezerCount?: number;
     discogsCount?: number;

@@ -370,6 +370,74 @@ export async function importMusicBrainzRelease(
   return res.json();
 }
 
+export type { UnifiedTrackSummary } from './types';
+import type { UnifiedTrackSummary } from './types';
+
+export async function importSingleTrack(data: {
+  trackId?: number | string;
+  title: string;
+  artist: string;
+  album: string;
+  duration?: number;
+  coverUrl?: string;
+  isrc?: string;
+  targetNodeId: string;
+  createAlbumContainer?: boolean;
+}): Promise<{ success: boolean; track: any; destNodeId: string; tree: LibraryNode[] }> {
+  const res = await fetch(`${API_BASE}/tracks/import-single`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || 'Failed to import single track');
+  }
+  return res.json();
+}
+
+export async function fetchReleaseTracklist(
+  source: 'deezer' | 'discogs' | 'musicbrainz',
+  id: string | number
+): Promise<UnifiedTrackSummary[]> {
+  try {
+    if (source === 'deezer') {
+      const res = await fetch(`${API_BASE}/deezer/album/${id}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.tracks || []).map((t: any, idx: number) => ({
+        id: t.mbid ? t.mbid.replace('deezer-', '') : `${id}-${idx}`,
+        title: t.title,
+        artist: t.artist,
+        album: t.album || data.title,
+        duration: t.length || 0,
+        cover: t.cover_url || data.cover_url || '',
+        preview: t.preview || '',
+        isrc: t.isrc && t.isrc !== '—' ? t.isrc : '',
+        source: 'deezer' as const,
+      }));
+    } else if (source === 'discogs') {
+      const res = await fetch(`${API_BASE}/discogs/release/${id}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.tracks || []).map((t: any, idx: number) => ({
+        id: `discogs-${id}-${idx}`,
+        title: t.title,
+        artist: t.artist || data.artist,
+        album: t.album || data.title,
+        duration: t.length || 0,
+        cover: t.cover_url || data.thumb || '',
+        preview: '',
+        isrc: t.isrc && t.isrc !== '—' ? t.isrc : '',
+        source: 'discogs' as const,
+      }));
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 export async function exportLibrary(): Promise<any> {
   const res = await fetch(`${API_BASE}/export`);
   if (!res.ok) throw new Error('Failed to export library');

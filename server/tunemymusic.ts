@@ -9,6 +9,11 @@ import {
   searchDeezerArtists,
   searchDeezerReleases,
 } from './deezer';
+import {
+  isDiscogsConfigured,
+  searchDiscogsArtists,
+  searchDiscogsReleases,
+} from './discogs';
 
 export interface ParsedTuneTrack {
   title: string;
@@ -368,33 +373,51 @@ export async function connectAndImportTuneMyMusic(
   const txElapsed = (performance.now() - txStart).toFixed(2);
   console.log(`[TuneMyMusic Server] Database transaction finished in ${txElapsed} ms! Saved ${importedTracksCount} tracks across ${artistsMap.size} artists.`);
 
-  // 4. FAST BOUNDED PARALLEL ARTWORK ENRICHMENT (Timeout bounded to 2.5s maximum)
-  try {
-    const artworkTasks: Promise<any>[] = [];
+  // 4. DUAL-TIER DISCOGS & DEEZER METADATA ENRICHMENT
+  const immediateArtists = newArtistNodesToEnrich.slice(0, 10);
+  const remainingArtists = newArtistNodesToEnrich.slice(10);
+  const immediateAlbums = newAlbumNodesToEnrich.slice(0, 10);
+  const remainingAlbums = newAlbumNodesToEnrich.slice(10);
 
-    // Top 15 artists
-    for (const item of newArtistNodesToEnrich.slice(0, 15)) {
-      artworkTasks.push(
+  try {
+    // Phase 4a: Instant fast artwork pass (Deezer in parallel - responds in ~80ms)
+    const fastPassTasks: Promise<any>[] = [];
+    for (const item of immediateArtists) {
+      fastPassTasks.push(
         searchDeezerArtists(item.name)
           .then(res => {
-            if (res && res.length > 0 && res[0].thumb) {
-              db.run('UPDATE nodes SET cover_url = ? WHERE id = ?', [res[0].thumb, item.node.id]);
-              matchedArtworks++;
+            if (res && res[0]?.thumb) {
+              db.run('UPDATE nodes SET cover_url = ? WHERE id = ? AND (cover_url IS NULL OR cover_url = "")', [res[0].thumb, item.node.id]);
             }
           })
           .catch(() => {})
       );
     }
-
-    // Top 15 albums
-    for (const item of newAlbumNodesToEnrich.slice(0, 15)) {
-      const q = `${item.artist} ${item.album}`.trim();
-      artworkTasks.push(
-        searchDeezerReleases(q)
+    for (const item of immediateAlbums) {
+      fastPassTasks.push(
+        searchDeezerReleases(`${item.artist} ${item.album}`)
           .then(res => {
-            if (res && res.length > 0 && res[0].thumb) {
-              db.run('UPDATE nodes SET cover_url = ? WHERE id = ?', [res[0].thumb, item.node.id]);
+            if (res && res[0]?.thumb) {
+              db.run('UPDATE nodes SET cover_url = ? WHERE id = ? AND (cover_url IS NULL OR cover_url = "")', [res[0].thumb, item.node.id]);
               db.run('UPDATE tracks SET cover_url = ? WHERE node_id = ? AND (cover_url IS NULL OR cover_url = "")', [res[0].thumb, item.node.id]);
+            }
+          })
+          .catch(() => {})
+      );
+    }
+
+    if (fastPassTasks.length > 0) {
+      await Promise.race([Promise.allSettled(fastPassTasks), new Promise(r => setTimeout(r, 800))]);
+    }
+
+    // Phase 4b: Authentic Discogs Metadata Pass (Vinyl artwork, year, format, catalog number)
+    const discogsTasks: Promise<any>[] = [];
+    for (const item of immediateArtists.slice(0, 4)) {
+      discogsTasks.push(
+        enrichArtistMetadata(item.name)
+          .then(res => {
+            if (res && res.thumb) {
+              db.run('UPDATE nodes SET cover_url = ? WHERE id = ?', [res.thumb, item.node.id]);
               matchedArtworks++;
             }
           })
@@ -402,13 +425,38 @@ export async function connectAndImportTuneMyMusic(
       );
     }
 
-    if (artworkTasks.length > 0) {
-      // Run with 2.5s timeout so import NEVER hangs
-      const timeoutPromise = new Promise(resolve => setTimeout(resolve, 2500));
-      await Promise.race([Promise.allSettled(artworkTasks), timeoutPromise]);
+    for (const item of immediateAlbums.slice(0, 4)) {
+      discogsTasks.push(
+        enrichAlbumMetadata(item.artist, item.album)
+          .then(res => {
+            if (res) {
+              if (res.thumb) {
+                db.run('UPDATE nodes SET cover_url = ? WHERE id = ?', [res.thumb, item.node.id]);
+                db.run('UPDATE tracks SET cover_url = ? WHERE node_id = ?', [res.thumb, item.node.id]);
+                matchedArtworks++;
+              }
+              if (res.year || res.format || res.catalog_no) {
+                db.run(
+                  'UPDATE tracks SET year = CASE WHEN year = 0 AND ? > 0 THEN ? ELSE year END, format = CASE WHEN format = "Digital Track" AND ? != "" THEN ? ELSE format END, catalog_no = CASE WHEN catalog_no = "—" AND ? != "" THEN ? ELSE catalog_no END WHERE node_id = ?',
+                  [res.year || 0, res.year || 0, res.format || '', res.format || '', res.catalog_no || '', res.catalog_no || '', item.node.id]
+                );
+              }
+            }
+          })
+          .catch(() => {})
+      );
+    }
+
+    if (discogsTasks.length > 0) {
+      await Promise.race([Promise.allSettled(discogsTasks), new Promise(r => setTimeout(r, 2200))]);
     }
   } catch (err: any) {
-    console.warn('[TuneMyMusic Server] Artwork background enrichment warning:', err?.message);
+    console.warn('[TuneMyMusic Server] Immediate enrichment warning:', err?.message);
+  }
+
+  // Tier 2: Background enrichment queue for remaining items
+  if (remainingArtists.length > 0 || remainingAlbums.length > 0) {
+    queueRemainingEnrichment(remainingArtists, remainingAlbums);
   }
 
   const updatedTree = getFullTree();
@@ -426,4 +474,143 @@ export async function connectAndImportTuneMyMusic(
     destNodeId: finalDestinationNodeId || targetParentId || '',
     tree: updatedTree,
   };
+}
+
+/**
+ * Enriches an artist with Discogs first, then Deezer fallback.
+ */
+export async function enrichArtistMetadata(name: string): Promise<{ thumb: string; source: string } | null> {
+  const cleanName = name.trim();
+  if (!cleanName) return null;
+
+  // 1. Discogs first (authentic artist photos)
+  if (isDiscogsConfigured()) {
+    try {
+      const discogsRes = await searchDiscogsArtists(cleanName);
+      if (discogsRes && discogsRes.length > 0) {
+        const best = discogsRes[0];
+        const thumb = best.cover_image || best.thumb || '';
+        if (thumb) {
+          return { thumb, source: 'discogs' };
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Deezer fallback
+  try {
+    const dzRes = await searchDeezerArtists(cleanName);
+    if (dzRes && dzRes.length > 0 && dzRes[0].thumb) {
+      return { thumb: dzRes[0].thumb, source: 'deezer' };
+    }
+  } catch {}
+
+  return null;
+}
+
+/**
+ * Enriches an album with Discogs first, then Deezer fallback.
+ */
+export async function enrichAlbumMetadata(
+  artist: string,
+  album: string
+): Promise<{
+  thumb: string;
+  year?: number;
+  format?: string;
+  catalog_no?: string;
+  barcode?: string;
+  label?: string;
+  source: string;
+} | null> {
+  const cleanArtist = artist.trim();
+  const cleanAlbum = album.trim();
+  if (!cleanAlbum || cleanAlbum.toLowerCase() === 'singles & releases') return null;
+
+  // 1. Discogs first (authentic vinyl/CD releases, pressings, labels, and formats)
+  if (isDiscogsConfigured()) {
+    try {
+      const discogsRes = await searchDiscogsReleases(`${cleanArtist} - ${cleanAlbum}`);
+      if (discogsRes && discogsRes.length > 0) {
+        const match = discogsRes.find(r => r.thumb) || discogsRes[0];
+        if (match) {
+          return {
+            thumb: match.thumb || '',
+            year: match.year || 0,
+            format: match.format || 'Vinyl',
+            catalog_no: match.catalog_no || '—',
+            barcode: match.barcode || '—',
+            label: match.label || '',
+            source: 'discogs',
+          };
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Deezer fallback
+  try {
+    const dzRes = await searchDeezerReleases(`${cleanArtist} ${cleanAlbum}`);
+    if (dzRes && dzRes.length > 0) {
+      const match = dzRes.find(r => r.thumb) || dzRes[0];
+      if (match) {
+        return {
+          thumb: match.thumb || '',
+          year: match.year || 0,
+          format: match.format || 'Digital Album',
+          catalog_no: match.catalog_no || '—',
+          barcode: match.barcode || '—',
+          label: match.label || '',
+          source: 'deezer',
+        };
+      }
+    }
+  } catch {}
+
+  return null;
+}
+
+/**
+ * Asynchronous background worker that continuously enriches remaining items with Discogs/Deezer rate pacing.
+ */
+function queueRemainingEnrichment(
+  artists: { node: NodeRecord; name: string }[],
+  albums: { node: NodeRecord; artist: string; album: string }[]
+) {
+  if (artists.length === 0 && albums.length === 0) return;
+
+  (async () => {
+    console.log(`[TuneMyMusic Background Queue] Started background enrichment for ${artists.length} artists and ${albums.length} albums.`);
+
+    for (const item of artists) {
+      try {
+        const enriched = await enrichArtistMetadata(item.name);
+        if (enriched && enriched.thumb) {
+          db.run('UPDATE nodes SET cover_url = ? WHERE id = ?', [enriched.thumb, item.node.id]);
+        }
+      } catch {}
+      await new Promise(r => setTimeout(r, 600));
+    }
+
+    for (const item of albums) {
+      try {
+        const enriched = await enrichAlbumMetadata(item.artist, item.album);
+        if (enriched) {
+          if (enriched.thumb) {
+            db.run('UPDATE nodes SET cover_url = ? WHERE id = ?', [enriched.thumb, item.node.id]);
+            db.run('UPDATE tracks SET cover_url = COALESCE(NULLIF(cover_url, ""), ?) WHERE node_id = ?', [enriched.thumb, item.node.id]);
+          }
+          if (enriched.year || enriched.format || enriched.catalog_no) {
+            db.run(
+              'UPDATE tracks SET year = CASE WHEN year = 0 AND ? > 0 THEN ? ELSE year END, format = CASE WHEN format = "Digital Track" AND ? != "" THEN ? ELSE format END, catalog_no = CASE WHEN catalog_no = "—" AND ? != "" THEN ? ELSE catalog_no END WHERE node_id = ?',
+              [enriched.year || 0, enriched.year || 0, enriched.format || '', enriched.format || '', enriched.catalog_no || '', enriched.catalog_no || '', item.node.id]
+            );
+          }
+        }
+      } catch {}
+      await new Promise(r => setTimeout(r, 800));
+    }
+
+    console.log('[TuneMyMusic Background Queue] Finished processing background queue.');
+  })().catch(err => console.warn('[TuneMyMusic Background Queue error]', err?.message));
 }

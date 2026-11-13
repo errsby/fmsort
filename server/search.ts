@@ -1,6 +1,8 @@
 import {
   searchDeezerReleases,
   searchDeezerArtists,
+  searchDeezerTracks,
+  type DeezerTrackSummary,
 } from './deezer';
 import {
   isDiscogsConfigured,
@@ -64,9 +66,11 @@ export interface UnifiedArtist {
 export interface SearchResult {
   artists: UnifiedArtist[];
   albums: GroupedAlbum[];
+  tracks: DeezerTrackSummary[];
   counts: {
     artists: number;
     albums: number;
+    tracks: number;
     totalVersions: number;
     deezerCount: number;
     discogsCount: number;
@@ -333,9 +337,10 @@ export async function executeHybridSearch(query: string): Promise<SearchResult> 
   const discogsEnabled = isDiscogsConfigured();
 
   // Run in parallel
-  const [deezerReleases, deezerArtists, discogsReleases, discogsArtists, mbReleases] = await Promise.all([
+  const [deezerReleases, deezerArtists, deezerTracks, discogsReleases, discogsArtists, mbReleases] = await Promise.all([
     searchDeezerReleases(q).catch(() => []),
     searchDeezerArtists(q).catch(() => []),
+    searchDeezerTracks(q).catch(() => []),
     discogsEnabled ? searchDiscogsReleases(q).catch(() => []) : Promise.resolve([]),
     discogsEnabled ? searchDiscogsArtists(q).catch(() => []) : Promise.resolve([]),
     searchMusicBrainzReleases(q).catch(() => []),
@@ -424,9 +429,11 @@ export async function executeHybridSearch(query: string): Promise<SearchResult> 
   const result: SearchResult = {
     artists: combinedArtists,
     albums: groupedAlbums,
+    tracks: deezerTracks,
     counts: {
       artists: combinedArtists.length,
       albums: groupedAlbums.length,
+      tracks: deezerTracks.length,
       totalVersions,
       deezerCount: deezerReleases.length,
       discogsCount: discogsReleases.length,
@@ -444,13 +451,15 @@ export async function executeHybridSearch(query: string): Promise<SearchResult> 
 export async function executeFastSearch(query: string): Promise<{
   artists: UnifiedArtist[];
   albums: GroupedAlbum[];
+  tracks: DeezerTrackSummary[];
   rawDeezerList: RawReleaseItem[];
   deezerCount: number;
 }> {
   const q = query.trim();
-  const [deezerReleases, deezerArtists] = await Promise.all([
+  const [deezerReleases, deezerArtists, deezerTracks] = await Promise.all([
     searchDeezerReleases(q).catch(() => []),
     searchDeezerArtists(q).catch(() => []),
+    searchDeezerTracks(q).catch(() => []),
   ]);
 
   const rawDeezerList: RawReleaseItem[] = deezerReleases.map(d => ({
@@ -480,6 +489,7 @@ export async function executeFastSearch(query: string): Promise<{
   return {
     artists,
     albums,
+    tracks: deezerTracks,
     rawDeezerList,
     deezerCount: deezerReleases.length,
   };
@@ -491,7 +501,8 @@ export async function executeFastSearch(query: string): Promise<{
 export async function executeEnrichedSearch(
   query: string,
   existingFastRawList: RawReleaseItem[] = [],
-  existingFastArtists: UnifiedArtist[] = []
+  existingFastArtists: UnifiedArtist[] = [],
+  existingFastTracks: DeezerTrackSummary[] = []
 ): Promise<SearchResult> {
   const q = query.trim();
   const discogsEnabled = isDiscogsConfigured();
@@ -549,9 +560,11 @@ export async function executeEnrichedSearch(
   const result: SearchResult = {
     artists: combinedArtists,
     albums: combinedAlbums,
+    tracks: existingFastTracks,
     counts: {
       artists: combinedArtists.length,
       albums: combinedAlbums.length,
+      tracks: existingFastTracks.length,
       totalVersions,
       deezerCount: existingFastRawList.length,
       discogsCount: discogsReleases.length,
