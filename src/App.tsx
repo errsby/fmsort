@@ -49,6 +49,7 @@ import { ContextMenu } from './components/ContextMenu';
 import type { ContextMenuState } from './components/ContextMenu';
 import { ArtistProjectsSuggestions } from './components/ArtistProjectsSuggestions';
 import { ArtistProfileHeader } from './components/ArtistProfileHeader';
+import { UserProfile } from './components/UserProfile';
 import {
   Search,
   FolderPlus,
@@ -290,6 +291,29 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleWindowResize);
   }, [menuPosition, menuWidth, menuHeight]);
 
+  // Client-side route state (supports /profile and /)
+  const [currentRoute, setCurrentRoute] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return window.location.pathname;
+    }
+    return '/';
+  });
+
+  const navigateTo = (path: string) => {
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path);
+    }
+    setCurrentRoute(path);
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentRoute(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   // "Select Multiple" Mode state
   const [selectMultipleMode, setSelectMultipleMode] = useState(false);
   const dragHoverTimeoutRef = useRef<any>(null);
@@ -480,6 +504,9 @@ export const App: React.FC = () => {
     setSelectedTrackIds(new Set());
     setSelectedNodeIds(new Set([node.id]));
     lastSelectedNodeIdRef.current = node.id;
+    if (currentRoute !== '/') {
+      setCurrentRoute('/');
+    }
     if (!isMenuPinnedRef.current) {
       setTreeDropdownOpen(false);
     }
@@ -3133,7 +3160,25 @@ export const App: React.FC = () => {
             onDragLeave={handleEmptySpaceDragLeave}
             onDrop={handleEmptySpaceDrop}
           >
-        {activeNode ? (
+        {currentRoute === '/profile' ? (
+          <UserProfile
+            tree={tree}
+            allLibraryTracks={allLibraryTracks}
+            completedAlbumKeys={completedAlbumKeys}
+            onSelectNode={node => {
+              navigateTo('/');
+              selectNode(node);
+            }}
+            onNavigateBackToLibrary={() => {
+              navigateTo('/');
+              if (tree.length > 0 && !activeNodeId) {
+                selectNode(tree[0]);
+              }
+            }}
+            showToast={showToast}
+            allContainers={allContainers}
+          />
+        ) : activeNode ? (
           /* =========================================================================
              Container Detail View (Drilled Down View)
              ========================================================================= */
@@ -3340,6 +3385,24 @@ export const App: React.FC = () => {
                           </div>
                         )}
                       </div>
+
+                      {/* User Profile Pill */}
+                      <button
+                        type="button"
+                        className="user-profile-header-btn"
+                        onClick={() => navigateTo('/profile')}
+                        title="View Selector Profile (/profile)"
+                      >
+                        <CoverArt
+                          src={null}
+                          alt="err"
+                          size={18}
+                          type="artist"
+                          seed="err"
+                          rounded="full"
+                        />
+                        <span>@err</span>
+                      </button>
                     </div>
                   </div>
 
@@ -4097,20 +4160,37 @@ export const App: React.FC = () => {
 
               {/* Footer Actions (Settings & Stats) */}
               <div className="drawer-menu-footer-actions">
-                <button
-                  type="button"
-                  className="drawer-menu-action-item"
-                  onClick={() => {
-                    if (!isMenuPinnedRef.current) {
-                      setTreeDropdownOpen(false);
-                    }
-                    setSettingsOpen(true);
-                  }}
-                  title="Library & Application Settings"
-                >
-                  <Settings size={13} style={{ color: '#a78bfa' }} />
-                  <span>Settings</span>
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    type="button"
+                    className="drawer-menu-action-item"
+                    onClick={() => {
+                      if (!isMenuPinnedRef.current) {
+                        setTreeDropdownOpen(false);
+                      }
+                      setSettingsOpen(true);
+                    }}
+                    title="Library & Application Settings"
+                  >
+                    <Settings size={13} style={{ color: '#a78bfa' }} />
+                    <span>Settings</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="drawer-menu-action-item"
+                    onClick={() => {
+                      if (!isMenuPinnedRef.current) {
+                        setTreeDropdownOpen(false);
+                      }
+                      navigateTo('/profile');
+                    }}
+                    title="User Profile (/profile)"
+                  >
+                    <Radio size={13} style={{ color: '#38bdf8' }} />
+                    <span>My Profile</span>
+                  </button>
+                </div>
 
                 <div className="drawer-menu-footer-meta">
                   <span>{allContainers.length} crates</span>
