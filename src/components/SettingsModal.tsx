@@ -16,10 +16,6 @@ import {
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  statusEnabled: boolean;
-  onToggleStatus: (enabled: boolean) => void;
-  completedCount: number;
-  onResetCompleted: () => void;
   onOpenExport?: () => void;
 }
 
@@ -28,10 +24,6 @@ type SettingsTab = 'general' | 'backup' | 'shortcuts';
 export const SettingsModal: React.FC<Props> = ({
   isOpen,
   onClose,
-  statusEnabled,
-  onToggleStatus,
-  completedCount,
-  onResetCompleted,
   onOpenExport,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
@@ -99,60 +91,6 @@ export const SettingsModal: React.FC<Props> = ({
         <div className="settings-tab-body">
           {activeTab === 'general' && (
             <div className="settings-section-stack">
-              {/* Album Completion Mode Card */}
-              <div className={`settings-card ${statusEnabled ? 'status-active' : ''}`}>
-                <div className="settings-card-row">
-                  <div className="settings-card-info">
-                    <div className="settings-card-title-row">
-                      <ShieldCheck size={15} className="settings-card-icon" style={{ color: statusEnabled ? '#818cf8' : '#71717a' }} />
-                      <h4 className="settings-card-title">Album Completion Mode</h4>
-                      <span className={`settings-status-badge ${statusEnabled ? 'enabled' : ''}`}>
-                        {statusEnabled ? 'Active' : 'Disabled'}
-                      </span>
-                    </div>
-                    <p className="settings-card-desc">
-                      Dims uncompleted albums and tracks in lists. Marking an album as completed (<kbd className="settings-kbd">C</kbd>) reveals full vibrancy across all crates.
-                    </p>
-                  </div>
-
-                  {/* Toggle Switch */}
-                  <button
-                    type="button"
-                    className={`settings-toggle-switch ${statusEnabled ? 'on' : ''}`}
-                    onClick={() => onToggleStatus(!statusEnabled)}
-                    role="switch"
-                    aria-checked={statusEnabled}
-                    title={`Turn Completion Status ${statusEnabled ? 'Off' : 'On'}`}
-                  >
-                    <div className="settings-toggle-knob" />
-                  </button>
-                </div>
-
-                {/* Sub-box: Count & Reset */}
-                {statusEnabled && (
-                  <div className="settings-subbox">
-                    <div className="settings-subbox-left">
-                      <CheckCircle2 size={13} style={{ color: '#22c55e' }} />
-                      <span>
-                        <strong>{completedCount}</strong> album{completedCount === 1 ? '' : 's'} completed
-                      </span>
-                    </div>
-
-                    {completedCount > 0 && (
-                      <button
-                        type="button"
-                        className="settings-reset-btn"
-                        onClick={onResetCompleted}
-                        title="Reset all completed album marks"
-                      >
-                        <RotateCcw size={11} />
-                        <span>Reset All</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
               {/* Workflow & Productivity Preferences */}
               <div className="settings-card">
                 <div className="settings-card-title-row" style={{ marginBottom: 10 }}>

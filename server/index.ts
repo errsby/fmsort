@@ -1047,13 +1047,21 @@ const server = Bun.serve({
         try {
           if (rawKeys) completedAlbumKeys = cleanLegacyKeys(JSON.parse(rawKeys));
         } catch {}
-        return json({ statusEnabled, completedAlbumKeys });
+        const rawFolderIds = getSetting('completion_folder_ids');
+        let completionFolderIds: string[] = [];
+        try {
+          if (rawFolderIds) completionFolderIds = JSON.parse(rawFolderIds);
+        } catch {}
+        return json({ statusEnabled, completionFolderIds, completedAlbumKeys });
       }
 
       if (path === '/api/settings' && method === 'POST') {
         const body = await req.json();
         if (typeof body.statusEnabled === 'boolean') {
           setSetting('status_enabled', body.statusEnabled ? 'true' : 'false');
+        }
+        if (Array.isArray(body.completionFolderIds)) {
+          setSetting('completion_folder_ids', JSON.stringify(body.completionFolderIds));
         }
         if (Array.isArray(body.completedAlbumKeys)) {
           const cleaned = cleanLegacyKeys(body.completedAlbumKeys);
@@ -1065,7 +1073,12 @@ const server = Bun.serve({
         try {
           if (rawKeys) completedAlbumKeys = cleanLegacyKeys(JSON.parse(rawKeys));
         } catch {}
-        return json({ success: true, statusEnabled, completedAlbumKeys });
+        const rawFolderIds = getSetting('completion_folder_ids');
+        let completionFolderIds: string[] = [];
+        try {
+          if (rawFolderIds) completionFolderIds = JSON.parse(rawFolderIds);
+        } catch {}
+        return json({ success: true, statusEnabled, completionFolderIds, completedAlbumKeys });
       }
 
       if (path === '/api/albums/toggle-completed' && method === 'POST') {

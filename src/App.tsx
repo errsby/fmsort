@@ -469,6 +469,19 @@ export const App: React.FC = () => {
       return new Set();
     }
   });
+
+  // Per-folder Album Completion Mode state
+  const [completionFolderIds, setCompletionFolderIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('fmsort_completion_folder_ids');
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  // Dock tray drop target state (for opening dropped items into new workspace)
+  const [isDockTrayDropTarget, setIsDockTrayDropTarget] = useState(false);
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [addMusicMenuOpen, setAddMusicMenuOpen] = useState(false);
   const [heroBackdrop, setHeroBackdrop] = useState<string | null>(null);
@@ -584,6 +597,76 @@ export const App: React.FC = () => {
     if (!selectedNodeId) return null;
     return findNodeById(tree, selectedNodeId);
   }, [tree, selectedNodeId]);
+
+  // Check if album completion mode is active for a given container or any of its ancestors
+  const isNodeCompletionEnabled = useCallback(
+    (nodeId: string | null | undefined): boolean => {
+      if (!nodeId) return false;
+      if (completionFolderIds.has(nodeId)) return true;
+      const path = findNodePath(tree, nodeId) || [];
+      return path.some(p => completionFolderIds.has(p.id));
+    },
+    [completionFolderIds, tree]
+  );
+
+  const handleToggleFolderCompletion = async (folderId: string) => {
+    const targetNode = findNodeById(tree, folderId);
+    const folderName = targetNode?.name || 'Folder';
+    const isCurrentlyEnabled = completionFolderIds.has(folderId);
+    const nextSet = new Set(completionFolderIds);
+    if (isCurrentlyEnabled) {
+      nextSet.delete(folderId);
+    } else {
+      nextSet.add(folderId);
+    }
+    setCompletionFolderIds(nextSet);
+    try {
+      localStorage.setItem('fmsort_completion_folder_ids', JSON.stringify(Array.from(nextSet)));
+      await saveSettings({ completionFolderIds: Array.from(nextSet) });
+      showToast(
+        isCurrentlyEnabled
+          ? `Album completion mode disabled for "${folderName}"`
+          : `Album completion mode enabled for "${folderName}"`
+      );
+    } catch {
+      showToast('Saved completion mode state locally');
+    }
+  };
+
+  // Workspace Drawer Max Width Constraint (Stops sizing horizontally if conflicting with Lib Drawer)
+  const wsMaxWidth = useMemo(() => {
+    if (!treeDropdownOpen) return undefined;
+
+    const wsX = wsDrawerPosition ? wsDrawerPosition.x : 16;
+    const wsY = wsDrawerPosition ? wsDrawerPosition.y : (typeof window !== 'undefined' ? window.innerHeight - 54 : 700);
+
+    // If library drawer has a custom position
+    if (menuPosition) {
+      const libX = menuPosition.x;
+      const libY = menuPosition.y;
+      const libW = menuWidth;
+      const libH = menuHeight;
+
+      // Check vertical conflict
+      const wsH = 38;
+      const verticalConflict = !(wsY + wsH < libY || wsY > libY + libH);
+
+      // If library drawer is to the right and vertically in conflict or nearby
+      if (libX > wsX && verticalConflict) {
+        return `${Math.max(160, libX - wsX - 8)}px`;
+      }
+
+      // If lib drawer is aligned on the left or overlapping
+      if (Math.abs(libX - wsX) < 40) {
+        return `${Math.max(160, libW)}px`;
+      }
+    } else {
+      // Default docked position: lib drawer sits directly above/aligned with ws drawer
+      return `${Math.max(160, menuWidth)}px`;
+    }
+
+    return undefined;
+  }, [treeDropdownOpen, menuWidth, menuHeight, menuPosition, wsDrawerPosition]);
 
   const firstSelectedTrack = useMemo(() => {
     if (selectedTrackIds.size === 0) return null;
@@ -906,6 +989,67 @@ export const App: React.FC = () => {
     clearDragState();
   };
 
+  // Workspace Dock Tray Drag & Drop (Drop containers or tracks into workspace drawer to open as new workspace window)
+  const handleWorkspaceTrayDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!isDockTrayDropTarget) {
+      setIsDockTrayDropTarget(true);
+    }
+  };
+
+  const handleWorkspaceTrayDragLeave = (e: React.DragEvent) => {
+    const related = e.relatedTarget as Node | null;
+    if (related && (e.currentTarget as Node).contains(related)) {
+      return;
+    }
+    setIsDockTrayDropTarget(false);
+  };
+
+  const handleWorkspaceTrayDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDockTrayDropTarget(false);
+    setIsWorkspaceDropTarget(null);
+
+    const nodeIds = getDraggedNodeIds(e);
+    const trackIds = getDraggedTrackIds(e);
+
+    // If containers/nodes dropped from lib drawer or item UI table:
+    if (nodeIds.length > 0) {
+      const nodesToOpen = nodeIds.map(id => findNodeById(tree, id)).filter(Boolean) as LibraryNode[];
+      if (nodesToOpen.length > 0) {
+        nodesToOpen.forEach((node, idx) => {
+          openInNewWorkspace(node, idx === nodesToOpen.length - 1);
+        });
+        clearDragState();
+        return;
+      }
+    }
+
+    // If tracks dropped from item UI table:
+    if (trackIds.length > 0) {
+      const firstTrack = activeFlatTracks.find(t => trackIds.includes(t.id));
+      if (firstTrack?.al) {
+        const albumNode = allContainers.find(
+          c => c.type === 'Album' && c.name.toLowerCase() === firstTrack.al.toLowerCase()
+        );
+        if (albumNode) {
+          openInNewWorkspace(albumNode);
+          clearDragState();
+          return;
+        }
+      }
+      if (activeNode) {
+        openInNewWorkspace(activeNode);
+        clearDragState();
+        return;
+      }
+    }
+
+    clearDragState();
+  };
+
   const handleWorkspaceChipMouseEnter = (node: LibraryNode | null, e: React.MouseEvent<HTMLDivElement>) => {
     if (!node) return;
     if (draggingTrackIds.length > 0 || draggedTracksRef.current.length > 0 || draggingNodeIds.length > 0 || draggedNodesRef.current.length > 0) {
@@ -1187,6 +1331,12 @@ export const App: React.FC = () => {
             localStorage.setItem('fmsort_completed_album_keys', JSON.stringify(s.completedAlbumKeys));
           } catch {}
         }
+        if (Array.isArray(s.completionFolderIds)) {
+          setCompletionFolderIds(new Set(s.completionFolderIds));
+          try {
+            localStorage.setItem('fmsort_completion_folder_ids', JSON.stringify(s.completionFolderIds));
+          } catch {}
+        }
       })
       .catch(err => console.warn('Could not load settings:', err));
   }, []);
@@ -1346,10 +1496,10 @@ export const App: React.FC = () => {
       return;
     }
 
-    // When status tracking is enabled, uncompleted albums do not display their ambient backdrop
+    // When completion tracking is active for this album, uncompleted albums do not display their ambient backdrop
     const activeArtist = activeNode.tracks?.[0]?.a || (activePath.length > 1 && activePath[activePath.length - 2]?.type === 'Artist' ? activePath[activePath.length - 2].name : '');
     const isActiveAlbumCompleted = isAlbumCompleted(activeArtist, activeNode.name, completedAlbumKeys);
-    if (statusEnabled && activeNode.type === 'Album' && !isActiveAlbumCompleted) {
+    if (isNodeCompletionEnabled(activeNode.id) && activeNode.type === 'Album' && !isActiveAlbumCompleted) {
       setHeroBackdrop(null);
       return;
     }
@@ -1377,7 +1527,7 @@ export const App: React.FC = () => {
     return () => {
       isCurrent = false;
     };
-  }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url, statusEnabled, completedAlbumKeys]);
+  }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url, isNodeCompletionEnabled, completedAlbumKeys]);
 
   // Reset artist profile and suggestions state on container change (auto-collapsed by default)
   useEffect(() => {
@@ -2932,6 +3082,9 @@ export const App: React.FC = () => {
               });
             } else {
               selectNode(n);
+              if (hasChildren) {
+                setOpenNodes(prev => ({ ...prev, [n.id]: !prev[n.id] }));
+              }
             }
           }}
           onContextMenu={e => handleNodeContextMenu(e, n)}
@@ -3018,7 +3171,8 @@ export const App: React.FC = () => {
     // Track rows
     sorted.forEach(t => {
       const isSelected = selectedTrackIds.has(t.id);
-      const isTrackAlbumIncomplete = statusEnabled && Boolean(t.al) && !isAlbumCompleted(t.a, t.al, completedAlbumKeys);
+      const completionActiveForTrack = isNodeCompletionEnabled(n.id);
+      const isTrackAlbumIncomplete = completionActiveForTrack && Boolean(t.al) && !isAlbumCompleted(t.a, t.al, completedAlbumKeys);
       nodesOut.push(
         <tr
           key={`t-${t.id}`}
@@ -3099,8 +3253,9 @@ export const App: React.FC = () => {
         const isChildAlbum = child.type === 'Album';
         const childArtist = child.tracks?.[0]?.a || (n.type === 'Artist' ? n.name : (activeNode?.type === 'Artist' ? activeNode.name : ''));
         const isChildCompleted = isChildAlbum ? isAlbumCompleted(childArtist, child.name, completedAlbumKeys) : false;
-        const isAlbumIncomplete = statusEnabled && isChildAlbum && !isChildCompleted;
-        const isAlbumCompletedState = statusEnabled && isChildAlbum && isChildCompleted;
+        const completionActiveForChild = isNodeCompletionEnabled(child.id);
+        const isAlbumIncomplete = completionActiveForChild && isChildAlbum && !isChildCompleted;
+        const isAlbumCompletedState = completionActiveForChild && isChildAlbum && isChildCompleted;
 
         nodesOut.push(
           <tr
@@ -3301,7 +3456,8 @@ export const App: React.FC = () => {
               const isActiveAlbum = activeNode.type === 'Album';
               const activeArtist = activeNode.tracks?.[0]?.a || (activePath.length > 1 && activePath[activePath.length - 2]?.type === 'Artist' ? activePath[activePath.length - 2].name : '');
               const isActiveAlbumCompleted = isActiveAlbum ? isAlbumCompleted(activeArtist, activeNode.name, completedAlbumKeys) : false;
-              const isActiveAlbumIncomplete = statusEnabled && isActiveAlbum && !isActiveAlbumCompleted;
+              const completionActiveForActive = isNodeCompletionEnabled(activeNode.id);
+              const isActiveAlbumIncomplete = completionActiveForActive && isActiveAlbum && !isActiveAlbumCompleted;
 
               return (activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist' || activeNode.type === 'Folder') && (
                 <div className={`active-hero-banner ${isActiveAlbumIncomplete ? 'album-page-incomplete' : ''}`}>
@@ -3505,7 +3661,7 @@ export const App: React.FC = () => {
                       <div className="active-hero-meta">
                         <div className="active-hero-badge-row">
                           <span className="active-hero-badge">{activeNode.type.toUpperCase()}</span>
-                          {statusEnabled && isActiveAlbum && isActiveAlbumCompleted && (
+                          {completionActiveForActive && isActiveAlbum && isActiveAlbumCompleted && (
                             <button
                               type="button"
                               className="active-hero-status-btn completed"
@@ -4021,10 +4177,6 @@ export const App: React.FC = () => {
       <SettingsModal
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
-        statusEnabled={statusEnabled}
-        onToggleStatus={handleToggleStatus}
-        completedCount={getDistinctCompletedCount(completedAlbumKeys)}
-        onResetCompleted={handleResetCompleted}
         onOpenExport={() => setBackupOpen(true)}
       />
 
@@ -4036,6 +4188,8 @@ export const App: React.FC = () => {
         isAlbumCompleted={(artist, album) => isAlbumCompleted(artist, album, completedAlbumKeys)}
         onToggleAlbumCompleted={handleToggleAlbumCompleted}
         onBatchToggleAlbumsCompleted={handleBatchToggleAlbumsCompleted}
+        isFolderCompletionEnabled={isNodeCompletionEnabled}
+        onToggleFolderCompletion={handleToggleFolderCompletion}
         onInspectTrack={track => setActiveTrack(track)}
         onResolveIsrc={handleResolveIsrcAction}
         onBatchResolveIsrc={handleBatchResolveIsrcAction}
@@ -4263,6 +4417,9 @@ export const App: React.FC = () => {
       >
         <div
           className={`floating-workspaces-dock-wrapper ${isInteractingWs ? 'is-interacting' : ''}`}
+          style={{
+            maxWidth: wsMaxWidth,
+          }}
           onMouseDown={e => {
             const target = e.target as HTMLElement;
             if (
@@ -4282,6 +4439,9 @@ export const App: React.FC = () => {
             setControlDrawerOpenBelow(false);
             setControlDrawerAlignRight(false);
           }}
+          onDragOver={handleWorkspaceTrayDragOver}
+          onDragLeave={handleWorkspaceTrayDragLeave}
+          onDrop={handleWorkspaceTrayDrop}
           title="Drag to move workspace dock · Double-click to snap back"
         >
           {/* Attached & Connected Control Drawer (Selection Actions) */}
@@ -4292,52 +4452,7 @@ export const App: React.FC = () => {
               aria-label="Selection actions"
               onMouseDown={e => e.stopPropagation()}
             >
-              {/* 1. Selection count & status */}
-              <div className="selection-popup-info">
-                <div className="selection-popup-badge">
-                  <CheckSquare size={13} className="selection-badge-icon" />
-                  <span className="selection-popup-count">
-                    {selectedTrackIds.size > 0 && selectedNodeIds.size > 0
-                      ? `${selectedNodeIds.size} folders, ${selectedTrackIds.size} tracks`
-                      : selectedTrackIds.size > 0
-                        ? `${selectedTrackIds.size} ${selectedTrackIds.size === 1 ? 'track' : 'tracks'}`
-                        : `${selectedNodeIds.size} ${selectedNodeIds.size === 1 ? 'container' : 'containers'}`}
-                  </span>
-                </div>
-                {selectedTrackIds.size > 0 && (
-                  <span className="selection-popup-sub">
-                    {fmtDuration(
-                      activeFlatTracks
-                        .filter(t => selectedTrackIds.has(t.id))
-                        .reduce((sum, t) => sum + (t.len || 0), 0)
-                    )}
-                  </span>
-                )}
-              </div>
-
-              <div className="selection-popup-divider" />
-
-              {/* 2. "Select Multiple" Mode Toggle */}
-              <button
-                type="button"
-                className={`selection-multi-toggle-btn ${selectMultipleMode ? 'is-active' : ''}`}
-                onClick={() => {
-                  setSelectMultipleMode(prev => {
-                    const next = !prev;
-                    showToast(next ? 'Multi-select mode ON: Click items to toggle' : 'Multi-select mode OFF');
-                    return next;
-                  });
-                }}
-                title="Toggle click-to-select mode: click rows to add/remove without holding Shift or ⌘"
-              >
-                <CheckSquare size={13} />
-                <span>Select Multiple</span>
-                <span className="selection-multi-indicator">{selectMultipleMode ? 'ON' : 'OFF'}</span>
-              </button>
-
-              <div className="selection-popup-divider" />
-
-              {/* 3. Action Buttons */}
+              {/* Action Buttons */}
               <div className="selection-popup-actions">
                 {/* Track-specific actions */}
                 {selectedTrackIds.size > 0 && (
@@ -4441,7 +4556,7 @@ export const App: React.FC = () => {
                       </button>
                     )}
 
-                    {selectedNode && selectedNode.type === 'Album' && statusEnabled && (
+                    {selectedNode && selectedNode.type === 'Album' && isNodeCompletionEnabled(selectedNode.id) && (
                       <button
                         type="button"
                         className="selection-action-btn"
@@ -4538,7 +4653,12 @@ export const App: React.FC = () => {
           <div className="drawer-dock-divider" />
 
           {/* Workspace Chips List */}
-          <div className="footer-workspaces-dock">
+          <div
+            className={`footer-workspaces-dock ${isDockTrayDropTarget ? 'is-new-ws-drop-target' : ''}`}
+            onDragOver={handleWorkspaceTrayDragOver}
+            onDragLeave={handleWorkspaceTrayDragLeave}
+            onDrop={handleWorkspaceTrayDrop}
+          >
             {workspaces.map((ws, wsIdx) => {
               const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
               const isActive = ws.id === activeWorkspaceId;
@@ -4607,12 +4727,18 @@ export const App: React.FC = () => {
           </button>
 
           {/* Add Workspace (+) Button & Popover */}
-          <div className="workspace-add-container" ref={workspaceAddContainerRef}>
+          <div
+            className={`workspace-add-container ${isDockTrayDropTarget ? 'is-new-ws-drop-target' : ''}`}
+            ref={workspaceAddContainerRef}
+            onDragOver={handleWorkspaceTrayDragOver}
+            onDragLeave={handleWorkspaceTrayDragLeave}
+            onDrop={handleWorkspaceTrayDrop}
+          >
             <button
               type="button"
               className={`workspace-add-btn ${workspacePickerOpen ? 'active' : ''}`}
               onClick={() => setWorkspacePickerOpen(prev => !prev)}
-              title="Open in New Workspace (⌘T)"
+              title="Open in New Workspace (⌘T) · Drop items here to open in new tab"
             >
               <Plus size={13} strokeWidth={2.4} />
             </button>

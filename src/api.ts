@@ -568,14 +568,15 @@ export async function importTuneMyMusic(data: {
 }
 
 export interface AppSettings {
-  statusEnabled: boolean;
+  statusEnabled?: boolean;
+  completionFolderIds?: string[];
   completedAlbumKeys: string[];
 }
 
 export async function fetchSettings(): Promise<AppSettings> {
   const res = await fetch(`${API_BASE}/settings`);
   if (!res.ok) {
-    return { statusEnabled: false, completedAlbumKeys: [] };
+    return { statusEnabled: false, completionFolderIds: [], completedAlbumKeys: [] };
   }
   return res.json();
 }

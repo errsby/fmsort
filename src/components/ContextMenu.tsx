@@ -27,6 +27,7 @@ import {
   RotateCcw,
   FolderPlus,
   SlidersHorizontal,
+  ShieldCheck,
 } from 'lucide-react';
 
 export type ContextTarget =
@@ -84,11 +85,13 @@ interface Props {
     specificNodes?: LibraryNode[]
   ) => void;
   onPasteItems?: (targetNodeId?: string) => void;
-  // Status Tracking actions
+  // Status Tracking & Folder Completion actions
   statusEnabled?: boolean;
   isAlbumCompleted?: (artist?: string, album?: string) => boolean;
   onToggleAlbumCompleted?: (artist?: string, album?: string, completed?: boolean) => void;
   onBatchToggleAlbumsCompleted?: (albums: { artist?: string; album: string }[], completed: boolean) => void;
+  isFolderCompletionEnabled?: (folderId: string) => boolean;
+  onToggleFolderCompletion?: (folderId: string) => void;
 }
 
 export const ContextMenu: React.FC<Props> = ({
@@ -127,6 +130,8 @@ export const ContextMenu: React.FC<Props> = ({
   isAlbumCompleted,
   onToggleAlbumCompleted,
   onBatchToggleAlbumsCompleted,
+  isFolderCompletionEnabled,
+  onToggleFolderCompletion,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -240,7 +245,7 @@ export const ContextMenu: React.FC<Props> = ({
             <div className="ctx-divider" />
 
             {/* Batch Status Toggle for Tracks */}
-            {statusEnabled && distinctAlbums.length > 0 && (
+            {distinctAlbums.length > 0 && (
               <>
                 <button
                   type="button"
@@ -397,7 +402,7 @@ export const ContextMenu: React.FC<Props> = ({
           <div className="ctx-divider" />
 
           {/* Status Completion Toggle */}
-          {statusEnabled && track.al && (
+          {track.al && (
             <>
               {(() => {
                 const isCompleted = isAlbumCompleted?.(track.a, track.al) || false;
@@ -631,7 +636,7 @@ export const ContextMenu: React.FC<Props> = ({
             <div className="ctx-divider" />
 
             {/* Batch Album Completion Status */}
-            {statusEnabled && albumCount > 0 && (
+            {albumCount > 0 && (
               <>
                 <button
                   type="button"
@@ -819,8 +824,39 @@ export const ContextMenu: React.FC<Props> = ({
             </>
           )}
 
+          {/* Folder Album Completion Mode Toggle */}
+          {(isFolder || isArtist) && onToggleFolderCompletion && (
+            <>
+              {(() => {
+                const isEnabled = isFolderCompletionEnabled?.(node.id) || false;
+                return (
+                  <button
+                    type="button"
+                    className="ctx-item"
+                    onClick={() => {
+                      onClose();
+                      onToggleFolderCompletion(node.id);
+                    }}
+                  >
+                    <ShieldCheck size={14} style={{ color: isEnabled ? '#22c55e' : '#71717a' }} />
+                    <span className="ctx-item-label" style={{ fontWeight: 500 }}>
+                      Album Completion Mode
+                    </span>
+                    <span
+                      className={`settings-status-badge ${isEnabled ? 'enabled' : ''}`}
+                      style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, marginLeft: 'auto' }}
+                    >
+                      {isEnabled ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+                );
+              })()}
+              <div className="ctx-divider" />
+            </>
+          )}
+
           {/* Album Completion Status */}
-          {statusEnabled && isAlbum && (
+          {isAlbum && (
             <>
               {(() => {
                 const albumArtist = node.tracks?.[0]?.a || '';
@@ -1123,8 +1159,39 @@ export const ContextMenu: React.FC<Props> = ({
 
           <div className="ctx-divider" />
 
+          {/* Folder Album Completion Mode Toggle for Active Container */}
+          {activeNode && (activeNode.type === 'Folder' || activeNode.type === 'Artist') && onToggleFolderCompletion && (
+            <>
+              {(() => {
+                const isEnabled = isFolderCompletionEnabled?.(activeNode.id) || false;
+                return (
+                  <button
+                    type="button"
+                    className="ctx-item"
+                    onClick={() => {
+                      onClose();
+                      onToggleFolderCompletion(activeNode.id);
+                    }}
+                  >
+                    <ShieldCheck size={14} style={{ color: isEnabled ? '#22c55e' : '#71717a' }} />
+                    <span className="ctx-item-label" style={{ fontWeight: 500 }}>
+                      Album Completion Mode
+                    </span>
+                    <span
+                      className={`settings-status-badge ${isEnabled ? 'enabled' : ''}`}
+                      style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, marginLeft: 'auto' }}
+                    >
+                      {isEnabled ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+                );
+              })()}
+              <div className="ctx-divider" />
+            </>
+          )}
+
           {/* Status Completion Toggle for Active Album Page */}
-          {statusEnabled && isAlbum && activeNode && (
+          {isAlbum && activeNode && (
             <>
               {(() => {
                 const activeArtist = activeNode.tracks?.[0]?.a || '';
