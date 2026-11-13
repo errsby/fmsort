@@ -83,8 +83,17 @@ export const NodeEditModal: React.FC<Props> = ({
 
   return (
     <>
-      <div className="ov on" onClick={onClose} />
-      <div className="dlg on" role="dialog" aria-label="Edit Folder">
+      <div
+        className="ov on node-edit-modal-overlay"
+        onClick={onClose}
+        style={{ zIndex: 10000 }}
+      />
+      <div
+        className="dlg on node-edit-modal-dialog"
+        role="dialog"
+        aria-label="Edit Folder"
+        style={{ zIndex: 10001 }}
+      >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <FolderEdit size={18} style={{ color: '#818cf8' }} />

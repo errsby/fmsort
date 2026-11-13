@@ -1847,9 +1847,10 @@ tr.h .m {
 .ov {
   position: fixed;
   inset: 0;
-  background: #000000a0;
-  z-index: 20;
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 9990;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .sheet {
@@ -1862,7 +1863,7 @@ tr.h .m {
   border-left: 1px solid var(--bd);
   padding: 20px;
   overflow-y: auto;
-  z-index: 30;
+  z-index: 9995;
   padding-top: calc(20px + env(safe-area-inset-top, 0px));
   box-shadow: -4px 0 24px #00000080;
   display: flex;
@@ -1896,7 +1897,7 @@ tr.h .m {
   border: 1px solid var(--bd);
   border-radius: 10px;
   padding: 20px;
-  z-index: 30;
+  z-index: 10000;
   max-height: 80%;
   overflow-y: auto;
   box-shadow: 0 12px 40px #000000d0;
@@ -5897,120 +5898,39 @@ tr.h.is-selected td {
   background: rgba(255, 255, 255, 0.12);
 }
 
-/* Three-Dot Menu Button & Popover */
-.drawer-menu-more-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.drawer-menu-more-btn {
+/* Compact Pin Button (Simple, small 24px) */
+.drawer-pin-compact-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  background: transparent;
-  border: 1px solid transparent;
-  color: #a1a1aa;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #71717a;
   cursor: pointer;
   transition: all 0.14s ease;
   padding: 0;
+  flex-shrink: 0;
 }
 
-.drawer-menu-more-btn:hover {
+.drawer-pin-compact-btn:hover {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.14);
   color: #fafafa;
 }
 
-.drawer-menu-more-btn.is-active {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.2);
-  color: #ffffff;
-}
-
-.drawer-more-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  min-width: 175px;
-  background: rgba(18, 18, 23, 0.98);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 9px;
-  padding: 5px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  z-index: 1200;
-  animation: popoverFadeUp 0.14s ease;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.drawer-more-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 7px 10px;
-  border-radius: 6px;
-  background: transparent;
-  border: none;
-  color: #d4d4d8;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  text-align: left;
-  width: 100%;
-  box-sizing: border-box;
-  transition: all 0.12s ease;
-  user-select: none;
-}
-
-.drawer-more-item:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
-}
-
-.drawer-more-item.drag-item {
-  cursor: grab;
-}
-
-.drawer-more-item.drag-item:active {
-  cursor: grabbing;
-}
-
-.drawer-more-item.active {
+.drawer-pin-compact-btn.is-pinned {
+  background: rgba(245, 158, 11, 0.14);
+  border-color: rgba(245, 158, 11, 0.35);
   color: #f59e0b;
 }
 
-.drawer-more-badge {
-  margin-left: auto;
-  font-size: 9.5px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: rgba(245, 158, 11, 0.18);
-  color: #f59e0b;
-  border: 1px solid rgba(245, 158, 11, 0.3);
-}
-
-.drawer-more-divider {
-  height: 1px;
-  background: rgba(255, 255, 255, 0.08);
-  margin: 3px 0;
-}
-
-.drawer-more-item.danger {
-  color: #f87171;
-}
-
-.drawer-more-item.danger:hover {
-  background: rgba(239, 68, 68, 0.14);
-  color: #fca5a5;
+/* Yellow Arrow for Pinned Crates */
+.ar.is-pinned-arrow,
+.ar.pinned-arrow {
+  color: #f59e0b !important;
 }
 
 /* Directory Tree List */
@@ -6019,6 +5939,21 @@ tr.h.is-selected td {
   min-height: 120px;
   overflow-y: auto;
   padding: 6px;
+}
+
+/* Ensure Edit Folder Modal & Quick Switch Modal display above all other content */
+.node-edit-modal-overlay,
+.command-palette-overlay {
+  z-index: 10000 !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.75) !important;
+}
+
+.node-edit-modal-dialog,
+.command-palette-dialog {
+  z-index: 10001 !important;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.14) !important;
 }
 
 /* Baseline Dock Bar: [../] [|] [Workspace Chips] [+] */

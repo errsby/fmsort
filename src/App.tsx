@@ -335,10 +335,6 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleWindowResize);
   }, [menuPosition, menuWidth, menuHeight, wsDrawerPosition]);
 
-  // Library Window 3-dot options menu state
-  const [libMoreMenuOpen, setLibMoreMenuOpen] = useState(false);
-  const libMoreMenuRef = useRef<HTMLDivElement>(null);
-
   // "Select Multiple" Mode state
   const [selectMultipleMode, setSelectMultipleMode] = useState(false);
   const dragHoverTimeoutRef = useRef<any>(null);
@@ -1186,12 +1182,6 @@ export const App: React.FC = () => {
       if (isDraggingMenuRef.current || isResizingDrawerRef.current || isDraggingWsRef.current) return;
       if (addMusicRef.current && !addMusicRef.current.contains(e.target as Node)) {
         setAddMusicMenuOpen(false);
-      }
-      if (
-        libMoreMenuRef.current &&
-        !libMoreMenuRef.current.contains(e.target as Node)
-      ) {
-        setLibMoreMenuOpen(false);
       }
       if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
         setColumnMenuOpen(false);
@@ -2145,7 +2135,7 @@ export const App: React.FC = () => {
       return;
     }
 
-    // 2. Moving containers (Folder, Album, Artist, etc.) into this container
+    // 2. Moving / Sorting containers (Folder, Album, Artist, etc.)
     if (nodeIds.length > 0) {
       const validIds = nodeIds.filter(
         id => id !== targetNode.id && !isDescendant(tree, id, targetNode.id)
@@ -2155,6 +2145,60 @@ export const App: React.FC = () => {
         clearDragState();
         return;
       }
+
+      // 2A. Pinned Crates Reordering: If both source and target are pinned, reorder in pinned list
+      if (validIds.length === 1 && pinnedCrateIds.includes(validIds[0]) && pinnedCrateIds.includes(targetNode.id)) {
+        const sourceId = validIds[0];
+        const sourcePinnedIdx = pinnedCrateIds.indexOf(sourceId);
+        const targetPinnedIdx = pinnedCrateIds.indexOf(targetNode.id);
+        if (sourcePinnedIdx !== -1 && targetPinnedIdx !== -1 && sourcePinnedIdx !== targetPinnedIdx) {
+          const newPinned = [...pinnedCrateIds];
+          const [removed] = newPinned.splice(sourcePinnedIdx, 1);
+          newPinned.splice(targetPinnedIdx, 0, removed);
+          setPinnedCrateIds(newPinned);
+          try {
+            localStorage.setItem('fmsort_pinned_crates', JSON.stringify(newPinned));
+          } catch {}
+          const sourceNode = findNodeById(tree, sourceId);
+          showToast(`Reordered "${sourceNode?.name || 'crate'}"`);
+          clearDragState();
+          setSelectedNodeIds(new Set());
+          return;
+        }
+      }
+
+      // 2B. Sibling Crates Reordering: If source and target share the same parent, sort by moving
+      if (validIds.length === 1 && !e.altKey) {
+        const sourceId = validIds[0];
+        const sourceNode = findNodeById(tree, sourceId);
+        if (sourceNode && (sourceNode.parent_id || null) === (targetNode.parent_id || null)) {
+          const parent = targetNode.parent_id ? findNodeById(tree, targetNode.parent_id) : null;
+          const siblings = parent ? (parent.children || []) : tree;
+          const sourceIdx = siblings.findIndex(s => s.id === sourceNode.id);
+          const targetIdx = siblings.findIndex(s => s.id === targetNode.id);
+
+          if (sourceIdx !== -1 && targetIdx !== -1 && sourceIdx !== targetIdx) {
+            const reordered = [...siblings];
+            const [removed] = reordered.splice(sourceIdx, 1);
+            reordered.splice(targetIdx, 0, removed);
+
+            try {
+              await Promise.all(
+                reordered.map((node, newOrder) => updateNode(node.id, { sort_order: newOrder }))
+              );
+              await loadTree(activeNodeId);
+              showToast(`Reordered "${sourceNode.name}"`);
+              clearDragState();
+              setSelectedNodeIds(new Set());
+              return;
+            } catch (err: any) {
+              console.warn('Failed to reorder siblings:', err);
+            }
+          }
+        }
+      }
+
+      // 2C. Moving into target container (different parent or holding Alt)
       try {
         await Promise.all(validIds.map(id => updateNode(id, { parent_id: targetNode.id })));
         const label = validIds.length === 1
@@ -2884,10 +2928,11 @@ export const App: React.FC = () => {
           role="treeitem"
         >
           <span
-            className={`ar ${isOpen ? 'o' : ''}`}
-            onClick={e => toggleNodeExpansion(n.id, e)}
+            className={`ar ${isOpen ? 'o' : ''} ${isPinned ? 'is-pinned-arrow' : ''}`}
+            onClick={e => (hasChildren ? toggleNodeExpansion(n.id, e) : undefined)}
+            style={isPinned ? { color: '#f59e0b' } : undefined}
           >
-            {hasChildren ? '›' : ''}
+            {hasChildren || isPinned ? '›' : ''}
           </span>
           <CoverArt
             src={n.cover_url || null}
@@ -2898,13 +2943,8 @@ export const App: React.FC = () => {
             rounded={3}
           />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{n.name}</span>
-          {isPinned && (
-            <span className="tree-pinned-indicator" title="Pinned folder (always at top)">
-              <Pin size={11} style={{ color: '#f59e0b', fill: '#f59e0b' }} />
-            </span>
-          )}
 
-          {/* Quick pin & reorder buttons on hover */}
+          {/* Quick pin & manage buttons on hover */}
           <div className="tree-node-actions" onClick={e => e.stopPropagation()}>
             <button
               type="button"
@@ -2913,22 +2953,6 @@ export const App: React.FC = () => {
               onClick={e => togglePinCrate(n.id, e)}
             >
               <Pin size={11} style={isPinned ? { color: '#f59e0b', fill: '#f59e0b' } : undefined} />
-            </button>
-            <button
-              type="button"
-              className="tree-reorder-btn"
-              title="Move folder up"
-              onClick={e => moveCrateOrder(n.id, 'up', e)}
-            >
-              <ChevronUp size={12} />
-            </button>
-            <button
-              type="button"
-              className="tree-reorder-btn"
-              title="Move folder down"
-              onClick={e => moveCrateOrder(n.id, 'down', e)}
-            >
-              <ChevronDown size={12} />
             </button>
             <button
               type="button"
@@ -4158,82 +4182,17 @@ export const App: React.FC = () => {
                 <kbd className="drawer-cmdk-kbd">⌘K</kbd>
               </button>
 
-              {/* Three-Dot Menu (Move, Pin, Reload/Snap, and Close) */}
-              <div
-                className="drawer-menu-more-wrap"
-                ref={libMoreMenuRef}
+              {/* Compact Simple Pin Button */}
+              <button
+                type="button"
+                className={`drawer-pin-compact-btn ${isMenuPinned ? 'is-pinned' : ''}`}
+                onClick={() => setIsMenuPinned(!isMenuPinned)}
                 onMouseDown={e => e.stopPropagation()}
+                title={isMenuPinned ? 'Unpin window (click outside will close)' : 'Pin window (stay open)'}
+                aria-label={isMenuPinned ? 'Unpin window' : 'Pin window'}
               >
-                <button
-                  type="button"
-                  className={`drawer-menu-more-btn ${libMoreMenuOpen ? 'is-active' : ''}`}
-                  onClick={() => setLibMoreMenuOpen(prev => !prev)}
-                  title="Window Options"
-                  aria-label="Window Options"
-                >
-                  <MoreVertical size={14} />
-                </button>
-
-                {libMoreMenuOpen && (
-                  <div className="drawer-more-popover" role="menu">
-                    {/* Move Window Item */}
-                    <div
-                      className="drawer-more-item drag-item"
-                      onMouseDown={e => {
-                        setLibMoreMenuOpen(false);
-                        handleLibDragStart(e);
-                      }}
-                      title="Drag to move window"
-                    >
-                      <Move size={13} />
-                      <span>Drag Window</span>
-                    </div>
-
-                    {/* Pin Window Item */}
-                    <button
-                      type="button"
-                      className={`drawer-more-item ${isMenuPinned ? 'active' : ''}`}
-                      onClick={() => {
-                        setIsMenuPinned(!isMenuPinned);
-                        setLibMoreMenuOpen(false);
-                      }}
-                    >
-                      <Pin size={13} style={isMenuPinned ? { color: '#f59e0b', fill: '#f59e0b' } : undefined} />
-                      <span>{isMenuPinned ? 'Unpin Window' : 'Pin Window'}</span>
-                      {isMenuPinned && <span className="drawer-more-badge">Pinned</span>}
-                    </button>
-
-                    {/* Reload / Snap Position Item */}
-                    <button
-                      type="button"
-                      className="drawer-more-item"
-                      onClick={() => {
-                        setMenuPosition(null);
-                        setLibMoreMenuOpen(false);
-                      }}
-                      title="Snap back above workspace dock"
-                    >
-                      <RotateCcw size={13} />
-                      <span>Reset Position</span>
-                    </button>
-
-                    <div className="drawer-more-divider" />
-
-                    {/* Close Window Item */}
-                    <button
-                      type="button"
-                      className="drawer-more-item danger"
-                      onClick={() => {
-                        setTreeDropdownOpen(false);
-                        setLibMoreMenuOpen(false);
-                      }}
-                    >
-                      <X size={13} />
-                      <span>Close</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+                <Pin size={12} style={isMenuPinned ? { color: '#f59e0b', fill: '#f59e0b' } : undefined} />
+              </button>
             </div>
 
             {/* Directory Tree List with Custom Scrollbar */}

@@ -62,8 +62,17 @@ export const CommandPaletteModal: React.FC<Props> = ({
 
   return (
     <>
-      <div className="ov on" onClick={onClose} />
-      <div className="dlg on" role="dialog" aria-label="Command bar">
+      <div
+        className="ov on command-palette-overlay"
+        onClick={onClose}
+        style={{ zIndex: 10000 }}
+      />
+      <div
+        className="dlg on command-palette-dialog"
+        role="dialog"
+        aria-label="Command bar"
+        style={{ zIndex: 10001 }}
+      >
         <input
           ref={inputRef}
           type="text"
