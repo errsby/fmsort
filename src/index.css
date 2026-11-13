@@ -3793,123 +3793,9 @@ tr.t:hover .cover-art-wrapper {
 }
 
 /* =========================================================================
-   Folder Drag & Drop System
+   Item Drag & Drop into Folders (No Screen Darkening / No Popup)
    ========================================================================= */
 
-.folder-drop-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 90;
-  background: rgba(9, 9, 11, 0.88);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  pointer-events: all;
-  animation: dropOverlayFadeIn 0.15s ease-out;
-}
-
-@keyframes dropOverlayFadeIn {
-  from {
-    opacity: 0;
-    transform: scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-.folder-drop-card {
-  width: 100%;
-  max-width: 520px;
-  border: 2px dashed rgba(56, 189, 248, 0.6);
-  border-radius: 16px;
-  background: radial-gradient(circle at center, rgba(56, 189, 248, 0.08) 0%, rgba(18, 18, 24, 0.95) 100%);
-  padding: 40px 32px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 12px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(56, 189, 248, 0.15);
-  pointer-events: none;
-  animation: dropCardPulse 1.8s infinite alternate ease-in-out;
-}
-
-@keyframes dropCardPulse {
-  from {
-    border-color: rgba(56, 189, 248, 0.5);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(56, 189, 248, 0.1);
-  }
-  to {
-    border-color: rgba(168, 85, 247, 0.7);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 32px rgba(168, 85, 247, 0.25);
-  }
-}
-
-.folder-drop-icon {
-  color: #38bdf8;
-  filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.5));
-  margin-bottom: 4px;
-}
-
-.folder-drop-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #fafafa;
-  letter-spacing: -0.01em;
-}
-
-.folder-drop-subtitle {
-  font-size: 13px;
-  color: #a1a1aa;
-  max-width: 420px;
-  line-height: 1.45;
-}
-
-.folder-drop-badge {
-  margin-top: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #38bdf8;
-  background: rgba(56, 189, 248, 0.12);
-  border: 1px solid rgba(56, 189, 248, 0.3);
-}
-
-/* Empty Folder Interactive Dropzone */
-.folder-empty-dropzone {
-  width: 100%;
-  max-width: 480px;
-  margin: 20px auto 0;
-  border: 1.5px dashed rgba(255, 255, 255, 0.18);
-  border-radius: 12px;
-  padding: 36px 24px;
-  background: rgba(255, 255, 255, 0.02);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: 10px;
-  cursor: pointer;
-  transition: all 0.18s ease;
-}
-
-.folder-empty-dropzone:hover,
-.folder-empty-dropzone.is-active {
-  border-color: rgba(56, 189, 248, 0.6);
-  background: rgba(56, 189, 248, 0.06);
-  box-shadow: 0 4px 24px rgba(56, 189, 248, 0.12);
-}
-
-/* Child container row drop target highlight */
 .folder-item-hero-row.is-drop-target > td > .folder-item-hero,
 tr.h.is-drop-target > td {
   background: rgba(56, 189, 248, 0.16) !important;
@@ -3932,4 +3818,73 @@ tr.h.is-drop-target > td {
   margin-left: 10px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+/* =========================================================================
+   Click Selection & Active Controls System (Tracks, Albums, Artists, Folders)
+   ========================================================================= */
+
+tr.t.is-selected td {
+  background: rgba(56, 189, 248, 0.12) !important;
+  color: #fafafa !important;
+}
+
+tr.t.is-selected td:first-child {
+  border-left: 3px solid #38bdf8;
+}
+
+tr.folder-item-hero-row.is-selected td > .folder-item-hero {
+  border-color: #38bdf8 !important;
+  background: rgba(56, 189, 248, 0.12) !important;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.2);
+}
+
+tr.h.is-selected td {
+  background: rgba(56, 189, 248, 0.12) !important;
+  border-left: 3px solid #38bdf8;
+}
+
+.item-controls-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  background: #141419;
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  animation: controlsBarSlideDown 0.15s ease-out;
+}
+
+@keyframes controlsBarSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.item-controls-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.15);
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.item-controls-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fafafa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
 }

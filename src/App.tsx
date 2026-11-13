@@ -57,8 +57,6 @@ import {
   Library,
   Rss,
   ChevronLeft,
-  UploadCloud,
-  FileAudio,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -91,96 +89,17 @@ const DEFAULT_VISIBILITY: Record<ColumnKey, boolean> = {
   key: false,
 };
 
-const AUDIO_EXTENSIONS = new Set([
-  'mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg', 'aiff', 'aif', 'wma', 'alac', 'opus', 'dsd', 'dff', 'dsf'
-]);
-
-function parseAudioFilename(filename: string): { title: string; artist: string; format: string } {
-  const dotIndex = filename.lastIndexOf('.');
-  const ext = dotIndex !== -1 ? filename.slice(dotIndex + 1).toLowerCase() : '';
-  const format = ext ? ext.toUpperCase() : 'Digital';
-  let baseName = dotIndex !== -1 ? filename.slice(0, dotIndex) : filename;
-  baseName = baseName.replace(/_/g, ' ').trim();
-  baseName = baseName.replace(/^(\d+[\.\-\s]+|[A-Z]?\d+[\.\-\s]+)/i, '').trim();
-  const parts = baseName.split(/\s+-\s+/);
-  if (parts.length >= 2) {
-    const artist = parts[0].trim();
-    const title = parts.slice(1).join(' - ').trim();
-    return { title: title || baseName, artist: artist || 'Unknown Artist', format };
-  }
-  return { title: baseName || 'Untitled', artist: '', format };
-}
-
-function getAudioDuration(file: File): Promise<number> {
-  return new Promise((resolve) => {
-    try {
-      const url = URL.createObjectURL(file);
-      const audio = new Audio();
-      audio.preload = 'metadata';
-      const cleanup = () => {
-        URL.revokeObjectURL(url);
-      };
-      audio.onloadedmetadata = () => {
-        const dur = Math.round(audio.duration);
-        cleanup();
-        resolve(isFinite(dur) && dur > 0 ? dur : 0);
-      };
-      audio.onerror = () => {
-        cleanup();
-        resolve(0);
-      };
-      setTimeout(() => {
-        cleanup();
-        resolve(0);
-      }, 1500);
-      audio.src = url;
-    } catch {
-      resolve(0);
+function isDescendant(tree: LibraryNode[], parentId: string, candidateChildId: string): boolean {
+  const parentNode = findNodeById(tree, parentId);
+  if (!parentNode) return false;
+  const check = (node: LibraryNode): boolean => {
+    if (node.id === candidateChildId) return true;
+    for (const c of node.children || []) {
+      if (check(c)) return true;
     }
-  });
-}
-
-async function getFilesFromDataTransfer(dataTransfer: DataTransfer): Promise<File[]> {
-  const files: File[] = [];
-  const items = dataTransfer.items;
-  if (items && items.length > 0 && typeof items[0].webkitGetAsEntry === 'function') {
-    const traverseFileTree = async (entry: any): Promise<void> => {
-      if (entry.isFile) {
-        try {
-          const file: File = await new Promise((resolve, reject) => entry.file(resolve, reject));
-          files.push(file);
-        } catch {}
-      } else if (entry.isDirectory) {
-        try {
-          const dirReader = entry.createReader();
-          const readEntries = (): Promise<any[]> => {
-            return new Promise((resolve, reject) => {
-              dirReader.readEntries(resolve, reject);
-            });
-          };
-          let entries = await readEntries();
-          while (entries.length > 0) {
-            for (const childEntry of entries) {
-              await traverseFileTree(childEntry);
-            }
-            entries = await readEntries();
-          }
-        } catch {}
-      }
-    };
-
-    for (let i = 0; i < items.length; i++) {
-      const entry = items[i].webkitGetAsEntry();
-      if (entry) {
-        await traverseFileTree(entry);
-      }
-    }
-  } else if (dataTransfer.files && dataTransfer.files.length > 0) {
-    for (let i = 0; i < dataTransfer.files.length; i++) {
-      files.push(dataTransfer.files[i]);
-    }
-  }
-  return files;
+    return false;
+  };
+  return (parentNode.children || []).some(check);
 }
 
 export const App: React.FC = () => {
@@ -244,13 +163,13 @@ export const App: React.FC = () => {
     }, 2800);
   };
 
-  // Drag & drop state for folder pages
-  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
-  const [isImportingFiles, setIsImportingFiles] = useState(false);
+  // Universal drag & drop state (tracks, folders, albums, artists)
   const [draggingTrackIds, setDraggingTrackIds] = useState<number[]>([]);
+  const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [dropTargetNodeId, setDropTargetNodeId] = useState<string | null>(null);
-  const fileDropCounter = useRef(0);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Single-item selection state for containers (albums, artists, folders)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   // Togglable Library Tree Dropdown under (../)
   const [treeDropdownOpen, setTreeDropdownOpen] = useState(false);
@@ -269,6 +188,7 @@ export const App: React.FC = () => {
       return next;
     });
     setSelectedTrackIds(new Set());
+    setSelectedNodeId(null);
     setTreeDropdownOpen(false);
     setCollapsedSections({});
   };
@@ -289,6 +209,17 @@ export const App: React.FC = () => {
     if (!activeNode) return [];
     return flattenTracks(activeNode);
   }, [activeNode]);
+
+  const selectedNode = useMemo(() => {
+    if (!selectedNodeId) return null;
+    return findNodeById(tree, selectedNodeId);
+  }, [tree, selectedNodeId]);
+
+  const firstSelectedTrack = useMemo(() => {
+    if (selectedTrackIds.size === 0) return null;
+    const firstId = Array.from(selectedTrackIds)[0];
+    return activeFlatTracks.find(t => t.id === firstId) || null;
+  }, [selectedTrackIds, activeFlatTracks]);
 
   const allLibraryTracks = useMemo(() => {
     const list: Track[] = [];
@@ -750,187 +681,62 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleImportAudioFiles = async (dataTransfer: DataTransfer, targetNode: LibraryNode) => {
-    const rawFiles = await getFilesFromDataTransfer(dataTransfer);
-    const audioFiles = rawFiles.filter(f => {
-      if (f.type && f.type.startsWith('audio/')) return true;
-      const dotIndex = f.name.lastIndexOf('.');
-      if (dotIndex === -1) return false;
-      const ext = f.name.slice(dotIndex + 1).toLowerCase();
-      return AUDIO_EXTENSIONS.has(ext);
-    });
-
-    if (audioFiles.length === 0) {
-      showToast('No valid audio files found in dropped items (MP3, FLAC, WAV, M4A, etc.)');
-      return;
-    }
-
-    setIsImportingFiles(true);
-    showToast(`Importing ${audioFiles.length} dropped audio file${audioFiles.length > 1 ? 's' : ''}...`);
-
-    try {
-      for (let i = 0; i < audioFiles.length; i++) {
-        const file = audioFiles[i];
-        const parsed = parseAudioFilename(file.name);
-        const dur = await getAudioDuration(file);
-        await createTrack(targetNode.id, {
-          t: parsed.title,
-          a: parsed.artist || (targetNode.type === 'Artist' ? targetNode.name : 'Unknown Artist'),
-          al: targetNode.type === 'Album' ? targetNode.name : (targetNode.type === 'Folder' ? targetNode.name : ''),
-          f: parsed.format,
-          len: dur || 180,
-          y: new Date().getFullYear(),
-          sort_order: i,
-        });
-      }
-      showToast(`Imported ${audioFiles.length} track${audioFiles.length > 1 ? 's' : ''} into "${targetNode.name}"`);
-      await loadTree(activeNode?.id);
-    } catch (err: any) {
-      showToast(`Failed to import files: ${err?.message || 'Error'}`);
-    } finally {
-      setIsImportingFiles(false);
-    }
-  };
-
-  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>, targetNode: LibraryNode) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const fileList = Array.from(files);
-    const audioFiles = fileList.filter(f => {
-      if (f.type && f.type.startsWith('audio/')) return true;
-      const dotIndex = f.name.lastIndexOf('.');
-      if (dotIndex === -1) return false;
-      const ext = f.name.slice(dotIndex + 1).toLowerCase();
-      return AUDIO_EXTENSIONS.has(ext);
-    });
-
-    if (audioFiles.length === 0) {
-      showToast('No valid audio files selected');
-      return;
-    }
-
-    setIsImportingFiles(true);
-    showToast(`Importing ${audioFiles.length} audio file${audioFiles.length > 1 ? 's' : ''}...`);
-
-    try {
-      for (let i = 0; i < audioFiles.length; i++) {
-        const file = audioFiles[i];
-        const parsed = parseAudioFilename(file.name);
-        const dur = await getAudioDuration(file);
-        await createTrack(targetNode.id, {
-          t: parsed.title,
-          a: parsed.artist || (targetNode.type === 'Artist' ? targetNode.name : 'Unknown Artist'),
-          al: targetNode.type === 'Album' ? targetNode.name : (targetNode.type === 'Folder' ? targetNode.name : ''),
-          f: parsed.format,
-          len: dur || 180,
-          y: new Date().getFullYear(),
-          sort_order: i,
-        });
-      }
-      showToast(`Imported ${audioFiles.length} track${audioFiles.length > 1 ? 's' : ''} into "${targetNode.name}"`);
-      await loadTree(activeNode?.id);
-    } catch (err: any) {
-      showToast(`Failed to import files: ${err?.message || 'Error'}`);
-    } finally {
-      setIsImportingFiles(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  const handleFolderPageDragEnter = (e: React.DragEvent) => {
-    if (activeNode?.type !== 'Folder') return;
-    e.preventDefault();
-    e.stopPropagation();
-    fileDropCounter.current++;
-    if (e.dataTransfer.types.includes('Files') || draggingTrackIds.length > 0) {
-      setIsDraggingFiles(true);
-    }
-  };
-
-  const handleFolderPageDragOver = (e: React.DragEvent) => {
-    if (activeNode?.type !== 'Folder') return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.dataTransfer.types.includes('Files') || draggingTrackIds.length > 0) {
-      e.dataTransfer.dropEffect = 'copy';
-    }
-  };
-
-  const handleFolderPageDragLeave = (e: React.DragEvent) => {
-    if (activeNode?.type !== 'Folder') return;
-    e.preventDefault();
-    e.stopPropagation();
-    fileDropCounter.current--;
-    if (fileDropCounter.current <= 0) {
-      fileDropCounter.current = 0;
-      setIsDraggingFiles(false);
-    }
-  };
-
-  const handleFolderPageDrop = async (e: React.DragEvent) => {
-    if (activeNode?.type !== 'Folder') return;
-    e.preventDefault();
-    e.stopPropagation();
-    fileDropCounter.current = 0;
-    setIsDraggingFiles(false);
-
-    if (draggingTrackIds.length > 0) {
-      try {
-        await moveTracksBatch(draggingTrackIds, activeNode.id);
-        showToast(`Moved ${draggingTrackIds.length} track${draggingTrackIds.length > 1 ? 's' : ''} into "${activeNode.name}"`);
-        setSelectedTrackIds(new Set());
-        setDraggingTrackIds([]);
-        await loadTree(activeNode.id);
-      } catch (err: any) {
-        showToast(err?.message || 'Failed to move tracks');
-      }
-      return;
-    }
-
-    if (e.dataTransfer.types.includes('Files')) {
-      await handleImportAudioFiles(e.dataTransfer, activeNode);
-    }
-  };
-
+  // Universal Drag & Drop Handlers (Tracks & Containers)
   const handleTrackDragStart = (e: React.DragEvent, track: Track) => {
+    e.stopPropagation();
     const ids = selectedTrackIds.has(track.id) ? Array.from(selectedTrackIds) : [track.id];
     setDraggingTrackIds(ids);
-    e.dataTransfer.setData('application/json', JSON.stringify({ type: 'tracks', ids }));
-    e.dataTransfer.setData('text/plain', `${ids.length} track(s)`);
+    setDraggingNodeId(null);
+    e.dataTransfer.setData('text/fmsort-type', 'tracks');
+    e.dataTransfer.setData('text/fmsort-tracks', JSON.stringify(ids));
     e.dataTransfer.effectAllowed = 'move';
   };
 
-  const handleTrackDragEnd = () => {
+  const handleNodeDragStart = (e: React.DragEvent, node: LibraryNode) => {
+    e.stopPropagation();
+    setDraggingNodeId(node.id);
     setDraggingTrackIds([]);
+    e.dataTransfer.setData('text/fmsort-type', 'node');
+    e.dataTransfer.setData('text/fmsort-node', node.id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragEnd = () => {
+    setDraggingTrackIds([]);
+    setDraggingNodeId(null);
     setDropTargetNodeId(null);
   };
 
-  const handleChildRowDragOver = (e: React.DragEvent, child: LibraryNode) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (draggingTrackIds.length > 0 || e.dataTransfer.types.includes('Files')) {
+  const handleNodeDragOver = (e: React.DragEvent, targetNode: LibraryNode) => {
+    if (draggingNodeId && (draggingNodeId === targetNode.id || isDescendant(tree, draggingNodeId, targetNode.id))) {
+      return;
+    }
+    if (draggingTrackIds.length > 0 || draggingNodeId) {
+      e.preventDefault();
+      e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
-      setDropTargetNodeId(child.id);
+      setDropTargetNodeId(targetNode.id);
     }
   };
 
-  const handleChildRowDragLeave = (e: React.DragEvent, child: LibraryNode) => {
+  const handleNodeDragLeave = (e: React.DragEvent, targetNode: LibraryNode) => {
     e.preventDefault();
     e.stopPropagation();
-    if (dropTargetNodeId === child.id) {
+    if (dropTargetNodeId === targetNode.id) {
       setDropTargetNodeId(null);
     }
   };
 
-  const handleChildRowDrop = async (e: React.DragEvent, child: LibraryNode) => {
+  const handleNodeDrop = async (e: React.DragEvent, targetNode: LibraryNode) => {
     e.preventDefault();
     e.stopPropagation();
     setDropTargetNodeId(null);
 
+    // 1. Moving tracks into this container
     if (draggingTrackIds.length > 0) {
       try {
-        await moveTracksBatch(draggingTrackIds, child.id);
-        showToast(`Moved ${draggingTrackIds.length} track${draggingTrackIds.length > 1 ? 's' : ''} to "${child.name}"`);
+        await moveTracksBatch(draggingTrackIds, targetNode.id);
+        showToast(`Moved ${draggingTrackIds.length} track${draggingTrackIds.length > 1 ? 's' : ''} into "${targetNode.name}"`);
         setSelectedTrackIds(new Set());
         setDraggingTrackIds([]);
         await loadTree(activeNode?.id);
@@ -940,9 +746,50 @@ export const App: React.FC = () => {
       return;
     }
 
-    if (e.dataTransfer.types.includes('Files')) {
-      await handleImportAudioFiles(e.dataTransfer, child);
+    // 2. Moving a container (Folder, Album, Artist, etc.) into this container
+    if (draggingNodeId && draggingNodeId !== targetNode.id) {
+      if (isDescendant(tree, draggingNodeId, targetNode.id)) {
+        showToast('Cannot move a container into its own subfolder');
+        setDraggingNodeId(null);
+        return;
+      }
+      try {
+        await updateNode(draggingNodeId, { parent_id: targetNode.id });
+        const draggedNode = findNodeById(tree, draggingNodeId);
+        showToast(`Moved "${draggedNode?.name || 'Container'}" into "${targetNode.name}"`);
+        setDraggingNodeId(null);
+        await loadTree(activeNode?.id);
+      } catch (err: any) {
+        showToast(err?.message || 'Failed to move container');
+      }
+      return;
     }
+  };
+
+  const handleTrackClick = (track: Track, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedNodeId(null);
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      setSelectedTrackIds(prev => {
+        const next = new Set(prev);
+        if (next.has(track.id)) next.delete(track.id);
+        else next.add(track.id);
+        return next;
+      });
+    } else {
+      setSelectedTrackIds(prev => {
+        if (prev.size === 1 && prev.has(track.id)) {
+          return new Set();
+        }
+        return new Set([track.id]);
+      });
+    }
+  };
+
+  const handleNodeClick = (node: LibraryNode, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedTrackIds(new Set());
+    setSelectedNodeId(prev => (prev === node.id ? null : node.id));
   };
 
   const handleBatchDelete = async () => {
@@ -1029,14 +876,22 @@ export const App: React.FC = () => {
     const hasChildren = n.children && n.children.length > 0;
     const isOpen = openNodes[n.id] ?? false;
     const isActive = activeNode?.id === n.id;
+    const isTarget = dropTargetNodeId === n.id;
+    const isDragging = draggingNodeId === n.id;
 
     return (
       <React.Fragment key={n.id}>
         <div
-          className={`n ${isActive ? 'on' : ''}`}
+          className={`n ${isActive ? 'on' : ''} ${isTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
           style={{ paddingLeft: `${6 + depth * 14}px` }}
           onClick={() => selectNode(n)}
           onContextMenu={e => handleNodeContextMenu(e, n)}
+          draggable={true}
+          onDragStart={e => handleNodeDragStart(e, n)}
+          onDragEnd={handleDragEnd}
+          onDragOver={e => handleNodeDragOver(e, n)}
+          onDragLeave={e => handleNodeDragLeave(e, n)}
+          onDrop={e => handleNodeDrop(e, n)}
           tabIndex={0}
           role="treeitem"
         >
@@ -1077,7 +932,7 @@ export const App: React.FC = () => {
   // Render table rows recursively for current node and its children
   const renderSections = (n: LibraryNode, depth: number): React.ReactNode[] => {
     const activeCols = COLUMNS.filter(c => visibleColumns[c.key]);
-    const colSpan = activeCols.length + 2;
+    const colSpan = activeCols.length + 1;
     const nodesOut: React.ReactNode[] = [];
 
     // Filter tracks if filterText is active
@@ -1103,24 +958,19 @@ export const App: React.FC = () => {
       nodesOut.push(
         <tr
           key={`t-${t.id}`}
-          className={`t ${isSelected ? 's' : ''} ${draggingTrackIds.includes(t.id) ? 'is-dragging' : ''}`}
+          className={`t ${isSelected ? 's is-selected' : ''} ${draggingTrackIds.includes(t.id) ? 'is-dragging' : ''}`}
           draggable={true}
           onDragStart={e => handleTrackDragStart(e, t)}
-          onDragEnd={handleTrackDragEnd}
+          onDragEnd={handleDragEnd}
+          onClick={e => handleTrackClick(t, e)}
+          onDoubleClick={() => setActiveTrack(t)}
           onContextMenu={e => handleTrackContextMenu(e, t)}
         >
-          <td style={{ paddingLeft: `${10 + depth * 16}px` }}>
-            <input
-              type="checkbox"
-              checked={isSelected}
-              onChange={() => toggleTrackSelect(t.id)}
-              aria-label={`Select ${t.t}`}
-            />
-          </td>
-          {activeCols.map(col => {
+          {activeCols.map((col, colIdx) => {
+            const cellStyle = colIdx === 0 ? { paddingLeft: `${14 + depth * 16}px` } : undefined;
             if (col.key === 'title') {
               return (
-                <td key={col.key}>
+                <td key={col.key} style={cellStyle}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
                     <CoverArt
                       src={t.cover_url || n.cover_url}
@@ -1133,7 +983,6 @@ export const App: React.FC = () => {
                     <span
                       className="ttl"
                       tabIndex={0}
-                      onClick={() => setActiveTrack(t)}
                     >
                       {t.t}
                     </span>
@@ -1141,25 +990,25 @@ export const App: React.FC = () => {
                 </td>
               );
             }
-            if (col.key === 'artist') return <td key={col.key}>{t.a}</td>;
-            if (col.key === 'album') return <td key={col.key}>{t.al}</td>;
-            if (col.key === 'year') return <td key={col.key}>{t.y || '—'}</td>;
-            if (col.key === 'format') return <td key={col.key}>{t.f || '—'}</td>;
-            if (col.key === 'cat') return <td key={col.key} className="mono">{t.c || '—'}</td>;
-            if (col.key === 'bc') return <td key={col.key} className="mono">{t.bc || '—'}</td>;
+            if (col.key === 'artist') return <td key={col.key} style={cellStyle}>{t.a}</td>;
+            if (col.key === 'album') return <td key={col.key} style={cellStyle}>{t.al}</td>;
+            if (col.key === 'year') return <td key={col.key} style={cellStyle}>{t.y || '—'}</td>;
+            if (col.key === 'format') return <td key={col.key} style={cellStyle}>{t.f || '—'}</td>;
+            if (col.key === 'cat') return <td key={col.key} style={cellStyle} className="mono">{t.c || '—'}</td>;
+            if (col.key === 'bc') return <td key={col.key} style={cellStyle} className="mono">{t.bc || '—'}</td>;
             if (col.key === 'mbid') {
               const displayMbid = t.mb && t.mb.length > 8 ? `${t.mb.slice(0, 8)}…` : t.mb || '—';
               return (
-                <td key={col.key} className="mono" title={t.mb}>
+                <td key={col.key} style={cellStyle} className="mono" title={t.mb}>
                   {displayMbid}
                 </td>
               );
             }
-            if (col.key === 'isrc') return <td key={col.key} className="mono">{t.isrc || '—'}</td>;
-            if (col.key === 'len') return <td key={col.key} className="mono">{fmtDuration(t.len)}</td>;
-            if (col.key === 'bpm') return <td key={col.key} className="mono">{t.bpm || '—'}</td>;
-            if (col.key === 'key') return <td key={col.key} className="mono">{t.key || '—'}</td>;
-            return <td key={col.key}>—</td>;
+            if (col.key === 'isrc') return <td key={col.key} style={cellStyle} className="mono">{t.isrc || '—'}</td>;
+            if (col.key === 'len') return <td key={col.key} style={cellStyle} className="mono">{fmtDuration(t.len)}</td>;
+            if (col.key === 'bpm') return <td key={col.key} style={cellStyle} className="mono">{t.bpm || '—'}</td>;
+            if (col.key === 'key') return <td key={col.key} style={cellStyle} className="mono">{t.key || '—'}</td>;
+            return <td key={col.key} style={cellStyle}>—</td>;
           })}
           <td style={{ width: 36 }}></td>
         </tr>
@@ -1173,20 +1022,27 @@ export const App: React.FC = () => {
         const hasSubItems = (child.children && child.children.length > 0) || childTracks.length > 0;
         const isCollapsed = hasSubItems ? isSectionCollapsed(child, depth) : true;
         const backdropImg = child.cover_url || child.tracks?.[0]?.cover_url || null;
+        const isNodeSelected = selectedNodeId === child.id;
+        const isDropTarget = dropTargetNodeId === child.id;
+        const isDragging = draggingNodeId === child.id;
 
         if (child.type === 'Album' || child.type === 'Artist' || child.type === 'Playlist') {
           // Folder item with same backdrop design as full page
           nodesOut.push(
             <tr
               key={`h-${child.id}`}
-              className={`folder-item-hero-row ${!hasSubItems ? 'is-empty' : ''} ${dropTargetNodeId === child.id ? 'is-drop-target' : ''}`}
+              className={`folder-item-hero-row ${!hasSubItems ? 'is-empty' : ''} ${isNodeSelected ? 'is-selected' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
               data-context-type="node"
               data-node-id={child.id}
-              onClick={hasSubItems ? () => toggleSectionCollapse(child.id, isCollapsed) : () => selectNode(child)}
+              draggable={true}
+              onDragStart={e => handleNodeDragStart(e, child)}
+              onDragEnd={handleDragEnd}
+              onDragOver={e => handleNodeDragOver(e, child)}
+              onDragLeave={e => handleNodeDragLeave(e, child)}
+              onDrop={e => handleNodeDrop(e, child)}
+              onClick={e => handleNodeClick(child, e)}
+              onDoubleClick={() => selectNode(child)}
               onContextMenu={e => handleNodeContextMenu(e, child)}
-              onDragOver={e => handleChildRowDragOver(e, child)}
-              onDragLeave={e => handleChildRowDragLeave(e, child)}
-              onDrop={e => handleChildRowDrop(e, child)}
             >
               <td colSpan={colSpan}>
                 <div
@@ -1211,7 +1067,16 @@ export const App: React.FC = () => {
                   {/* Foreground Content - Compact Inlined Row */}
                   <div className="folder-item-content">
                     {hasSubItems ? (
-                      <span className={`ar ${isCollapsed ? '' : 'o'}`}>›</span>
+                      <span
+                        className={`ar ${isCollapsed ? '' : 'o'}`}
+                        title={isCollapsed ? 'Expand' : 'Collapse'}
+                        onClick={e => {
+                          e.stopPropagation();
+                          toggleSectionCollapse(child.id, isCollapsed);
+                        }}
+                      >
+                        ›
+                      </span>
                     ) : (
                       <span className="ar empty" style={{ width: 14 }} />
                     )}
@@ -1227,9 +1092,9 @@ export const App: React.FC = () => {
 
                     <span className="folder-item-type-plain">{child.type}</span>
                     <span className="folder-item-name">{child.name}</span>
-                    {dropTargetNodeId === child.id && (
+                    {isDropTarget && (
                       <span className="drop-target-badge">
-                        {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : 'Drop into crate'}
+                        {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : `Move into "${child.name}"`}
                       </span>
                     )}
                     {child.type === 'Album' && child.tracks?.[0]?.a && (
@@ -1253,15 +1118,6 @@ export const App: React.FC = () => {
                     <div className="folder-item-actions" onClick={e => e.stopPropagation()}>
                       <button
                         type="button"
-                        className="folder-item-nav-btn"
-                        title={`Go to ${child.name}`}
-                        onClick={() => selectNode(child)}
-                      >
-                        <span>Open</span>
-                        <ExternalLink size={11} />
-                      </button>
-                      <button
-                        type="button"
                         className="node-more-btn"
                         title={`Manage ${child.name}`}
                         onClick={() => {
@@ -1282,19 +1138,32 @@ export const App: React.FC = () => {
           nodesOut.push(
             <tr
               key={`h-${child.id}`}
-              className={`h ${dropTargetNodeId === child.id ? 'is-drop-target' : ''}`}
+              className={`h ${isNodeSelected ? 'is-selected' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
               data-context-type="node"
               data-node-id={child.id}
-              onClick={hasSubItems ? () => toggleSectionCollapse(child.id, isCollapsed) : () => selectNode(child)}
+              draggable={true}
+              onDragStart={e => handleNodeDragStart(e, child)}
+              onDragEnd={handleDragEnd}
+              onDragOver={e => handleNodeDragOver(e, child)}
+              onDragLeave={e => handleNodeDragLeave(e, child)}
+              onDrop={e => handleNodeDrop(e, child)}
+              onClick={e => handleNodeClick(child, e)}
+              onDoubleClick={() => selectNode(child)}
               onContextMenu={e => handleNodeContextMenu(e, child)}
-              onDragOver={e => handleChildRowDragOver(e, child)}
-              onDragLeave={e => handleChildRowDragLeave(e, child)}
-              onDrop={e => handleChildRowDrop(e, child)}
             >
               <td colSpan={colSpan} style={{ paddingLeft: `${14 + depth * 16}px` }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                   {hasSubItems ? (
-                    <span className={`ar ${isCollapsed ? '' : 'o'}`}>›</span>
+                    <span
+                      className={`ar ${isCollapsed ? '' : 'o'}`}
+                      title={isCollapsed ? 'Expand' : 'Collapse'}
+                      onClick={e => {
+                        e.stopPropagation();
+                        toggleSectionCollapse(child.id, isCollapsed);
+                      }}
+                    >
+                      ›
+                    </span>
                   ) : (
                     <span className="ar empty" style={{ width: 14 }} />
                   )}
@@ -1308,9 +1177,9 @@ export const App: React.FC = () => {
                   />
                   <span className="ty">{child.type}</span>
                   <span style={{ fontWeight: 600, color: '#f4f4f5' }}>{child.name}</span>
-                  {dropTargetNodeId === child.id && (
+                  {isDropTarget && (
                     <span className="drop-target-badge">
-                      {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : 'Drop into crate'}
+                      {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : `Move into "${child.name}"`}
                     </span>
                   )}
                   <span className="m">
@@ -1352,44 +1221,7 @@ export const App: React.FC = () => {
           <div
             className="container-detail-view"
             onContextMenu={handleTableContextMenu}
-            onDragEnter={activeNode.type === 'Folder' ? handleFolderPageDragEnter : undefined}
-            onDragOver={activeNode.type === 'Folder' ? handleFolderPageDragOver : undefined}
-            onDragLeave={activeNode.type === 'Folder' ? handleFolderPageDragLeave : undefined}
-            onDrop={activeNode.type === 'Folder' ? handleFolderPageDrop : undefined}
           >
-            {/* Hidden file input for folder audio file drag-and-drop / selection */}
-            <input
-              type="file"
-              ref={fileInputRef}
-              multiple
-              accept="audio/*,.mp3,.flac,.wav,.m4a,.aac,.ogg,.aiff,.wma,.opus"
-              style={{ display: 'none' }}
-              onChange={e => handleFileInputChange(e, activeNode)}
-            />
-
-            {/* Drag & Drop Visual Overlay on Folder Pages */}
-            {isDraggingFiles && activeNode.type === 'Folder' && (
-              <div
-                className="folder-drop-overlay"
-                onDragOver={handleFolderPageDragOver}
-                onDragLeave={handleFolderPageDragLeave}
-                onDrop={handleFolderPageDrop}
-              >
-                <div className="folder-drop-card">
-                  <UploadCloud size={46} className="folder-drop-icon" />
-                  <div className="folder-drop-title">
-                    Drop audio files to add to {activeNode.name}
-                  </div>
-                  <div className="folder-drop-subtitle">
-                    Drop MP3, FLAC, WAV, M4A, AIFF, OGG files or folders here to parse and add them automatically.
-                  </div>
-                  <div className="folder-drop-badge">
-                    <Sparkles size={12} />
-                    <span>Release into crate</span>
-                  </div>
-                </div>
-              </div>
-            )}
             {/* Active Container Hero Banner with Discogs / Ambient Background Artwork */}
             {(activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist' || activeNode.type === 'Folder') && (
               <div className="active-hero-banner">
@@ -1512,8 +1344,8 @@ export const App: React.FC = () => {
                 style={{ padding: '4px 9px', fontSize: 12, width: 140 }}
               />
 
-              {/* Add Music Button inside container — on folder type pages replaced with Drop / Import Audio */}
-              {activeNode.type !== 'Folder' ? (
+              {/* Add Music Button inside container — hidden on folder type pages */}
+              {activeNode.type !== 'Folder' && (
                 <div style={{ position: 'relative' }}>
                   <button
                     className="p"
@@ -1524,51 +1356,136 @@ export const App: React.FC = () => {
                     <span>Add Music</span>
                   </button>
                 </div>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <button
-                    className="p"
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isImportingFiles}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                    title="Import or drop audio files into this folder"
-                  >
-                    <UploadCloud size={14} />
-                    <span>{isImportingFiles ? 'Importing...' : 'Drop / Import Audio'}</span>
-                  </button>
-                </div>
               )}
             </div>
 
-            {/* Batch Actions Toolbar */}
-            {selectedTrackIds.size > 0 && (
-              <div className="batch-bar">
-                <span>
-                  <b>{selectedTrackIds.size}</b> track{selectedTrackIds.size > 1 ? 's' : ''} selected
+            {/* Contextual Item Controls Bar (for selected Node or selected Tracks) */}
+            {selectedNode ? (
+              <div className="item-controls-bar">
+                <span className="item-controls-badge">{selectedNode.type}</span>
+                <span className="item-controls-title" title={selectedNode.name}>
+                  {selectedNode.name}
                 </span>
-                <button
-                  className="p"
-                  style={{ fontSize: 11, padding: '2px 8px' }}
-                  onClick={() => setMoveTracksOpen(true)}
-                >
-                  Move Selected…
-                </button>
-                <button
-                  className="danger"
-                  style={{ fontSize: 11, padding: '2px 8px' }}
-                  onClick={handleBatchDelete}
-                >
-                  Delete Selected
-                </button>
-                <button
-                  style={{ fontSize: 11, padding: '2px 8px' }}
-                  onClick={() => setSelectedTrackIds(new Set())}
-                >
-                  Deselect All
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                  <button
+                    type="button"
+                    className="p"
+                    style={{ fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    onClick={() => selectNode(selectedNode)}
+                    title={`Open ${selectedNode.name}`}
+                  >
+                    <FolderOpen size={12} />
+                    <span>Open</span>
+                  </button>
+                  <button
+                    type="button"
+                    style={{ fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    onClick={() => {
+                      setNodeToEdit(selectedNode);
+                      setNodeEditOpen(true);
+                    }}
+                    title="Container Settings"
+                  >
+                    <Settings size={12} />
+                    <span>Settings</span>
+                  </button>
+                  <button
+                    type="button"
+                    style={{ fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    onClick={() => {
+                      setNewTrackOpen(true);
+                    }}
+                    title="Add track to this container"
+                  >
+                    <Plus size={12} />
+                    <span>Add Track</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    style={{ fontSize: 11, padding: '3px 10px' }}
+                    onClick={() => handleDeleteNodeAction(selectedNode)}
+                    title="Delete this container"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    style={{ fontSize: 11, padding: '3px 8px' }}
+                    onClick={() => setSelectedNodeId(null)}
+                    title="Deselect"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
-            )}
+            ) : selectedTrackIds.size > 0 ? (
+              <div className="item-controls-bar">
+                <span className="item-controls-badge">
+                  {selectedTrackIds.size === 1 ? 'Track' : 'Tracks'}
+                </span>
+                <span className="item-controls-title">
+                  {selectedTrackIds.size === 1 && firstSelectedTrack
+                    ? `${firstSelectedTrack.t} — ${firstSelectedTrack.a}`
+                    : `${selectedTrackIds.size} tracks selected`}
+                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                  {selectedTrackIds.size === 1 && firstSelectedTrack && (
+                    <>
+                      <button
+                        type="button"
+                        className="p"
+                        style={{ fontSize: 11, padding: '3px 10px' }}
+                        onClick={() => setActiveTrack(firstSelectedTrack)}
+                      >
+                        Edit Track
+                      </button>
+                      <button
+                        type="button"
+                        style={{ fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        onClick={() => handleResolveIsrcAction(firstSelectedTrack)}
+                      >
+                        <Sparkles size={11} />
+                        <span>Resolve ISRC</span>
+                      </button>
+                    </>
+                  )}
+                  {selectedTrackIds.size > 1 && (
+                    <button
+                      type="button"
+                      style={{ fontSize: 11, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                      onClick={handleBatchResolveIsrcAction}
+                    >
+                      <Sparkles size={11} />
+                      <span>Resolve ISRCs</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    style={{ fontSize: 11, padding: '3px 10px' }}
+                    onClick={() => setMoveTracksOpen(true)}
+                  >
+                    Move…
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    style={{ fontSize: 11, padding: '3px 10px' }}
+                    onClick={selectedTrackIds.size === 1 && firstSelectedTrack ? () => handleDeleteTrackAction(firstSelectedTrack) : handleBatchDeleteTracksAction}
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    style={{ fontSize: 11, padding: '3px 8px' }}
+                    onClick={() => setSelectedTrackIds(new Set())}
+                    title="Deselect"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ) : null}
 
             {/* Table or Artist Projects Suggestions for Artists without Subitems */}
             {isArtistWithoutSubitems ? (
@@ -1584,17 +1501,6 @@ export const App: React.FC = () => {
                 <table>
                   <thead>
                     <tr>
-                      <th style={{ width: 30 }}>
-                        <input
-                          type="checkbox"
-                          checked={
-                            selectedTrackIds.size > 0 &&
-                            selectedTrackIds.size === activeFlatTracks.length
-                          }
-                          onChange={toggleSelectAllCurrent}
-                          aria-label="Select all tracks"
-                        />
-                      </th>
                       {COLUMNS.filter(c => visibleColumns[c.key]).map(col => {
                         const isSorted = sortConfig && sortConfig.key === col.key;
                         return (
@@ -1658,42 +1564,24 @@ export const App: React.FC = () => {
                             <tr>
                               <td
                                 colSpan={COLUMNS.filter(c => visibleColumns[c.key]).length + 1}
-                                style={{ padding: '40px 20px', textAlign: 'center' }}
+                                style={{ padding: '60px 20px', color: 'var(--mu)', textAlign: 'center' }}
                               >
-                                <div
-                                  className="folder-empty-dropzone"
-                                  onClick={() => fileInputRef.current?.click()}
-                                >
-                                  <UploadCloud size={40} className="folder-drop-icon" />
-                                  <div style={{ fontWeight: 600, fontSize: 15, color: '#f4f4f5' }}>
-                                    Drag &amp; Drop audio files into {activeNode.name}
+                                <div style={{ maxWidth: 400, margin: '0 auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                  <Folder size={36} style={{ color: '#52525b', marginBottom: 12 }} />
+                                  <div style={{ fontWeight: 600, fontSize: 14, color: '#f4f4f5', marginBottom: 4 }}>
+                                    {activeNode.name} is empty
                                   </div>
-                                  <p style={{ fontSize: 12, color: 'var(--mu)', margin: 0, lineHeight: 1.5, maxWidth: 420 }}>
-                                    Drop audio files (MP3, FLAC, WAV, M4A, etc.) or music folders from your computer to populate this crate. Metadata and duration are resolved automatically.
+                                  <p style={{ fontSize: 12, margin: '0 0 16px', lineHeight: 1.4 }}>
+                                    Drag and drop crates or tracks here, or create a new sub-crate.
                                   </p>
-                                  <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                                    <button
-                                      type="button"
-                                      className="p"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        fileInputRef.current?.click();
-                                      }}
-                                    >
-                                      <FileAudio size={13} />
-                                      <span>Select Audio Files</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setNewContainerOpen(true);
-                                      }}
-                                    >
-                                      <FolderPlus size={13} />
-                                      <span>New Sub-Crate</span>
-                                    </button>
-                                  </div>
+                                  <button
+                                    type="button"
+                                    className="p"
+                                    onClick={() => setNewContainerOpen(true)}
+                                  >
+                                    <FolderPlus size={13} />
+                                    <span>New Sub-Crate</span>
+                                  </button>
                                 </div>
                               </td>
                             </tr>
