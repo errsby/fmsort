@@ -130,8 +130,11 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
-[tabindex]:focus-visible {
-  outline: 2px solid #71717a;
+[tabindex]:focus-visible,
+[role="button"]:focus-visible,
+[role="treeitem"]:focus-visible,
+[role="row"]:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.9);
   outline-offset: 1px;
 }
 
@@ -1709,6 +1712,14 @@ aside#side {
   background: var(--sl) !important;
   color: #ffffff !important;
   border-left: 2px solid rgba(255, 255, 255, 0.35);
+}
+
+.n:focus-visible,
+.n.is-keyboard-focused {
+  outline: 2px solid rgba(139, 92, 246, 0.9) !important;
+  outline-offset: -1px;
+  background: rgba(139, 92, 246, 0.16) !important;
+  color: #ffffff !important;
 }
 
 .ty {
@@ -5303,7 +5314,7 @@ tr.h.is-selected td {
   color: #f87171;
 }
 
-/* Tree node action buttons (pin & reorder) */
+/* Tree node action buttons (pin, reorder, manage) */
 .tree-node-actions {
   display: flex;
   align-items: center;
@@ -5313,12 +5324,15 @@ tr.h.is-selected td {
   transition: opacity 0.12s ease;
 }
 
-.n:hover .tree-node-actions {
+.n:hover .tree-node-actions,
+.n:focus-within .tree-node-actions,
+.n.is-keyboard-focused .tree-node-actions {
   opacity: 1;
 }
 
 .tree-pin-btn,
-.tree-reorder-btn {
+.tree-reorder-btn,
+.node-more-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -5330,17 +5344,53 @@ tr.h.is-selected td {
   color: #71717a;
   cursor: pointer;
   padding: 0;
+  transition: background 0.12s ease, color 0.12s ease, outline 0.12s ease;
 }
 
 .tree-pin-btn:hover,
-.tree-reorder-btn:hover {
+.tree-reorder-btn:hover,
+.node-more-btn:hover {
   background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.tree-pin-btn:focus-visible,
+.tree-reorder-btn:focus-visible,
+.node-more-btn:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.95);
+  outline-offset: 1px;
+  background: rgba(139, 92, 246, 0.25);
   color: #ffffff;
 }
 
 .tree-pin-btn.pinned {
   color: #f59e0b;
   opacity: 1;
+}
+
+/* Table rows keyboard navigation & action buttons */
+.t:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.9) !important;
+  outline-offset: -1px;
+  background: rgba(139, 92, 246, 0.12) !important;
+}
+
+.t .node-more-btn {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.t:hover .node-more-btn,
+.t:focus-within .node-more-btn,
+.t.s .node-more-btn,
+.t.is-selected .node-more-btn {
+  opacity: 1;
+}
+
+.drawer-cmdk-trigger-btn:focus-visible,
+.drawer-pin-compact-btn:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.95);
+  outline-offset: 1px;
 }
 
 
@@ -5395,6 +5445,12 @@ tr.h.is-selected td {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.16);
   color: #f4f4f5;
+}
+
+.workspace-chip:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.95) !important;
+  outline-offset: 1px !important;
+  border-color: rgba(139, 92, 246, 0.8) !important;
 }
 
 .workspace-chip.active {

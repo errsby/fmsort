@@ -11,12 +11,15 @@ import {
   CheckSquare,
   Keyboard,
   ExternalLink,
+  Download,
 } from 'lucide-react';
 
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   onOpenExport?: () => void;
+  isAppInstalled?: boolean;
+  onInstallApp?: () => void;
 }
 
 type SettingsTab = 'general' | 'backup' | 'shortcuts';
@@ -25,6 +28,8 @@ export const SettingsModal: React.FC<Props> = ({
   isOpen,
   onClose,
   onOpenExport,
+  isAppInstalled,
+  onInstallApp,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
 
@@ -121,6 +126,34 @@ export const SettingsModal: React.FC<Props> = ({
                     </div>
                     <span className="settings-pill-active">Available</span>
                   </div>
+                </div>
+              </div>
+
+              {/* Desktop & Mobile App (PWA) Card */}
+              <div className="settings-card">
+                <div className="settings-card-row">
+                  <div className="settings-card-info">
+                    <div className="settings-card-title-row">
+                      <Download size={15} style={{ color: '#38bdf8' }} />
+                      <h4 className="settings-card-title">Desktop &amp; Mobile App (PWA)</h4>
+                      <span className={`settings-status-badge ${isAppInstalled ? 'enabled' : 'ready'}`}>
+                        {isAppInstalled ? 'Installed' : 'Ready'}
+                      </span>
+                    </div>
+                    <p className="settings-card-desc">
+                      Install FMSort as a standalone application on macOS, Windows, Linux, iOS, or Android with dedicated windowing, dock icon, and offline support.
+                    </p>
+                  </div>
+                  {onInstallApp && (
+                    <button
+                      type="button"
+                      className="settings-action-btn primary"
+                      onClick={onInstallApp}
+                    >
+                      <Download size={13} />
+                      <span>{isAppInstalled ? 'Reinstall App' : 'Install App'}</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

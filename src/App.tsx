@@ -473,6 +473,51 @@ export const App: React.FC = () => {
     }
   });
 
+  // PWA Install State & Event Handlers
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isAppInstalled, setIsAppInstalled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return (
+        window.matchMedia('(display-mode: standalone)').matches ||
+        (window.navigator as any).standalone === true ||
+        document.referrer.includes('android-app://')
+      );
+    }
+    return false;
+  });
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    const handleAppInstalled = () => {
+      setIsAppInstalled(true);
+      setDeferredPrompt(null);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const handleInstallApp = useCallback(async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const choiceResult = await deferredPrompt.userChoice;
+      if (choiceResult?.outcome === 'accepted') {
+        setIsAppInstalled(true);
+      }
+      setDeferredPrompt(null);
+    } else {
+      alert(
+        'To install FMSort:\n\n• On Safari (macOS / iOS): Click "Share" and select "Add to Dock" or "Add to Home Screen".\n• On Chrome / Edge: Click the "Install" icon in the address bar (or Menu > Save and Share > Install FMSort).\n• The app runs standalone with offline caching.'
+      );
+    }
+  }, [deferredPrompt]);
+
   // Dock tray drop target state (for opening dropped items into new workspace)
   const [isDockTrayDropTarget, setIsDockTrayDropTarget] = useState(false);
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
@@ -821,6 +866,36 @@ export const App: React.FC = () => {
       }
     }
   }, [openNodes, treeDropdownOpen, displayedNavNodes.length, menuPosition, wsDrawerPosition]);
+
+  // Library Drawer Keyboard Navigation State
+  const [focusedLibNodeId, setFocusedLibNodeId] = useState<string | null>(null);
+
+  // Initialize focus when Library Drawer opens
+  useEffect(() => {
+    if (treeDropdownOpen) {
+      const visible = flattenVisibleTree(displayedNavNodes, openNodes);
+      if (activeNodeId && visible.some(n => n.id === activeNodeId)) {
+        setFocusedLibNodeId(activeNodeId);
+      } else if (visible.length > 0) {
+        setFocusedLibNodeId(visible[0].id);
+      }
+    } else {
+      setFocusedLibNodeId(null);
+    }
+  }, [treeDropdownOpen, displayedNavNodes, openNodes, activeNodeId]);
+
+  // Keep focused tree item visible in scroll view and focused
+  useEffect(() => {
+    if (treeDropdownOpen && focusedLibNodeId) {
+      const el = document.getElementById(`lib-tree-node-${focusedLibNodeId}`);
+      if (el) {
+        if (document.activeElement !== el && !el.contains(document.activeElement)) {
+          el.focus({ preventScroll: true });
+        }
+        el.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [focusedLibNodeId, treeDropdownOpen]);
 
   // Magic slug: "?sear=" URL query parameter opens the Music Search Modal with the specified query
   useEffect(() => {
@@ -2701,6 +2776,109 @@ export const App: React.FC = () => {
         return;
       }
 
+      // Arrow & Action Navigation inside Library Drawer
+      if (treeDropdownOpen) {
+        const visible = flattenVisibleTree(displayedNavNodes, openNodes);
+        const currentIdx = focusedLibNodeId ? visible.findIndex(n => n.id === focusedLibNodeId) : -1;
+
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (visible.length === 0) return;
+          if (document.activeElement?.closest('.drawer-menu-header-row') || currentIdx === -1) {
+            setFocusedLibNodeId(visible[0].id);
+            return;
+          }
+          const nextIdx = currentIdx < visible.length - 1 ? currentIdx + 1 : 0;
+          setFocusedLibNodeId(visible[nextIdx].id);
+          return;
+        }
+
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (visible.length === 0) return;
+          if (currentIdx <= 0) {
+            const cmdkBtn = dropdownContainerRef.current?.querySelector<HTMLElement>('.drawer-cmdk-trigger-btn');
+            if (cmdkBtn) {
+              cmdkBtn.focus();
+              setFocusedLibNodeId(null);
+              return;
+            }
+          }
+          const prevIdx = currentIdx > 0 ? currentIdx - 1 : visible.length - 1;
+          setFocusedLibNodeId(visible[prevIdx].id);
+          return;
+        }
+
+        if (e.key === 'ArrowRight') {
+          if (currentIdx !== -1) {
+            e.preventDefault();
+            const node = visible[currentIdx];
+            const hasChildren = node.children && node.children.length > 0;
+            const isOpen = openNodes[node.id];
+
+            if (hasChildren && !isOpen) {
+              setOpenNodes(prev => ({ ...prev, [node.id]: true }));
+              return;
+            }
+
+            const rowEl = document.getElementById(`lib-tree-node-${node.id}`);
+            if (rowEl) {
+              const moreBtn = rowEl.querySelector<HTMLElement>('.node-more-btn');
+              const pinBtn = rowEl.querySelector<HTMLElement>('.tree-pin-btn');
+              if (document.activeElement === pinBtn && moreBtn) {
+                moreBtn.focus();
+              } else if (pinBtn) {
+                pinBtn.focus();
+              } else if (moreBtn) {
+                moreBtn.focus();
+              }
+            }
+            return;
+          }
+        }
+
+        if (e.key === 'ArrowLeft') {
+          if (currentIdx !== -1) {
+            e.preventDefault();
+            const node = visible[currentIdx];
+            const rowEl = document.getElementById(`lib-tree-node-${node.id}`);
+
+            if (rowEl && rowEl.contains(document.activeElement) && document.activeElement !== rowEl) {
+              rowEl.focus();
+              return;
+            }
+
+            const hasChildren = node.children && node.children.length > 0;
+            const isOpen = openNodes[node.id];
+
+            if (hasChildren && isOpen) {
+              setOpenNodes(prev => ({ ...prev, [node.id]: false }));
+              return;
+            }
+
+            const path = findNodePath(displayedNavNodes, node.id);
+            if (path && path.length > 1) {
+              const parent = path[path.length - 2];
+              setFocusedLibNodeId(parent.id);
+            }
+            return;
+          }
+        }
+
+        if (e.key === 'Enter') {
+          if (currentIdx !== -1) {
+            const node = visible[currentIdx];
+            const rowEl = document.getElementById(`lib-tree-node-${node.id}`);
+            if (rowEl && rowEl.contains(document.activeElement) && document.activeElement !== rowEl) {
+              return;
+            }
+            e.preventDefault();
+            selectNode(node);
+            return;
+          }
+        }
+      }
+
       // Settings Modal on ⌘, / Ctrl+,
       if ((e.metaKey || e.ctrlKey) && (e.key === ',' || e.key === '<')) {
         e.preventDefault();
@@ -3003,6 +3181,10 @@ export const App: React.FC = () => {
     activeTrack,
     clipboard,
     workspacePickerOpen,
+    treeDropdownOpen,
+    focusedLibNodeId,
+    displayedNavNodes,
+    openNodes,
   ]);
 
   // Helper to sort tracks
@@ -3168,8 +3350,13 @@ export const App: React.FC = () => {
     return (
       <React.Fragment key={n.id}>
         <div
-          className={`n ${isActive ? 'on' : ''} ${isSelected ? 'is-selected' : ''} ${isTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''}`}
+          id={`lib-tree-node-${n.id}`}
+          className={`n ${isActive ? 'on' : ''} ${isSelected ? 'is-selected' : ''} ${isTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''} ${focusedLibNodeId === n.id ? 'is-keyboard-focused' : ''}`}
           style={{ paddingLeft: `${6 + depth * 14}px` }}
+          tabIndex={0}
+          role="treeitem"
+          aria-selected={isActive || isSelected}
+          onFocus={() => setFocusedLibNodeId(n.id)}
           onClick={(e) => {
             if (e.shiftKey && lastSelectedNodeIdRef.current) {
               e.stopPropagation();
@@ -3220,8 +3407,6 @@ export const App: React.FC = () => {
           onDragOver={e => handleNodeDragOver(e, n)}
           onDragLeave={e => handleNodeDragLeave(e, n)}
           onDrop={e => handleNodeDrop(e, n)}
-          tabIndex={0}
-          role="treeitem"
         >
           <span
             className={`ar ${isOpen ? 'o' : ''} ${isPinned ? 'is-pinned-arrow' : ''}`}
@@ -3240,13 +3425,24 @@ export const App: React.FC = () => {
           />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{n.name}</span>
 
-          {/* Quick pin & manage buttons on hover */}
+          {/* Quick pin & manage buttons on hover / focus */}
           <div className="tree-node-actions" onClick={e => e.stopPropagation()}>
             <button
               type="button"
               className={`tree-pin-btn ${isPinned ? 'pinned' : ''}`}
               title={isPinned ? 'Unpin folder' : 'Pin folder to top'}
+              tabIndex={0}
               onClick={e => togglePinCrate(n.id, e)}
+              onKeyDown={e => {
+                if (e.key === 'ArrowLeft') {
+                  e.preventDefault();
+                  document.getElementById(`lib-tree-node-${n.id}`)?.focus();
+                } else if (e.key === 'ArrowRight') {
+                  e.preventDefault();
+                  const moreBtn = document.getElementById(`lib-tree-node-${n.id}`)?.querySelector<HTMLElement>('.node-more-btn');
+                  moreBtn?.focus();
+                }
+              }}
             >
               <Pin size={11} style={isPinned ? { color: '#f59e0b', fill: '#f59e0b' } : undefined} />
             </button>
@@ -3254,10 +3450,19 @@ export const App: React.FC = () => {
               type="button"
               className="node-more-btn"
               title={`Manage ${n.name}`}
+              tabIndex={0}
               onClick={(e) => {
                 e.stopPropagation();
                 setNodeToEdit(n);
                 setNodeEditOpen(true);
+              }}
+              onKeyDown={e => {
+                if (e.key === 'ArrowLeft') {
+                  e.preventDefault();
+                  const pinBtn = document.getElementById(`lib-tree-node-${n.id}`)?.querySelector<HTMLElement>('.tree-pin-btn');
+                  if (pinBtn) pinBtn.focus();
+                  else document.getElementById(`lib-tree-node-${n.id}`)?.focus();
+                }
               }}
             >
               <MoreHorizontal size={13} />
@@ -3381,12 +3586,32 @@ export const App: React.FC = () => {
         <tr
           key={`t-${t.id}`}
           className={`t ${isSelected ? 's is-selected' : ''} ${draggingTrackIds.includes(t.id) ? 'is-dragging' : ''} ${isTrackAlbumIncomplete ? 'album-incomplete' : ''}`}
+          tabIndex={0}
+          role="row"
           draggable={true}
           onDragStart={e => handleTrackDragStart(e, t)}
           onDragEnd={handleDragEnd}
           onClick={e => handleTrackClick(t, e)}
           onDoubleClick={() => setActiveTrack(t)}
           onContextMenu={e => handleTrackContextMenu(e, t)}
+          onKeyDown={e => {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              const next = e.currentTarget.nextElementSibling as HTMLElement | null;
+              if (next && next.classList.contains('t')) next.focus();
+            } else if (e.key === 'ArrowUp') {
+              e.preventDefault();
+              const prev = e.currentTarget.previousElementSibling as HTMLElement | null;
+              if (prev && prev.classList.contains('t')) prev.focus();
+            } else if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              const moreBtn = e.currentTarget.querySelector<HTMLElement>('.node-more-btn');
+              if (moreBtn) moreBtn.focus();
+            } else if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActiveTrack(t);
+            }
+          }}
         >
           {activeCols.map((col, colIdx) => {
             const cellStyle = colIdx === 0 ? { paddingLeft: `${14 + depth * 18}px` } : undefined;
@@ -3433,7 +3658,27 @@ export const App: React.FC = () => {
             if (col.key === 'key') return <td key={col.key} style={cellStyle} className="mono">{t.key || '—'}</td>;
             return <td key={col.key} style={cellStyle}>—</td>;
           })}
-          <td style={{ width: 36 }}></td>
+          <td style={{ width: 36, textAlign: 'right', paddingRight: 8 }}>
+            <button
+              type="button"
+              className="node-more-btn track-more-btn"
+              title={`Inspect ${t.t}`}
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveTrack(t);
+              }}
+              onKeyDown={e => {
+                if (e.key === 'ArrowLeft') {
+                  e.preventDefault();
+                  const row = e.currentTarget.closest('tr');
+                  row?.focus();
+                }
+              }}
+            >
+              <MoreHorizontal size={13} />
+            </button>
+          </td>
         </tr>
       );
     });
@@ -3465,6 +3710,8 @@ export const App: React.FC = () => {
           <tr
             key={`h-${child.id}`}
             className={`t container-row ${child.type.toLowerCase()}-row ${!hasSubItems ? 'is-empty' : ''} ${isNodeSelected ? 's is-selected' : ''} ${isDropTarget ? 'is-drop-target' : ''} ${isDragging ? 'is-dragging' : ''} ${isAlbumIncomplete ? 'album-incomplete' : ''} ${isAlbumCompletedState ? 'album-completed' : ''}`}
+            tabIndex={0}
+            role="row"
             data-context-type="node"
             data-node-id={child.id}
             draggable={true}
@@ -3480,6 +3727,33 @@ export const App: React.FC = () => {
               if (e.button === 1) {
                 e.preventDefault();
                 openInNewWorkspace(child);
+              }
+            }}
+            onKeyDown={e => {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const next = e.currentTarget.nextElementSibling as HTMLElement | null;
+                if (next && next.classList.contains('t')) next.focus();
+              } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const prev = e.currentTarget.previousElementSibling as HTMLElement | null;
+                if (prev && prev.classList.contains('t')) prev.focus();
+              } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                if (hasSubItems && isCollapsed) {
+                  toggleSectionCollapse(child.id, isCollapsed);
+                } else {
+                  const moreBtn = e.currentTarget.querySelector<HTMLElement>('.node-more-btn');
+                  if (moreBtn) moreBtn.focus();
+                }
+              } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                if (hasSubItems && !isCollapsed) {
+                  toggleSectionCollapse(child.id, isCollapsed);
+                }
+              } else if (e.key === 'Enter') {
+                e.preventDefault();
+                selectNode(child);
               }
             }}
           >
@@ -3608,10 +3882,18 @@ export const App: React.FC = () => {
                 type="button"
                 className="node-more-btn"
                 title={`Manage ${child.name}`}
+                tabIndex={0}
                 onClick={(e) => {
                   e.stopPropagation();
                   setNodeToEdit(child);
                   setNodeEditOpen(true);
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    const row = e.currentTarget.closest('tr');
+                    row?.focus();
+                  }
                 }}
               >
                 <MoreHorizontal size={13} />
@@ -4382,6 +4664,8 @@ export const App: React.FC = () => {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onOpenExport={() => setBackupOpen(true)}
+        isAppInstalled={isAppInstalled}
+        onInstallApp={handleInstallApp}
       />
 
       {/* Custom Right-Click Context Menu */}
@@ -4523,6 +4807,7 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 className="drawer-cmdk-trigger-btn"
+                tabIndex={0}
                 onClick={() => {
                   if (!isMenuPinnedRef.current) {
                     setTreeDropdownOpen(false);
@@ -4531,6 +4816,17 @@ export const App: React.FC = () => {
                 }}
                 onMouseDown={e => e.stopPropagation()}
                 title="Open Command Palette (⌘K)"
+                onKeyDown={e => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    const visible = flattenVisibleTree(displayedNavNodes, openNodes);
+                    if (visible.length > 0) setFocusedLibNodeId(visible[0].id);
+                  } else if (e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    const pinBtn = dropdownContainerRef.current?.querySelector<HTMLElement>('.drawer-pin-compact-btn');
+                    pinBtn?.focus();
+                  }
+                }}
               >
                 <Search size={12} className="drawer-cmdk-icon" />
                 <span className="drawer-cmdk-label">Search library &amp; commands...</span>
@@ -4541,10 +4837,22 @@ export const App: React.FC = () => {
               <button
                 type="button"
                 className={`drawer-pin-compact-btn ${isMenuPinned ? 'is-pinned' : ''}`}
+                tabIndex={0}
                 onClick={() => setIsMenuPinned(!isMenuPinned)}
                 onMouseDown={e => e.stopPropagation()}
                 title={isMenuPinned ? 'Unpin window (click outside will close)' : 'Pin window (stay open)'}
                 aria-label={isMenuPinned ? 'Unpin window' : 'Pin window'}
+                onKeyDown={e => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    const visible = flattenVisibleTree(displayedNavNodes, openNodes);
+                    if (visible.length > 0) setFocusedLibNodeId(visible[0].id);
+                  } else if (e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    const cmdkBtn = dropdownContainerRef.current?.querySelector<HTMLElement>('.drawer-cmdk-trigger-btn');
+                    cmdkBtn?.focus();
+                  }
+                }}
               >
                 <Pin size={12} style={isMenuPinned ? { color: '#f59e0b', fill: '#f59e0b' } : undefined} />
               </button>
@@ -4875,9 +5183,31 @@ export const App: React.FC = () => {
                 <div
                   key={ws.id}
                   className={`workspace-chip ${isActive ? 'active' : ''} ${isTarget ? 'is-drop-target' : ''}`}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Workspace: ${wsNode?.name || 'Workspace'}`}
                   onClick={() => switchWorkspace(ws.id)}
                   onAuxClick={e => {
                     if (e.button === 1 && workspaces.length > 1) {
+                      e.preventDefault();
+                      closeWorkspace(ws.id);
+                    }
+                  }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      switchWorkspace(ws.id);
+                    } else if (e.key === 'ArrowRight') {
+                      e.preventDefault();
+                      const nextIdx = (wsIdx + 1) % workspaces.length;
+                      const chips = workspacesDockRef.current?.querySelectorAll<HTMLElement>('.workspace-chip');
+                      chips?.[nextIdx]?.focus();
+                    } else if (e.key === 'ArrowLeft') {
+                      e.preventDefault();
+                      const prevIdx = (wsIdx - 1 + workspaces.length) % workspaces.length;
+                      const chips = workspacesDockRef.current?.querySelectorAll<HTMLElement>('.workspace-chip');
+                      chips?.[prevIdx]?.focus();
+                    } else if ((e.key === 'Delete' || e.key === 'Backspace' || e.key === 'w' || e.key === 'W') && workspaces.length > 1) {
                       e.preventDefault();
                       closeWorkspace(ws.id);
                     }

@@ -11,3 +11,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </ErrorBoundary>
   </React.StrictMode>
 );
+
+// Register PWA Service Worker for app installability
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      console.warn('ServiceWorker registration error:', err);
+    });
+  });
+}
