@@ -1004,46 +1004,47 @@ export const App: React.FC = () => {
     window.addEventListener('mouseup', handleMouseUp);
   };
 
-  // Library Window Resizing (Top edge and Bottom-Right corner)
-  const handleLibResizeStart = (e: React.MouseEvent, direction: 'top' | 'corner') => {
+  // Library Window Vertical Resizing from Any Corner
+  const handleLibResizeStart = (
+    e: React.MouseEvent,
+    corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'top' | 'corner'
+  ) => {
     e.preventDefault();
     e.stopPropagation();
     isResizingDrawerRef.current = true;
     setIsInteracting(true);
 
-    const startX = e.clientX;
     const startY = e.clientY;
-    const startWidth = menuWidth;
     const startHeight = menuHeight;
-    const startPos = menuPosition;
+    const rect = dropdownContainerRef.current?.getBoundingClientRect();
+    const currentTop = rect ? rect.top : (menuPosition?.y || 100);
+    const currentLeft = rect ? rect.left : (menuPosition?.x || 16);
+    const startPos = menuPosition ? { ...menuPosition } : { x: currentLeft, y: currentTop };
+
+    const isTopCorner = corner === 'top-left' || corner === 'top-right' || corner === 'top';
 
     const handleMouseMove = (moveEv: MouseEvent) => {
       moveEv.preventDefault();
-      const deltaX = moveEv.clientX - startX;
       const deltaY = moveEv.clientY - startY;
-
-      let newWidth = startWidth;
       let newHeight = startHeight;
 
-      if (direction === 'top') {
+      if (isTopCorner) {
+        // Dragging top corners upward increases height
         const proposedHeight = startHeight - deltaY;
-        const maxHeight = startPos ? startPos.y + startHeight - 10 : window.innerHeight - 32;
-        newHeight = Math.max(260, Math.min(maxHeight, proposedHeight));
+        const maxHeight = Math.max(260, startPos.y + startHeight - 10);
+        newHeight = Math.max(220, Math.min(maxHeight, proposedHeight));
 
-        if (startPos) {
+        if (menuPosition) {
           const newY = Math.max(10, startPos.y - (newHeight - startHeight));
           setMenuPosition({ x: startPos.x, y: Math.round(newY) });
         }
-      } else if (direction === 'corner') {
-        const maxWidth = window.innerWidth - (startPos?.x || 16) - 10;
-        newWidth = Math.max(300, Math.min(maxWidth, startWidth + deltaX));
-
+      } else {
+        // Dragging bottom corners downward increases height
         const proposedHeight = startHeight + deltaY;
-        const maxHeight = window.innerHeight - (startPos?.y || 16) - 10;
-        newHeight = Math.max(260, Math.min(maxHeight, proposedHeight));
+        const maxHeight = window.innerHeight - startPos.y - 10;
+        newHeight = Math.max(220, Math.min(maxHeight, proposedHeight));
       }
 
-      setMenuWidth(Math.round(newWidth));
       setMenuHeight(Math.round(newHeight));
     };
 
@@ -4093,20 +4094,6 @@ export const App: React.FC = () => {
           className={`detached-library-window ${isInteracting ? 'is-interacting' : ''} ${isMenuPinned ? 'is-pinned' : ''}`}
           role="region"
           aria-label="Library Navigation Window"
-          onMouseDown={e => {
-            const target = e.target as HTMLElement;
-            if (
-              target.closest('button') ||
-              target.closest('input') ||
-              target.closest('.tree-node') ||
-              target.closest('.tree-node-row') ||
-              target.closest('.drawer-more-popover')
-            ) {
-              return;
-            }
-            handleLibDragStart(e);
-          }}
-          onDoubleClick={() => setMenuPosition(null)}
           style={{
             width: `${menuWidth}px`,
             height: `${menuHeight}px`,
@@ -4212,6 +4199,28 @@ export const App: React.FC = () => {
               )}
             </div>
           </div>
+
+          {/* Corner Vertical Resize Handles (Active from any corner) */}
+          <div
+            className="drawer-corner-resize drawer-corner-tl"
+            onMouseDown={e => handleLibResizeStart(e, 'top-left')}
+            title="Drag vertically to resize"
+          />
+          <div
+            className="drawer-corner-resize drawer-corner-tr"
+            onMouseDown={e => handleLibResizeStart(e, 'top-right')}
+            title="Drag vertically to resize"
+          />
+          <div
+            className="drawer-corner-resize drawer-corner-bl"
+            onMouseDown={e => handleLibResizeStart(e, 'bottom-left')}
+            title="Drag vertically to resize"
+          />
+          <div
+            className="drawer-corner-resize drawer-corner-br"
+            onMouseDown={e => handleLibResizeStart(e, 'bottom-right')}
+            title="Drag vertically to resize"
+          />
         </div>
       )}
 

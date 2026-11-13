@@ -4829,19 +4829,63 @@ tr.album-incomplete .cover-art-wrapper {
 }
 
 /* =========================================================================
-   Item Drag & Drop into Folders (No Screen Darkening / No Popup)
+   Item Drag & Drop into Folders (Subtle Studio Glow on Table, Lib Drawer & WS Dock)
    ========================================================================= */
 
+/* Main Table Container / Folder Rows Drop Target Glow */
+tr.container-row.is-drop-target > td,
+tr.t.container-row.is-drop-target > td,
+tr.t.is-drop-target > td,
 .folder-item-hero-row.is-drop-target > td > .folder-item-hero,
 tr.h.is-drop-target > td {
-  background: rgba(56, 189, 248, 0.16) !important;
-  outline: 2px dashed #38bdf8 !important;
-  outline-offset: -2px !important;
+  background: rgba(56, 189, 248, 0.15) !important;
+  box-shadow: inset 0 1.5px 0 #38bdf8, inset 0 -1.5px 0 #38bdf8, 0 0 16px rgba(56, 189, 248, 0.3) !important;
+  color: #ffffff !important;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
 }
 
-.is-dragging {
-  opacity: 0.45;
-  background: rgba(255, 255, 255, 0.04);
+tr.container-row.is-drop-target > td:first-child,
+tr.t.container-row.is-drop-target > td:first-child,
+tr.t.is-drop-target > td:first-child {
+  box-shadow: inset 1.5px 1.5px 0 #38bdf8, inset 0 -1.5px 0 #38bdf8, -4px 0 12px rgba(56, 189, 248, 0.25) !important;
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+
+tr.container-row.is-drop-target > td:last-child,
+tr.t.container-row.is-drop-target > td:last-child,
+tr.t.is-drop-target > td:last-child {
+  box-shadow: inset -1.5px 1.5px 0 #38bdf8, inset 0 -1.5px 0 #38bdf8, 4px 0 12px rgba(56, 189, 248, 0.25) !important;
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+/* Library Drawer Crate Items Drop Target Glow */
+.n.is-drop-target {
+  background: rgba(56, 189, 248, 0.18) !important;
+  outline: 1.5px solid #38bdf8 !important;
+  outline-offset: -1px;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.45), inset 0 0 10px rgba(56, 189, 248, 0.2) !important;
+  color: #ffffff !important;
+  border-radius: 6px;
+  transform: translateX(2px);
+  transition: all 0.12s ease;
+}
+
+/* Empty Space Drop Glow in Table Viewport */
+.main-content-scroll.is-empty-drop-target {
+  box-shadow: inset 0 0 0 1.5px rgba(56, 189, 248, 0.5), inset 0 0 32px rgba(56, 189, 248, 0.16) !important;
+  transition: box-shadow 0.14s ease;
+}
+
+/* Faded Style for Source Item Actively Being Dragged */
+.is-dragging,
+.n.is-dragging,
+tr.t.is-dragging,
+tr.container-row.is-dragging {
+  opacity: 0.38 !important;
+  background: rgba(255, 255, 255, 0.03) !important;
+  filter: grayscale(0.5);
 }
 
 .drop-target-badge {
@@ -5774,17 +5818,6 @@ tr.h.is-selected td {
   transition: width 0.18s cubic-bezier(0.16, 1, 0.3, 1), height 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   user-select: none;
   z-index: 1100;
-  cursor: grab;
-}
-
-.detached-library-window:active {
-  cursor: grabbing;
-}
-
-.detached-library-window button,
-.detached-library-window input,
-.detached-library-window .drawer-tree-list {
-  cursor: auto;
 }
 
 .detached-library-window.is-interacting {
@@ -5793,6 +5826,73 @@ tr.h.is-selected td {
 
 .detached-library-window.is-pinned {
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.92), 0 0 0 1px rgba(245, 158, 11, 0.35);
+}
+
+/* Corner Vertical Resize Handles (Active on any corner) */
+.drawer-corner-resize {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  z-index: 60;
+  background: transparent;
+  user-select: none;
+}
+
+.drawer-corner-tl {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.drawer-corner-tr {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.drawer-corner-bl {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.drawer-corner-br {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+
+.drawer-corner-resize:hover::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-color: rgba(255, 255, 255, 0.45);
+  border-style: solid;
+}
+
+.drawer-corner-tl:hover::after {
+  top: 3px;
+  left: 3px;
+  border-width: 1.5px 0 0 1.5px;
+}
+
+.drawer-corner-tr:hover::after {
+  top: 3px;
+  right: 3px;
+  border-width: 1.5px 1.5px 0 0;
+}
+
+.drawer-corner-bl:hover::after {
+  bottom: 3px;
+  left: 3px;
+  border-width: 0 0 1.5px 1.5px;
+}
+
+.drawer-corner-br:hover::after {
+  bottom: 3px;
+  right: 3px;
+  border-width: 0 1.5px 1.5px 0;
 }
 
 /* Expanded Library Panel */
