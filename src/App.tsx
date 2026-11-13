@@ -71,6 +71,7 @@ import {
   ChevronUp,
   FileText,
   FolderInput,
+  Copy,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -145,7 +146,9 @@ export const App: React.FC = () => {
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
   const [workspacePickerSearch, setWorkspacePickerSearch] = useState('');
   const workspacePickerRef = useRef<HTMLDivElement>(null);
+  const workspaceAddContainerRef = useRef<HTMLDivElement>(null);
   const workspacesDockRef = useRef<HTMLDivElement>(null);
+  const dragHoverTimeoutRef = useRef<any>(null);
   const [isWorkspaceDropTarget, setIsWorkspaceDropTarget] = useState<string | null>(null);
   const [tree, setTree] = useState<LibraryNode[]>([]);
   const [loading, setLoading] = useState(true);
@@ -440,33 +443,88 @@ export const App: React.FC = () => {
   const handleWorkspaceChipDragOver = (e: React.DragEvent, wsId: string) => {
     e.preventDefault();
     e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
     setIsWorkspaceDropTarget(wsId);
+  };
+
+  const handleWorkspaceChipDragEnter = (e: React.DragEvent, wsId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsWorkspaceDropTarget(wsId);
+    if (dragHoverTimeoutRef.current) clearTimeout(dragHoverTimeoutRef.current);
+    dragHoverTimeoutRef.current = setTimeout(() => {
+      switchWorkspace(wsId);
+    }, 650);
   };
 
   const handleWorkspaceChipDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (dragHoverTimeoutRef.current) clearTimeout(dragHoverTimeoutRef.current);
     setIsWorkspaceDropTarget(null);
   };
 
   const handleWorkspaceChipDrop = async (e: React.DragEvent, targetNode: LibraryNode | null) => {
     e.preventDefault();
     e.stopPropagation();
+    if (dragHoverTimeoutRef.current) clearTimeout(dragHoverTimeoutRef.current);
     setIsWorkspaceDropTarget(null);
     if (!targetNode) return;
 
-    const trackIdsToMove = Array.from(selectedTrackIds);
-    if (trackIdsToMove.length === 0) return;
+    // 1. Moving tracks across workspaces
+    let trackIds = draggingTrackIds;
+    if (!trackIds.length) {
+      try {
+        const raw = e.dataTransfer.getData('text/fmsort-tracks');
+        if (raw) trackIds = JSON.parse(raw);
+      } catch {}
+    }
+    if (!trackIds.length && selectedTrackIds.size > 0) {
+      trackIds = Array.from(selectedTrackIds);
+    }
 
-    try {
-      showToast(`Moving ${trackIdsToMove.length} track(s) to "${targetNode.name}"...`);
-      await moveTracks(trackIdsToMove, targetNode.id);
-      await loadTree();
-      showToast(`Moved ${trackIdsToMove.length} track(s) to "${targetNode.name}"`);
-      setSelectedTrackIds(new Set());
-    } catch (err: any) {
-      console.error('Failed to move tracks to workspace:', err);
-      showToast(err.message || 'Failed to move tracks');
+    if (trackIds.length > 0) {
+      try {
+        showToast(`Moving ${trackIds.length} track${trackIds.length > 1 ? 's' : ''} to "${targetNode.name}"...`);
+        await moveTracksBatch(trackIds, targetNode.id);
+        showToast(`Moved ${trackIds.length} track${trackIds.length > 1 ? 's' : ''} to "${targetNode.name}"`);
+        setSelectedTrackIds(new Set());
+        setDraggingTrackIds([]);
+        await loadTree(activeNodeId);
+      } catch (err: any) {
+        console.error('Failed to move tracks to workspace:', err);
+        showToast(err.message || 'Failed to move tracks');
+      }
+      return;
+    }
+
+    // 2. Moving containers (folders, albums, artists) across workspaces
+    let nodeIds = draggingNodeIds.length ? draggingNodeIds : (draggingNodeId ? [draggingNodeId] : []);
+    if (!nodeIds.length) {
+      try {
+        const raw = e.dataTransfer.getData('text/fmsort-nodes');
+        if (raw) nodeIds = JSON.parse(raw);
+      } catch {}
+    }
+
+    if (nodeIds.length > 0) {
+      const validIds = nodeIds.filter(id => id !== targetNode.id && !isDescendant(tree, id, targetNode.id));
+      if (validIds.length === 0) {
+        showToast('Cannot move a container into itself or its own subfolder');
+        return;
+      }
+      try {
+        await Promise.all(validIds.map(id => updateNode(id, { parent_id: targetNode.id })));
+        showToast(`Moved ${validIds.length} container(s) to "${targetNode.name}"`);
+        setDraggingNodeIds([]);
+        setDraggingNodeId(null);
+        setSelectedNodeIds(new Set());
+        await loadTree(activeNodeId);
+      } catch (err: any) {
+        console.error('Failed to move container to workspace:', err);
+        showToast(err.message || 'Failed to move container');
+      }
+      return;
     }
   };
 
@@ -491,7 +549,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (workspacePickerRef.current && !workspacePickerRef.current.contains(e.target as Node)) {
+      if (workspaceAddContainerRef.current && !workspaceAddContainerRef.current.contains(e.target as Node)) {
         setWorkspacePickerOpen(false);
       }
     };
@@ -1212,10 +1270,12 @@ export const App: React.FC = () => {
   };
 
   const handleDragEnd = () => {
+    if (dragHoverTimeoutRef.current) clearTimeout(dragHoverTimeoutRef.current);
     setDraggingTrackIds([]);
     setDraggingNodeId(null);
     setDraggingNodeIds([]);
     setDropTargetNodeId(null);
+    setIsWorkspaceDropTarget(null);
   };
 
   const handleNodeDragOver = (e: React.DragEvent, targetNode: LibraryNode) => {
@@ -2709,6 +2769,7 @@ export const App: React.FC = () => {
                       }}
                       onMouseEnter={e => handleWorkspaceChipMouseEnter(wsNode, e)}
                       onMouseLeave={handleWorkspaceChipMouseLeave}
+                      onDragEnter={e => handleWorkspaceChipDragEnter(e, ws.id)}
                       onDragOver={e => handleWorkspaceChipDragOver(e, ws.id)}
                       onDragLeave={handleWorkspaceChipDragLeave}
                       onDrop={e => handleWorkspaceChipDrop(e, wsNode)}
@@ -2743,60 +2804,105 @@ export const App: React.FC = () => {
                     </div>
                   );
                 })}
+              </div>
 
-                {/* New Workspace (+) Button */}
-                <div style={{ position: 'relative' }}>
-                  <button
-                    type="button"
-                    className="workspace-add-btn"
-                    onClick={() => setWorkspacePickerOpen(!workspacePickerOpen)}
-                    title="Open New Workspace (+)"
-                    aria-label="Open New Workspace"
-                  >
-                    <Plus size={13} />
-                  </button>
+              {/* New Workspace (+) Button & Popover - Outside the scrollable dock so no overflow clipping */}
+              <div className="workspace-add-container" ref={workspaceAddContainerRef}>
+                <button
+                  type="button"
+                  className={`workspace-add-btn ${workspacePickerOpen ? 'active' : ''}`}
+                  onClick={() => setWorkspacePickerOpen(prev => !prev)}
+                  title="Open New Workspace (+ / ⌘T)"
+                  aria-label="Open New Workspace"
+                >
+                  <Plus size={13} />
+                </button>
 
-                  {/* Upward Workspace Picker Popover */}
-                  {workspacePickerOpen && (
-                    <div className="workspace-picker-popover footer-popover" ref={workspacePickerRef}>
-                      <input
-                        type="search"
-                        className="workspace-picker-search"
-                        placeholder="Search crates/folders to open..."
-                        value={workspacePickerSearch}
-                        onChange={e => setWorkspacePickerSearch(e.target.value)}
-                        autoFocus
-                      />
-                      <div className="workspace-picker-list">
-                        {allContainers
-                          .filter(c => !workspacePickerSearch.trim() || c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
-                          .map(c => (
-                            <button
-                              key={c.id}
-                              type="button"
-                              className="workspace-picker-item"
-                              onClick={() => {
-                                openInNewWorkspace(c);
-                                setWorkspacePickerOpen(false);
-                                setWorkspacePickerSearch('');
-                              }}
-                            >
-                              <CoverArt
-                                src={c.type === 'Folder' ? null : (c.cover_url || c.tracks?.[0]?.cover_url || null)}
-                                alt={c.name}
-                                size={18}
-                                type={c.type === 'Artist' ? 'artist' : c.type === 'Playlist' ? 'playlist' : c.type === 'Folder' ? 'folder' : 'album'}
-                                seed={c.name}
-                                rounded={c.type === 'Artist' ? 'full' : 4}
-                              />
-                              <span className="workspace-picker-item-title">{c.name}</span>
-                              <span className="workspace-picker-item-count">{c.type}</span>
-                            </button>
-                          ))}
+                {/* Upward Workspace Picker Popover */}
+                {workspacePickerOpen && (
+                  <div className="workspace-picker-popover footer-popover" ref={workspacePickerRef}>
+                    <div className="workspace-picker-header">
+                      <div className="workspace-picker-header-title">
+                        <FolderPlus size={13} style={{ color: '#818cf8' }} />
+                        <span>Open Workspace</span>
                       </div>
+                      <span className="workspace-picker-shortcut">⌘T</span>
                     </div>
-                  )}
-                </div>
+
+                    {/* Quick Open Root Crate or Duplicate View */}
+                    <div className="workspace-picker-quick-actions">
+                      {tree.length > 0 && (
+                        <button
+                          type="button"
+                          className="workspace-picker-quick-btn"
+                          onClick={() => {
+                            openInNewWorkspace(tree[0]);
+                            setWorkspacePickerOpen(false);
+                            setWorkspacePickerSearch('');
+                          }}
+                        >
+                          <Folder size={12} style={{ color: '#38bdf8' }} />
+                          <span>Library Root ({tree[0].name})</span>
+                        </button>
+                      )}
+                      {activeNode && (
+                        <button
+                          type="button"
+                          className="workspace-picker-quick-btn"
+                          onClick={() => {
+                            const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                            setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
+                            setActiveWorkspaceId(newWsId);
+                            setWorkspacePickerOpen(false);
+                            setWorkspacePickerSearch('');
+                            showToast(`Duplicated workspace for "${activeNode.name}"`);
+                          }}
+                        >
+                          <Copy size={12} style={{ color: '#a78bfa' }} />
+                          <span>Duplicate Active ({activeNode.name})</span>
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="ctx-divider" style={{ margin: '6px 0' }} />
+
+                    <input
+                      type="search"
+                      className="workspace-picker-search"
+                      placeholder="Search crates/folders to open..."
+                      value={workspacePickerSearch}
+                      onChange={e => setWorkspacePickerSearch(e.target.value)}
+                      autoFocus
+                    />
+                    <div className="workspace-picker-list">
+                      {allContainers
+                        .filter(c => !workspacePickerSearch.trim() || c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
+                        .map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className="workspace-picker-item"
+                            onClick={() => {
+                              openInNewWorkspace(c);
+                              setWorkspacePickerOpen(false);
+                              setWorkspacePickerSearch('');
+                            }}
+                          >
+                            <CoverArt
+                              src={c.type === 'Folder' ? null : (c.cover_url || c.tracks?.[0]?.cover_url || null)}
+                              alt={c.name}
+                              size={18}
+                              type={c.type === 'Artist' ? 'artist' : c.type === 'Playlist' ? 'playlist' : c.type === 'Folder' ? 'folder' : 'album'}
+                              seed={c.name}
+                              rounded={c.type === 'Artist' ? 'full' : 4}
+                            />
+                            <span className="workspace-picker-item-title">{c.name}</span>
+                            <span className="workspace-picker-item-count">{c.type}</span>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Hover Preview Card Tooltip */}
