@@ -60,6 +60,8 @@ import {
   Library,
   Rss,
   ChevronLeft,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -147,6 +149,8 @@ export const App: React.FC = () => {
   const [enrichingIsrc, setEnrichingIsrc] = useState(false);
   const [artistProfile, setArtistProfile] = useState<ArtistProfileData | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [artistInfoExpanded, setArtistInfoExpanded] = useState(false);
+  const filterInputRef = useRef<HTMLInputElement>(null);
 
   // Custom Context Menu State
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -510,35 +514,33 @@ export const App: React.FC = () => {
     };
   }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url]);
 
-  // Fetch artist biography, social links, and Deezer metrics for Artist containers
+  // Reset artist profile state on container change (loaded on-demand only when user uncollapses)
   useEffect(() => {
-    let isCancelled = false;
-    if (activeNode?.type === 'Artist') {
+    setArtistInfoExpanded(false);
+    setArtistProfile(null);
+    setLoadingProfile(false);
+  }, [activeNode?.id]);
+
+  const handleToggleArtistInfo = async () => {
+    const next = !artistInfoExpanded;
+    setArtistInfoExpanded(next);
+
+    // Only load from network at the point in time the user uncollapses it
+    if (next && !artistProfile && !loadingProfile && activeNode?.name) {
       setLoadingProfile(true);
-      fetchArtistProfile(activeNode.name)
-        .then(profile => {
-          if (!isCancelled) {
-            setArtistProfile(profile);
-            setLoadingProfile(false);
-            if (profile?.backdropUrl && !activeNode.cover_url) {
-              setHeroBackdrop(profile.backdropUrl);
-            }
-          }
-        })
-        .catch(() => {
-          if (!isCancelled) {
-            setArtistProfile(null);
-            setLoadingProfile(false);
-          }
-        });
-    } else {
-      setArtistProfile(null);
-      setLoadingProfile(false);
+      try {
+        const profile = await fetchArtistProfile(activeNode.name);
+        setArtistProfile(profile);
+        if (profile?.backdropUrl && !activeNode.cover_url) {
+          setHeroBackdrop(profile.backdropUrl);
+        }
+      } catch (err) {
+        console.warn('Failed to load artist profile:', err);
+      } finally {
+        setLoadingProfile(false);
+      }
     }
-    return () => {
-      isCancelled = true;
-    };
-  }, [activeNode?.id, activeNode?.name, activeNode?.type]);
+  };
 
   // Context Menu Trigger Handlers
   const handleTrackContextMenu = (e: React.MouseEvent, track: Track) => {
@@ -899,6 +901,13 @@ export const App: React.FC = () => {
         backupOpen ||
         columnMenuOpen
       ) {
+        return;
+      }
+
+      // Quick filter focus on ⌘F / Ctrl+F
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
+        e.preventDefault();
+        filterInputRef.current?.focus();
         return;
       }
 
@@ -1510,9 +1519,24 @@ export const App: React.FC = () => {
                           </button>
                         </>
                       )}
+                      {activeNode.type === 'Artist' && (
+                        <>
+                          <span> · </span>
+                          <button
+                            type="button"
+                            className={`artist-info-toggle-pill ${artistInfoExpanded ? 'active' : ''}`}
+                            onClick={handleToggleArtistInfo}
+                            title="Show artist bio, Deezer stats, and social links"
+                          >
+                            <Info size={11} />
+                            <span>Artist Info</span>
+                            {artistInfoExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                          </button>
+                        </>
+                      )}
                     </div>
 
-                    {activeNode.type === 'Artist' && (
+                    {activeNode.type === 'Artist' && artistInfoExpanded && (
                       <ArtistProfileHeader
                         profile={artistProfile}
                         loading={loadingProfile}
@@ -1523,41 +1547,6 @@ export const App: React.FC = () => {
                 </div>
               </div>
             )}
-
-            {/* Toolbar */}
-            <div className="tb">
-              <h1>
-                <span>{activeNode.name}</span>
-                <span className="ty">{activeNode.type}</span>
-              </h1>
-
-              <span className="sel">
-                {selectedTrackIds.size > 0 && `${selectedTrackIds.size} selected · `}
-                {activeFlatTracks.length} tracks {activeFlatTracks.length > 0 && `· ${fmtTotalRuntime(activeFlatTracks)}`}
-              </span>
-
-              <input
-                type="search"
-                placeholder="Filter tracks..."
-                value={filterText}
-                onChange={e => setFilterText(e.target.value)}
-                style={{ padding: '4px 9px', fontSize: 12, width: 140 }}
-              />
-
-              {/* Add Music Button inside container — hidden on folder type pages */}
-              {activeNode.type !== 'Folder' && (
-                <div style={{ position: 'relative' }}>
-                  <button
-                    className="p"
-                    onClick={() => setAddMusicMenuOpen(!addMusicMenuOpen)}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-                  >
-                    <Plus size={14} />
-                    <span>Add Music</span>
-                  </button>
-                </div>
-              )}
-            </div>
 
             {/* Table or Artist Projects Suggestions for Artists without Subitems */}
             {isArtistWithoutSubitems ? (
@@ -1829,8 +1818,30 @@ export const App: React.FC = () => {
               </nav>
             </div>
 
-            {/* Right: Actions (Add Music) */}
+            {/* Right: Track Filter Input + Actions (Add Music) */}
             <div className="footer-nav-right">
+              <div className="footer-filter-box">
+                <Search size={12} className="footer-filter-icon" />
+                <input
+                  ref={filterInputRef}
+                  type="search"
+                  className="footer-filter-input"
+                  placeholder="Filter tracks... (⌘F)"
+                  value={filterText}
+                  onChange={e => setFilterText(e.target.value)}
+                />
+                {filterText && (
+                  <button
+                    type="button"
+                    className="footer-filter-clear-btn"
+                    onClick={() => setFilterText('')}
+                    title="Clear filter"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
               <div style={{ position: 'relative' }} ref={addMusicRef}>
                 <button
                   type="button"
