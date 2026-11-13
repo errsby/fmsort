@@ -7,6 +7,8 @@ import {
   deleteNode,
   createNode,
   deleteTrack,
+  createTrack,
+  moveTracksBatch,
   enrichTrackIsrc,
   fetchDiscogsArtwork,
   enrichAllIsrcs,
@@ -55,6 +57,8 @@ import {
   Library,
   Rss,
   ChevronLeft,
+  UploadCloud,
+  FileAudio,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -86,6 +90,98 @@ const DEFAULT_VISIBILITY: Record<ColumnKey, boolean> = {
   bpm: false,
   key: false,
 };
+
+const AUDIO_EXTENSIONS = new Set([
+  'mp3', 'flac', 'wav', 'm4a', 'aac', 'ogg', 'aiff', 'aif', 'wma', 'alac', 'opus', 'dsd', 'dff', 'dsf'
+]);
+
+function parseAudioFilename(filename: string): { title: string; artist: string; format: string } {
+  const dotIndex = filename.lastIndexOf('.');
+  const ext = dotIndex !== -1 ? filename.slice(dotIndex + 1).toLowerCase() : '';
+  const format = ext ? ext.toUpperCase() : 'Digital';
+  let baseName = dotIndex !== -1 ? filename.slice(0, dotIndex) : filename;
+  baseName = baseName.replace(/_/g, ' ').trim();
+  baseName = baseName.replace(/^(\d+[\.\-\s]+|[A-Z]?\d+[\.\-\s]+)/i, '').trim();
+  const parts = baseName.split(/\s+-\s+/);
+  if (parts.length >= 2) {
+    const artist = parts[0].trim();
+    const title = parts.slice(1).join(' - ').trim();
+    return { title: title || baseName, artist: artist || 'Unknown Artist', format };
+  }
+  return { title: baseName || 'Untitled', artist: '', format };
+}
+
+function getAudioDuration(file: File): Promise<number> {
+  return new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(file);
+      const audio = new Audio();
+      audio.preload = 'metadata';
+      const cleanup = () => {
+        URL.revokeObjectURL(url);
+      };
+      audio.onloadedmetadata = () => {
+        const dur = Math.round(audio.duration);
+        cleanup();
+        resolve(isFinite(dur) && dur > 0 ? dur : 0);
+      };
+      audio.onerror = () => {
+        cleanup();
+        resolve(0);
+      };
+      setTimeout(() => {
+        cleanup();
+        resolve(0);
+      }, 1500);
+      audio.src = url;
+    } catch {
+      resolve(0);
+    }
+  });
+}
+
+async function getFilesFromDataTransfer(dataTransfer: DataTransfer): Promise<File[]> {
+  const files: File[] = [];
+  const items = dataTransfer.items;
+  if (items && items.length > 0 && typeof items[0].webkitGetAsEntry === 'function') {
+    const traverseFileTree = async (entry: any): Promise<void> => {
+      if (entry.isFile) {
+        try {
+          const file: File = await new Promise((resolve, reject) => entry.file(resolve, reject));
+          files.push(file);
+        } catch {}
+      } else if (entry.isDirectory) {
+        try {
+          const dirReader = entry.createReader();
+          const readEntries = (): Promise<any[]> => {
+            return new Promise((resolve, reject) => {
+              dirReader.readEntries(resolve, reject);
+            });
+          };
+          let entries = await readEntries();
+          while (entries.length > 0) {
+            for (const childEntry of entries) {
+              await traverseFileTree(childEntry);
+            }
+            entries = await readEntries();
+          }
+        } catch {}
+      }
+    };
+
+    for (let i = 0; i < items.length; i++) {
+      const entry = items[i].webkitGetAsEntry();
+      if (entry) {
+        await traverseFileTree(entry);
+      }
+    }
+  } else if (dataTransfer.files && dataTransfer.files.length > 0) {
+    for (let i = 0; i < dataTransfer.files.length; i++) {
+      files.push(dataTransfer.files[i]);
+    }
+  }
+  return files;
+}
 
 export const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<'library' | 'feed'>('library');
@@ -147,6 +243,14 @@ export const App: React.FC = () => {
       setToastMessage(null);
     }, 2800);
   };
+
+  // Drag & drop state for folder pages
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [isImportingFiles, setIsImportingFiles] = useState(false);
+  const [draggingTrackIds, setDraggingTrackIds] = useState<number[]>([]);
+  const [dropTargetNodeId, setDropTargetNodeId] = useState<string | null>(null);
+  const fileDropCounter = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Togglable Library Tree Dropdown under (../)
   const [treeDropdownOpen, setTreeDropdownOpen] = useState(false);
@@ -633,6 +737,201 @@ export const App: React.FC = () => {
     });
   };
 
+  const handleImportAudioFiles = async (dataTransfer: DataTransfer, targetNode: LibraryNode) => {
+    const rawFiles = await getFilesFromDataTransfer(dataTransfer);
+    const audioFiles = rawFiles.filter(f => {
+      if (f.type && f.type.startsWith('audio/')) return true;
+      const dotIndex = f.name.lastIndexOf('.');
+      if (dotIndex === -1) return false;
+      const ext = f.name.slice(dotIndex + 1).toLowerCase();
+      return AUDIO_EXTENSIONS.has(ext);
+    });
+
+    if (audioFiles.length === 0) {
+      showToast('No valid audio files found in dropped items (MP3, FLAC, WAV, M4A, etc.)');
+      return;
+    }
+
+    setIsImportingFiles(true);
+    showToast(`Importing ${audioFiles.length} dropped audio file${audioFiles.length > 1 ? 's' : ''}...`);
+
+    try {
+      for (let i = 0; i < audioFiles.length; i++) {
+        const file = audioFiles[i];
+        const parsed = parseAudioFilename(file.name);
+        const dur = await getAudioDuration(file);
+        await createTrack(targetNode.id, {
+          t: parsed.title,
+          a: parsed.artist || (targetNode.type === 'Artist' ? targetNode.name : 'Unknown Artist'),
+          al: targetNode.type === 'Album' ? targetNode.name : (targetNode.type === 'Folder' ? targetNode.name : ''),
+          f: parsed.format,
+          len: dur || 180,
+          y: new Date().getFullYear(),
+          sort_order: i,
+        });
+      }
+      showToast(`Imported ${audioFiles.length} track${audioFiles.length > 1 ? 's' : ''} into "${targetNode.name}"`);
+      await loadTree(activeNode?.id);
+    } catch (err: any) {
+      showToast(`Failed to import files: ${err?.message || 'Error'}`);
+    } finally {
+      setIsImportingFiles(false);
+    }
+  };
+
+  const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>, targetNode: LibraryNode) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const fileList = Array.from(files);
+    const audioFiles = fileList.filter(f => {
+      if (f.type && f.type.startsWith('audio/')) return true;
+      const dotIndex = f.name.lastIndexOf('.');
+      if (dotIndex === -1) return false;
+      const ext = f.name.slice(dotIndex + 1).toLowerCase();
+      return AUDIO_EXTENSIONS.has(ext);
+    });
+
+    if (audioFiles.length === 0) {
+      showToast('No valid audio files selected');
+      return;
+    }
+
+    setIsImportingFiles(true);
+    showToast(`Importing ${audioFiles.length} audio file${audioFiles.length > 1 ? 's' : ''}...`);
+
+    try {
+      for (let i = 0; i < audioFiles.length; i++) {
+        const file = audioFiles[i];
+        const parsed = parseAudioFilename(file.name);
+        const dur = await getAudioDuration(file);
+        await createTrack(targetNode.id, {
+          t: parsed.title,
+          a: parsed.artist || (targetNode.type === 'Artist' ? targetNode.name : 'Unknown Artist'),
+          al: targetNode.type === 'Album' ? targetNode.name : (targetNode.type === 'Folder' ? targetNode.name : ''),
+          f: parsed.format,
+          len: dur || 180,
+          y: new Date().getFullYear(),
+          sort_order: i,
+        });
+      }
+      showToast(`Imported ${audioFiles.length} track${audioFiles.length > 1 ? 's' : ''} into "${targetNode.name}"`);
+      await loadTree(activeNode?.id);
+    } catch (err: any) {
+      showToast(`Failed to import files: ${err?.message || 'Error'}`);
+    } finally {
+      setIsImportingFiles(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleFolderPageDragEnter = (e: React.DragEvent) => {
+    if (activeNode?.type !== 'Folder') return;
+    e.preventDefault();
+    e.stopPropagation();
+    fileDropCounter.current++;
+    if (e.dataTransfer.types.includes('Files') || draggingTrackIds.length > 0) {
+      setIsDraggingFiles(true);
+    }
+  };
+
+  const handleFolderPageDragOver = (e: React.DragEvent) => {
+    if (activeNode?.type !== 'Folder') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('Files') || draggingTrackIds.length > 0) {
+      e.dataTransfer.dropEffect = 'copy';
+    }
+  };
+
+  const handleFolderPageDragLeave = (e: React.DragEvent) => {
+    if (activeNode?.type !== 'Folder') return;
+    e.preventDefault();
+    e.stopPropagation();
+    fileDropCounter.current--;
+    if (fileDropCounter.current <= 0) {
+      fileDropCounter.current = 0;
+      setIsDraggingFiles(false);
+    }
+  };
+
+  const handleFolderPageDrop = async (e: React.DragEvent) => {
+    if (activeNode?.type !== 'Folder') return;
+    e.preventDefault();
+    e.stopPropagation();
+    fileDropCounter.current = 0;
+    setIsDraggingFiles(false);
+
+    if (draggingTrackIds.length > 0) {
+      try {
+        await moveTracksBatch(draggingTrackIds, activeNode.id);
+        showToast(`Moved ${draggingTrackIds.length} track${draggingTrackIds.length > 1 ? 's' : ''} into "${activeNode.name}"`);
+        setSelectedTrackIds(new Set());
+        setDraggingTrackIds([]);
+        await loadTree(activeNode.id);
+      } catch (err: any) {
+        showToast(err?.message || 'Failed to move tracks');
+      }
+      return;
+    }
+
+    if (e.dataTransfer.types.includes('Files')) {
+      await handleImportAudioFiles(e.dataTransfer, activeNode);
+    }
+  };
+
+  const handleTrackDragStart = (e: React.DragEvent, track: Track) => {
+    const ids = selectedTrackIds.has(track.id) ? Array.from(selectedTrackIds) : [track.id];
+    setDraggingTrackIds(ids);
+    e.dataTransfer.setData('application/json', JSON.stringify({ type: 'tracks', ids }));
+    e.dataTransfer.setData('text/plain', `${ids.length} track(s)`);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleTrackDragEnd = () => {
+    setDraggingTrackIds([]);
+    setDropTargetNodeId(null);
+  };
+
+  const handleChildRowDragOver = (e: React.DragEvent, child: LibraryNode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (draggingTrackIds.length > 0 || e.dataTransfer.types.includes('Files')) {
+      e.dataTransfer.dropEffect = 'move';
+      setDropTargetNodeId(child.id);
+    }
+  };
+
+  const handleChildRowDragLeave = (e: React.DragEvent, child: LibraryNode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dropTargetNodeId === child.id) {
+      setDropTargetNodeId(null);
+    }
+  };
+
+  const handleChildRowDrop = async (e: React.DragEvent, child: LibraryNode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTargetNodeId(null);
+
+    if (draggingTrackIds.length > 0) {
+      try {
+        await moveTracksBatch(draggingTrackIds, child.id);
+        showToast(`Moved ${draggingTrackIds.length} track${draggingTrackIds.length > 1 ? 's' : ''} to "${child.name}"`);
+        setSelectedTrackIds(new Set());
+        setDraggingTrackIds([]);
+        await loadTree(activeNode?.id);
+      } catch (err: any) {
+        showToast(err?.message || 'Failed to move tracks');
+      }
+      return;
+    }
+
+    if (e.dataTransfer.types.includes('Files')) {
+      await handleImportAudioFiles(e.dataTransfer, child);
+    }
+  };
+
   const handleBatchDelete = async () => {
     if (selectedTrackIds.size === 0) return;
     if (!confirm(`Are you sure you want to delete ${selectedTrackIds.size} selected tracks?`)) return;
@@ -791,7 +1090,10 @@ export const App: React.FC = () => {
       nodesOut.push(
         <tr
           key={`t-${t.id}`}
-          className={`t ${isSelected ? 's' : ''}`}
+          className={`t ${isSelected ? 's' : ''} ${draggingTrackIds.includes(t.id) ? 'is-dragging' : ''}`}
+          draggable={true}
+          onDragStart={e => handleTrackDragStart(e, t)}
+          onDragEnd={handleTrackDragEnd}
           onContextMenu={e => handleTrackContextMenu(e, t)}
         >
           <td style={{ paddingLeft: `${10 + depth * 16}px` }}>
@@ -864,11 +1166,14 @@ export const App: React.FC = () => {
           nodesOut.push(
             <tr
               key={`h-${child.id}`}
-              className={`folder-item-hero-row ${!hasSubItems ? 'is-empty' : ''}`}
+              className={`folder-item-hero-row ${!hasSubItems ? 'is-empty' : ''} ${dropTargetNodeId === child.id ? 'is-drop-target' : ''}`}
               data-context-type="node"
               data-node-id={child.id}
               onClick={hasSubItems ? () => toggleSectionCollapse(child.id) : () => selectNode(child)}
               onContextMenu={e => handleNodeContextMenu(e, child)}
+              onDragOver={e => handleChildRowDragOver(e, child)}
+              onDragLeave={e => handleChildRowDragLeave(e, child)}
+              onDrop={e => handleChildRowDrop(e, child)}
             >
               <td colSpan={colSpan}>
                 <div
@@ -909,6 +1214,11 @@ export const App: React.FC = () => {
 
                     <span className="folder-item-type-plain">{child.type}</span>
                     <span className="folder-item-name">{child.name}</span>
+                    {dropTargetNodeId === child.id && (
+                      <span className="drop-target-badge">
+                        {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : 'Drop into crate'}
+                      </span>
+                    )}
                     {child.type === 'Album' && child.tracks?.[0]?.a && (
                       <span className="folder-item-artist">· {child.tracks[0].a}</span>
                     )}
@@ -959,11 +1269,14 @@ export const App: React.FC = () => {
           nodesOut.push(
             <tr
               key={`h-${child.id}`}
-              className="h"
+              className={`h ${dropTargetNodeId === child.id ? 'is-drop-target' : ''}`}
               data-context-type="node"
               data-node-id={child.id}
               onClick={hasSubItems ? () => toggleSectionCollapse(child.id) : () => selectNode(child)}
               onContextMenu={e => handleNodeContextMenu(e, child)}
+              onDragOver={e => handleChildRowDragOver(e, child)}
+              onDragLeave={e => handleChildRowDragLeave(e, child)}
+              onDrop={e => handleChildRowDrop(e, child)}
             >
               <td colSpan={colSpan} style={{ paddingLeft: `${14 + depth * 16}px` }}>
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -982,6 +1295,11 @@ export const App: React.FC = () => {
                   />
                   <span className="ty">{child.type}</span>
                   <span style={{ fontWeight: 600, color: '#f4f4f5' }}>{child.name}</span>
+                  {dropTargetNodeId === child.id && (
+                    <span className="drop-target-badge">
+                      {draggingTrackIds.length > 0 ? `Move ${draggingTrackIds.length} track(s) here` : 'Drop into crate'}
+                    </span>
+                  )}
                   <span className="m">
                     {child.children?.length ? `${child.children.length} items` : ''}
                     {childTracks.length > 0 ? ` · ${childTracks.length} tracks · ${fmtTotalRuntime(childTracks)}` : ''}
@@ -1018,7 +1336,47 @@ export const App: React.FC = () => {
           /* =========================================================================
              Container Detail View (Drilled Down View)
              ========================================================================= */
-          <div className="container-detail-view" onContextMenu={handleTableContextMenu}>
+          <div
+            className="container-detail-view"
+            onContextMenu={handleTableContextMenu}
+            onDragEnter={activeNode.type === 'Folder' ? handleFolderPageDragEnter : undefined}
+            onDragOver={activeNode.type === 'Folder' ? handleFolderPageDragOver : undefined}
+            onDragLeave={activeNode.type === 'Folder' ? handleFolderPageDragLeave : undefined}
+            onDrop={activeNode.type === 'Folder' ? handleFolderPageDrop : undefined}
+          >
+            {/* Hidden file input for folder audio file drag-and-drop / selection */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              multiple
+              accept="audio/*,.mp3,.flac,.wav,.m4a,.aac,.ogg,.aiff,.wma,.opus"
+              style={{ display: 'none' }}
+              onChange={e => handleFileInputChange(e, activeNode)}
+            />
+
+            {/* Drag & Drop Visual Overlay on Folder Pages */}
+            {isDraggingFiles && activeNode.type === 'Folder' && (
+              <div
+                className="folder-drop-overlay"
+                onDragOver={handleFolderPageDragOver}
+                onDragLeave={handleFolderPageDragLeave}
+                onDrop={handleFolderPageDrop}
+              >
+                <div className="folder-drop-card">
+                  <UploadCloud size={46} className="folder-drop-icon" />
+                  <div className="folder-drop-title">
+                    Drop audio files to add to {activeNode.name}
+                  </div>
+                  <div className="folder-drop-subtitle">
+                    Drop MP3, FLAC, WAV, M4A, AIFF, OGG files or folders here to parse and add them automatically.
+                  </div>
+                  <div className="folder-drop-badge">
+                    <Sparkles size={12} />
+                    <span>Release into crate</span>
+                  </div>
+                </div>
+              </div>
+            )}
             {/* Active Container Hero Banner with Discogs / Ambient Background Artwork */}
             {(activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist' || activeNode.type === 'Folder') && (
               <div className="active-hero-banner">
@@ -1141,8 +1499,8 @@ export const App: React.FC = () => {
                 style={{ padding: '4px 9px', fontSize: 12, width: 140 }}
               />
 
-              {/* Add Music Button inside container — removed on folder type pages */}
-              {activeNode.type !== 'Folder' && (
+              {/* Add Music Button inside container — on folder type pages replaced with Drop / Import Audio */}
+              {activeNode.type !== 'Folder' ? (
                 <div style={{ position: 'relative' }}>
                   <button
                     className="p"
@@ -1151,6 +1509,20 @@ export const App: React.FC = () => {
                   >
                     <Plus size={14} />
                     <span>Add Music</span>
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button
+                    className="p"
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isImportingFiles}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                    title="Import or drop audio files into this folder"
+                  >
+                    <UploadCloud size={14} />
+                    <span>{isImportingFiles ? 'Importing...' : 'Drop / Import Audio'}</span>
                   </button>
                 </div>
               )}
@@ -1268,6 +1640,53 @@ export const App: React.FC = () => {
                     {(() => {
                       const rows = renderSections(activeNode, 0);
                       if (rows.length === 0) {
+                        if (activeNode.type === 'Folder') {
+                          return (
+                            <tr>
+                              <td
+                                colSpan={COLUMNS.filter(c => visibleColumns[c.key]).length + 1}
+                                style={{ padding: '40px 20px', textAlign: 'center' }}
+                              >
+                                <div
+                                  className="folder-empty-dropzone"
+                                  onClick={() => fileInputRef.current?.click()}
+                                >
+                                  <UploadCloud size={40} className="folder-drop-icon" />
+                                  <div style={{ fontWeight: 600, fontSize: 15, color: '#f4f4f5' }}>
+                                    Drag &amp; Drop audio files into {activeNode.name}
+                                  </div>
+                                  <p style={{ fontSize: 12, color: 'var(--mu)', margin: 0, lineHeight: 1.5, maxWidth: 420 }}>
+                                    Drop audio files (MP3, FLAC, WAV, M4A, etc.) or music folders from your computer to populate this crate. Metadata and duration are resolved automatically.
+                                  </p>
+                                  <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                                    <button
+                                      type="button"
+                                      className="p"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        fileInputRef.current?.click();
+                                      }}
+                                    >
+                                      <FileAudio size={13} />
+                                      <span>Select Audio Files</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setNewContainerOpen(true);
+                                      }}
+                                    >
+                                      <FolderPlus size={13} />
+                                      <span>New Sub-Crate</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        }
+
                         return (
                           <tr>
                             <td
