@@ -250,6 +250,50 @@ export const HybridSearchModal: React.FC<Props> = ({
     };
   }, [query, isOpen, provider]);
 
+  // Safe filtered albums according to active filter chip (Hooks called unconditionally at top level)
+  const filteredAlbums = useMemo(() => {
+    if (!albumResults || !Array.isArray(albumResults)) return [];
+    if (activeFilter === 'artists') return [];
+    if (activeFilter === 'vinyl') {
+      return albumResults.filter(a => {
+        if (!a) return false;
+        const hasDiscogs = (a.sources || []).includes('discogs');
+        const hasVinylVersion = (a.versions || []).some(v => {
+          const fmt = (v?.format || '').toLowerCase();
+          return fmt.includes('vinyl') || fmt.includes('lp') || fmt.includes('12"') || fmt.includes('7"');
+        });
+        return hasDiscogs || hasVinylVersion;
+      });
+    }
+    if (activeFilter === 'digital') {
+      return albumResults.filter(a => a && (a.sources || []).includes('deezer'));
+    }
+    return albumResults;
+  }, [albumResults, activeFilter]);
+
+  const vinylCount = useMemo(() => {
+    if (!albumResults || !Array.isArray(albumResults)) return 0;
+    return albumResults.filter(a => {
+      if (!a) return false;
+      const hasDiscogs = (a.sources || []).includes('discogs');
+      const hasVinylVersion = (a.versions || []).some(v => {
+        const fmt = (v?.format || '').toLowerCase();
+        return fmt.includes('vinyl') || fmt.includes('lp') || fmt.includes('12"') || fmt.includes('7"');
+      });
+      return hasDiscogs || hasVinylVersion;
+    }).length;
+  }, [albumResults]);
+
+  const digitalCount = useMemo(() => {
+    if (!albumResults || !Array.isArray(albumResults)) return 0;
+    return albumResults.filter(a => a && (a.sources || []).includes('deezer')).length;
+  }, [albumResults]);
+
+  const totalVersionCount = useMemo(() => {
+    if (!albumResults || !Array.isArray(albumResults)) return 0;
+    return albumResults.reduce((acc, a) => acc + (a?.versions?.length || 0), 0);
+  }, [albumResults]);
+
   if (!isOpen) return null;
 
   const handleSaveToken = async (e: React.FormEvent) => {
@@ -376,50 +420,6 @@ export const HybridSearchModal: React.FC<Props> = ({
         return null;
     }
   };
-
-  // Safe filtered albums according to active filter chip
-  const filteredAlbums = useMemo(() => {
-    if (!albumResults || !Array.isArray(albumResults)) return [];
-    if (activeFilter === 'artists') return [];
-    if (activeFilter === 'vinyl') {
-      return albumResults.filter(a => {
-        if (!a) return false;
-        const hasDiscogs = (a.sources || []).includes('discogs');
-        const hasVinylVersion = (a.versions || []).some(v => {
-          const fmt = (v?.format || '').toLowerCase();
-          return fmt.includes('vinyl') || fmt.includes('lp') || fmt.includes('12"') || fmt.includes('7"');
-        });
-        return hasDiscogs || hasVinylVersion;
-      });
-    }
-    if (activeFilter === 'digital') {
-      return albumResults.filter(a => a && (a.sources || []).includes('deezer'));
-    }
-    return albumResults;
-  }, [albumResults, activeFilter]);
-
-  const vinylCount = useMemo(() => {
-    if (!albumResults || !Array.isArray(albumResults)) return 0;
-    return albumResults.filter(a => {
-      if (!a) return false;
-      const hasDiscogs = (a.sources || []).includes('discogs');
-      const hasVinylVersion = (a.versions || []).some(v => {
-        const fmt = (v?.format || '').toLowerCase();
-        return fmt.includes('vinyl') || fmt.includes('lp') || fmt.includes('12"') || fmt.includes('7"');
-      });
-      return hasDiscogs || hasVinylVersion;
-    }).length;
-  }, [albumResults]);
-
-  const digitalCount = useMemo(() => {
-    if (!albumResults || !Array.isArray(albumResults)) return 0;
-    return albumResults.filter(a => a && (a.sources || []).includes('deezer')).length;
-  }, [albumResults]);
-
-  const totalVersionCount = useMemo(() => {
-    if (!albumResults || !Array.isArray(albumResults)) return 0;
-    return albumResults.reduce((acc, a) => acc + (a?.versions?.length || 0), 0);
-  }, [albumResults]);
 
   return (
     <>
