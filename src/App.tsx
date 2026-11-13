@@ -2136,10 +2136,10 @@ export const App: React.FC = () => {
         }
       }
 
-      // Toggle Workspace Switcher Collapse: ⌘\ / Ctrl+\
+      // Toggle Workspace Dropdown: ⌘\ / Ctrl+\
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === '\\' || e.code === 'Backslash')) {
         e.preventDefault();
-        setWorkspacesCollapsed(prev => !prev);
+        setWorkspaceDropdownOpen(prev => !prev);
         return;
       }
 
@@ -2260,7 +2260,7 @@ export const App: React.FC = () => {
     activePath,
     activeTrack,
     clipboard,
-    workspacesCollapsed,
+    workspaceDropdownOpen,
   ]);
 
   // Helper to sort tracks
