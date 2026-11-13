@@ -45,37 +45,17 @@ import {
   Sparkles,
   Disc,
   Disc3,
-  PanelLeft,
   MoreHorizontal,
   Folder,
   FolderOpen,
   ExternalLink,
   Check,
   Info,
-  History,
   Radio,
   Library,
   Rss,
   ChevronLeft,
-  ArrowLeft,
 } from 'lucide-react';
-
-interface HistoryEntry {
-  id: string;
-  name: string;
-  type: string;
-  cover_url?: string;
-  timestamp: number;
-}
-
-function fmtTimeAgo(ts: number): string {
-  if (!ts || typeof ts !== 'number' || isNaN(ts)) return 'Just now';
-  const diff = Math.floor((Date.now() - ts) / 1000);
-  if (diff < 60) return 'Just now';
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
 
 const COLUMNS: ColumnDef[] = [
   { key: 'title', label: 'Title' },
@@ -145,7 +125,6 @@ export const App: React.FC = () => {
   const [backupOpen, setBackupOpen] = useState(false);
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   const [addMusicMenuOpen, setAddMusicMenuOpen] = useState(false);
-  const [sidebarOpenMobile, setSidebarOpenMobile] = useState(false);
   const [heroBackdrop, setHeroBackdrop] = useState<string | null>(null);
   const [enrichingIsrc, setEnrichingIsrc] = useState(false);
 
@@ -169,23 +148,9 @@ export const App: React.FC = () => {
     }, 2800);
   };
 
-  // Navigation History State (../)
-  const [history, setHistory] = useState<HistoryEntry[]>(() => {
-    try {
-      const saved = localStorage.getItem('fmsort_nav_history');
-      if (!saved) return [];
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(item => item && typeof item === 'object' && item.id && item.name);
-      }
-      return [];
-    } catch {
-      return [];
-    }
-  });
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const historyRef = useRef<HTMLDivElement>(null);
-  const historyTimerRef = useRef<any>(null);
+  // Togglable Library Tree Dropdown under (../)
+  const [treeDropdownOpen, setTreeDropdownOpen] = useState(false);
+  const treeDropdownRef = useRef<HTMLDivElement>(null);
 
   const addMusicRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
@@ -199,7 +164,7 @@ export const App: React.FC = () => {
       return next;
     });
     setSelectedTrackIds(new Set());
-    setSidebarOpenMobile(false);
+    setTreeDropdownOpen(false);
   };
 
   const activeNode = useMemo(() => {
@@ -280,8 +245,8 @@ export const App: React.FC = () => {
       if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
         setColumnMenuOpen(false);
       }
-      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
-        setHistoryOpen(false);
+      if (treeDropdownRef.current && !treeDropdownRef.current.contains(e.target as Node)) {
+        setTreeDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -295,7 +260,7 @@ export const App: React.FC = () => {
         e.preventDefault();
         setCommandPaletteOpen(true);
       } else if (e.key === 'Escape') {
-        setHistoryOpen(false);
+        setTreeDropdownOpen(false);
         setContextMenu(prev => ({ ...prev, isOpen: false }));
         setImportModalOpen(false);
         setCommandPaletteOpen(false);
@@ -613,63 +578,6 @@ export const App: React.FC = () => {
 
   const toggleSectionCollapse = (id: string) => {
     setCollapsedSections(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  // Record visited containers into history
-  useEffect(() => {
-    if (!activeNode) return;
-    setHistory(prev => {
-      const filtered = prev.filter(h => h.id !== activeNode.id);
-      const newEntry: HistoryEntry = {
-        id: activeNode.id,
-        name: activeNode.name,
-        type: activeNode.type,
-        cover_url: activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || '',
-        timestamp: Date.now(),
-      };
-      const updated = [newEntry, ...filtered].slice(0, 20);
-      try {
-        localStorage.setItem('fmsort_nav_history', JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
-  }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url]);
-
-  const handleHistoryMouseEnter = () => {
-    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
-    historyTimerRef.current = setTimeout(() => {
-      setHistoryOpen(true);
-    }, 140);
-  };
-
-  const handleHistoryMouseLeave = () => {
-    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
-    historyTimerRef.current = setTimeout(() => {
-      setHistoryOpen(false);
-    }, 280);
-  };
-
-  const handleHistoryClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
-    setHistoryOpen(!historyOpen);
-  };
-
-  const handleSelectHistoryItem = (entry: HistoryEntry) => {
-    setHistoryOpen(false);
-    setCurrentPage('library');
-    const targetNode = findNodeById(tree, entry.id);
-    if (targetNode) {
-      selectNode(targetNode);
-    }
-  };
-
-  const handleClearHistory = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setHistory([]);
-    try {
-      localStorage.removeItem('fmsort_nav_history');
-    } catch {}
   };
 
   const toggleTrackSelect = (id: number) => {
@@ -1072,60 +980,6 @@ export const App: React.FC = () => {
   return (
     <>
       <div className="app-shell">
-        {/* Left Sidebar (Spans full height on the left, does not share footer) */}
-        <aside
-          id="side"
-          className={sidebarOpenMobile ? 'on' : ''}
-          onContextMenu={handleSidebarContextMenu}
-        >
-          <div className="sidebar-header">
-            <div
-              className="sidebar-brand"
-              onClick={() => {
-                setActiveNodeId('');
-                setSelectedTrackIds(new Set());
-              }}
-              title="Go to Library Overview"
-            >
-              <Library size={15} className="sidebar-brand-icon" />
-              <span className="sidebar-title">Library</span>
-            </div>
-            <button
-              type="button"
-              className="sidebar-new-btn"
-              onClick={() => setNewContainerOpen(true)}
-              title="Create New Container"
-              aria-label="Create New Container"
-            >
-              <FolderPlus size={13} />
-            </button>
-          </div>
-
-          <div className="tree-list">
-            {loading ? (
-              <div style={{ color: 'var(--mu)', padding: 12 }}>Loading library...</div>
-            ) : tree.length === 0 ? (
-              <div className="empty-sidebar-box">
-                <FolderPlus size={22} style={{ color: 'var(--mu)', marginBottom: 8 }} />
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: '#f4f4f5' }}>Blank Library</div>
-                <p style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 12px', lineHeight: 1.4 }}>
-                  Create your first container or import music to organize your library.
-                </p>
-                <button
-                  className="p"
-                  style={{ fontSize: 11, width: '100%', justifyContent: 'center' }}
-                  onClick={() => setNewContainerOpen(true)}
-                >
-                  <Plus size={13} />
-                  <span>New Container</span>
-                </button>
-              </div>
-            ) : (
-              tree.map(n => renderTreeNode(n, 0))
-            )}
-          </div>
-        </aside>
-
         {/* Main Viewport: Scrollable Content + Docked Integrated Footer */}
         <div className="main-viewport">
           <main className="main-content-scroll">
@@ -1561,109 +1415,79 @@ export const App: React.FC = () => {
 
           {/* Integrated UI Footer — Docked at bottom of main viewport (does NOT extend into sidebar) */}
           <footer className="integrated-footer">
-            {/* Left: Mobile Toggle + Back Button + History (../) + Breadcrumbs (without dropdown arrows) */}
+            {/* Left: Library Tree Dropdown (../) + Breadcrumbs (without dropdown arrows) */}
             <div className="footer-nav-left">
-              <button
-                type="button"
-                className="crumb-back-btn mobile-side-toggle"
-                onClick={() => setSidebarOpenMobile(!sidebarOpenMobile)}
-                title="Toggle Sidebar"
-                aria-label="Toggle Sidebar"
-              >
-                <PanelLeft size={14} />
-              </button>
-
-              {activeNode && (
-                <button
-                  type="button"
-                  className="crumb-back-btn"
-                  onClick={handleGoBack}
-                  title={`Go back up to ${activePath.length > 1 ? activePath[activePath.length - 2]?.name : 'Library'}`}
-                  aria-label="Go back up"
-                >
-                  <ArrowLeft size={14} />
-                </button>
-              )}
-
-              {/* ../ History button & popover */}
+              {/* ../ Library Tree Toggle Button & Dropdown */}
               <div
                 className="crumb-history-container"
-                ref={historyRef}
-                onMouseEnter={handleHistoryMouseEnter}
-                onMouseLeave={handleHistoryMouseLeave}
+                ref={treeDropdownRef}
               >
                 <button
                   type="button"
-                  className={`crumb-history-btn ${historyOpen ? 'active' : ''}`}
-                  onClick={handleHistoryClick}
-                  title="Navigation history (hover or click)"
-                  aria-label="Navigation history"
+                  className={`crumb-history-btn ${treeDropdownOpen ? 'active' : ''}`}
+                  onClick={() => setTreeDropdownOpen(!treeDropdownOpen)}
+                  title="Browse Library Crates (..)"
+                  aria-label="Browse Library Crates"
                 >
                   ../
                 </button>
 
-                {historyOpen && (
-                  <div className="crumb-history-dropdown footer-popover" role="menu">
-                    <div className="crumb-history-header">
-                      <div className="crumb-history-title">
-                        <History size={12} />
-                        <span>Navigation History</span>
+                {treeDropdownOpen && (
+                  <div className="crumb-tree-dropdown footer-popover" role="menu">
+                    {/* Dropdown Header */}
+                    <div className="crumb-tree-header">
+                      <div
+                        className="crumb-tree-brand"
+                        onClick={() => {
+                          setActiveNodeId('');
+                          setSelectedTrackIds(new Set());
+                          setTreeDropdownOpen(false);
+                        }}
+                        title="Library Root Overview"
+                      >
+                        <Library size={14} className="crumb-tree-icon" />
+                        <span className="crumb-tree-title">Library</span>
+                        <span className="crumb-tree-count">{tree.length} crates</span>
                       </div>
-                      {history.length > 0 && (
-                        <button
-                          type="button"
-                          className="crumb-history-clear-btn"
-                          onClick={handleClearHistory}
-                          title="Clear history"
-                        >
-                          Clear
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="crumb-tree-new-btn"
+                        onClick={() => {
+                          setTreeDropdownOpen(false);
+                          setNewContainerOpen(true);
+                        }}
+                        title="Create New Container"
+                      >
+                        <FolderPlus size={13} />
+                        <span>New</span>
+                      </button>
                     </div>
 
-                    <div className="crumb-history-list">
-                      {history.length === 0 ? (
-                        <div className="crumb-history-empty">
-                          No pages visited yet
+                    {/* Dropdown Tree List */}
+                    <div className="crumb-tree-list">
+                      {loading ? (
+                        <div style={{ color: 'var(--mu)', padding: '16px 12px', fontSize: 12 }}>Loading library...</div>
+                      ) : tree.length === 0 ? (
+                        <div className="empty-sidebar-box" style={{ padding: 14 }}>
+                          <FolderPlus size={20} style={{ color: 'var(--mu)', marginBottom: 6 }} />
+                          <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 3, color: '#f4f4f5' }}>Blank Library</div>
+                          <p style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 10px', lineHeight: 1.4 }}>
+                            Create your first container to organize your library.
+                          </p>
+                          <button
+                            className="p"
+                            style={{ fontSize: 11, width: '100%', justifyContent: 'center' }}
+                            onClick={() => {
+                              setTreeDropdownOpen(false);
+                              setNewContainerOpen(true);
+                            }}
+                          >
+                            <Plus size={13} />
+                            <span>New Container</span>
+                          </button>
                         </div>
                       ) : (
-                        history.map(item => {
-                          if (!item || !item.id) return null;
-                          const isCurrent = activeNode?.id === item.id;
-                          const itemName = item.name || 'Untitled';
-                          const itemType = item.type || 'Folder';
-                          return (
-                            <button
-                              key={`${item.id}-${item.timestamp || 0}`}
-                              type="button"
-                              className={`crumb-history-item ${isCurrent ? 'is-current' : ''}`}
-                              onClick={() => handleSelectHistoryItem(item)}
-                            >
-                              <CoverArt
-                                src={item.cover_url}
-                                alt={itemName}
-                                size={22}
-                                type={itemType === 'Artist' ? 'artist' : itemType === 'Folder' ? 'folder' : 'album'}
-                                seed={itemName}
-                                rounded={itemType === 'Artist' ? 'full' : 4}
-                              />
-                              <div className="crumb-history-item-meta">
-                                <span className="crumb-history-item-name">{itemName}</span>
-                                <div className="crumb-history-item-sub">
-                                  <span>{itemType}</span>
-                                  <span>·</span>
-                                  <span>{fmtTimeAgo(item.timestamp)}</span>
-                                  {isCurrent && (
-                                    <>
-                                      <span>·</span>
-                                      <span style={{ color: '#4ade80', fontWeight: 600 }}>Active</span>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            </button>
-                          );
-                        })
+                        tree.map(n => renderTreeNode(n, 0))
                       )}
                     </div>
                   </div>
