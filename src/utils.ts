@@ -32,20 +32,24 @@ export const flattenTracks = (node: LibraryNode): Track[] => {
   return allTracks;
 };
 
-export const getAllNodes = (nodes: LibraryNode[], out: LibraryNode[] = []): LibraryNode[] => {
+export const getAllNodes = (nodes: LibraryNode[] = [], out: LibraryNode[] = []): LibraryNode[] => {
+  if (!nodes || !Array.isArray(nodes)) return out;
   for (const n of nodes) {
+    if (!n) continue;
     out.push(n);
-    if (n.children && n.children.length > 0) {
+    if (n.children && Array.isArray(n.children) && n.children.length > 0) {
       getAllNodes(n.children, out);
     }
   }
   return out;
 };
 
-export const findNodeById = (nodes: LibraryNode[], id: string): LibraryNode | null => {
+export const findNodeById = (nodes: LibraryNode[] = [], id: string): LibraryNode | null => {
+  if (!nodes || !Array.isArray(nodes) || !id) return null;
   for (const n of nodes) {
+    if (!n) continue;
     if (n.id === id) return n;
-    if (n.children && n.children.length > 0) {
+    if (n.children && Array.isArray(n.children) && n.children.length > 0) {
       const found = findNodeById(n.children, id);
       if (found) return found;
     }
@@ -54,14 +58,16 @@ export const findNodeById = (nodes: LibraryNode[], id: string): LibraryNode | nu
 };
 
 export const findNodePath = (
-  nodes: LibraryNode[],
+  nodes: LibraryNode[] = [],
   targetId: string,
   currentPath: LibraryNode[] = []
 ): LibraryNode[] | null => {
+  if (!nodes || !Array.isArray(nodes) || !targetId) return null;
   for (const n of nodes) {
+    if (!n) continue;
     const nextPath = [...currentPath, n];
     if (n.id === targetId) return nextPath;
-    if (n.children && n.children.length > 0) {
+    if (n.children && Array.isArray(n.children) && n.children.length > 0) {
       const found = findNodePath(n.children, targetId, nextPath);
       if (found) return found;
     }
@@ -83,8 +89,9 @@ export function normalizeArtistName(artist: string): string {
 export function normalizeAlbumName(title: string): string {
   if (!title) return '';
   let clean = title
+    // Strip parenthesized / bracketed variant tags (e.g. 2xLP, CD, Deluxe, Ltd, Reissue, 180g)
     .replace(
-      /\s*[\(\[\{](?:(?:deluxe|remaster(?:ed)?|expanded|anniversary|special|collector'?s?|bonus(?:\s+tracks?)?|standard|explicit|clean|international|japan|us|uk|eu|vinyl|cd|2lp|lp|digital|limited|mono|stereo|reissue|edition|ver\.?|version|audiophile|box\s*set).*?)[\)\]\}]/gi,
+      /\s*[\(\[\{](?:.*?(?:\b(?:deluxe|remaster(?:ed)?|rm|re|reissue|expanded|anniversary|special|collector'?s?|bonus(?:\s+tracks?)?|standard|explicit|clean|international|vinyl|\d*x?lp|\d*x?cd|\d*x?12"|\d*x?7"|digital|limited|ltd|album|mono|stereo|edition|ver\.?|version|audiophile|box\s*set|180g|200g|gatefold|single|ep)\b).*?)[\)\]\}]/gi,
       ''
     )
     .replace(/\s*[\(\[]\d{4}(?:-\d{4})?[\)\]]/g, '')
@@ -98,10 +105,11 @@ export function normalizeAlbumName(title: string): string {
 }
 
 export function groupRawReleases(releases: UnifiedReleaseSummary[]): GroupedAlbum[] {
+  if (!releases || !Array.isArray(releases)) return [];
   const map = new Map<string, GroupedAlbum>();
 
   for (const item of releases) {
-    if (!item.title) continue;
+    if (!item || !item.title) continue;
 
     const normArt = normalizeArtistName(item.artist);
     const normTit = normalizeAlbumName(item.title);
@@ -137,7 +145,7 @@ export function groupRawReleases(releases: UnifiedReleaseSummary[]): GroupedAlbu
     if (!map.has(key)) {
       const displayTitle = item.title
         .replace(
-          /\s*[\(\[\{](?:(?:deluxe|remaster(?:ed)?|expanded|anniversary|special|collector'?s?|bonus(?:\s+tracks?)?|standard|explicit|clean|international|japan|us|uk|eu|vinyl|cd|2lp|lp|digital|limited|mono|stereo|reissue|edition|ver\.?|version).*?)[\)\]\}]/gi,
+          /\s*[\(\[\{](?:.*?(?:\b(?:deluxe|remaster(?:ed)?|rm|re|reissue|expanded|anniversary|special|collector'?s?|bonus(?:\s+tracks?)?|standard|explicit|clean|international|vinyl|\d*x?lp|\d*x?cd|\d*x?12"|\d*x?7"|digital|limited|ltd|album|mono|stereo|edition|ver\.?|version|audiophile|box\s*set|180g|200g|gatefold|single|ep)\b).*?)[\)\]\}]/gi,
           ''
         )
         .replace(/\s*[\(\[]\d{4}(?:-\d{4})?[\)\]]/g, '')

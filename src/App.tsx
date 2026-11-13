@@ -26,6 +26,7 @@ import {
 } from './utils';
 
 import { HybridSearchModal } from './components/HybridSearchModal';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { CommandPaletteModal } from './components/CommandPaletteModal';
 import { TrackEditDrawer } from './components/TrackEditDrawer';
 import { NewContainerModal } from './components/NewContainerModal';
@@ -1983,15 +1984,20 @@ export const App: React.FC = () => {
       />
 
       {/* Hybrid Search & Import Modal (Discogs + Deezer + MusicBrainz) */}
-      <HybridSearchModal
-        isOpen={importModalOpen}
-        onClose={() => setImportModalOpen(false)}
-        currentNode={activeNode}
-        allTreeNodes={tree}
-        onImportSuccess={newDestId => {
-          loadTree(newDestId);
-        }}
-      />
+      <ErrorBoundary
+        componentName="Music Search Modal"
+        onReset={() => setImportModalOpen(false)}
+      >
+        <HybridSearchModal
+          isOpen={importModalOpen}
+          onClose={() => setImportModalOpen(false)}
+          currentNode={activeNode}
+          allTreeNodes={tree}
+          onImportSuccess={newDestId => {
+            loadTree(newDestId);
+          }}
+        />
+      </ErrorBoundary>
 
       {/* Command Palette */}
       <CommandPaletteModal

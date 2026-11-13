@@ -126,9 +126,9 @@ export function normalizeArtist(artist: string): string {
 export function normalizeAlbumTitle(title: string): string {
   if (!title) return '';
   let clean = title
-    // Strip parenthesized / bracketed variant tags
+    // Strip parenthesized / bracketed variant tags (e.g. 2xLP, CD, Deluxe, Ltd, Reissue, 180g)
     .replace(
-      /\s*[\(\[\{](?:(?:deluxe|remaster(?:ed)?|expanded|anniversary|special|collector'?s?|bonus(?:\s+tracks?)?|standard|explicit|clean|international|japan|us|uk|eu|vinyl|cd|2lp|lp|digital|limited|mono|stereo|reissue|edition|ver\.?|version|audiophile|box\s*set).*?)[\)\]\}]/gi,
+      /\s*[\(\[\{](?:.*?(?:\b(?:deluxe|remaster(?:ed)?|rm|re|reissue|expanded|anniversary|special|collector'?s?|bonus(?:\s+tracks?)?|standard|explicit|clean|international|vinyl|\d*x?lp|\d*x?cd|\d*x?12"|\d*x?7"|digital|limited|ltd|album|mono|stereo|edition|ver\.?|version|audiophile|box\s*set|180g|200g|gatefold|single|ep)\b).*?)[\)\]\}]/gi,
       ''
     )
     // Strip year in parenthesis e.g. (2013) or (1997-2017)
