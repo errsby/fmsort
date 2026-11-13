@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import type { LibraryNode, Track, ColumnDef, ColumnKey, ClipboardState } from './types';
 import {
   fetchTree,
@@ -341,15 +341,6 @@ export const App: React.FC = () => {
   const [controlDrawerOpenBelow, setControlDrawerOpenBelow] = useState(false);
   const [controlDrawerAlignRight, setControlDrawerAlignRight] = useState(false);
 
-  useEffect(() => {
-    if (wsDrawerPosition) {
-      setControlDrawerOpenBelow(wsDrawerPosition.y < 54);
-      setControlDrawerAlignRight(wsDrawerPosition.x + 460 > window.innerWidth - 12);
-    } else {
-      setControlDrawerOpenBelow(false);
-      setControlDrawerAlignRight(false);
-    }
-  }, [wsDrawerPosition, selectedTrackIds.size, selectedNodeIds.size]);
   const dragHoverTimeoutRef = useRef<any>(null);
   const draggedTracksRef = useRef<number[]>([]);
   const draggedNodesRef = useRef<string[]>([]);
@@ -533,8 +524,21 @@ export const App: React.FC = () => {
     return selectedNodeIds.size === 1 ? Array.from(selectedNodeIds)[0] : null;
   }, [selectedNodeIds]);
 
+  // Keep attached control drawer orientation updated relative to workspace drawer & window bounds
+  useEffect(() => {
+    if (wsDrawerPosition) {
+      setControlDrawerOpenBelow(wsDrawerPosition.y < 54);
+      setControlDrawerAlignRight(wsDrawerPosition.x + 460 > window.innerWidth - 12);
+    } else {
+      setControlDrawerOpenBelow(false);
+      setControlDrawerAlignRight(false);
+    }
+  }, [wsDrawerPosition, selectedTrackIds.size, selectedNodeIds.size]);
+
   const [menuSearch, setMenuSearch] = useState('');
 
+  const slashTapTimeoutRef = useRef<any>(null);
+  const lastSlashTapTimeRef = useRef<number>(0);
   const addMusicRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
   const lastSelectedNodeIdRef = useRef<string | null>(null);
@@ -726,6 +730,31 @@ export const App: React.FC = () => {
     const unpinnedList = baseNodes.filter(n => !pinnedSet.has(n.id));
     return [...pinnedList, ...unpinnedList];
   }, [tree, filteredMenuNodes, menuSearch, pinnedCrateIds]);
+
+  // Auto-resize Library Drawer smoothly when new lib items/folders are opened
+  useEffect(() => {
+    if (!treeDropdownOpen || isResizingDrawerRef.current) return;
+
+    const visibleCount = flattenVisibleTree(displayedNavNodes, openNodes).length;
+    // 47px header + 12px list padding + 28px per item + 8px breathing space
+    const calculatedNeededH = 67 + Math.max(1, visibleCount) * 28;
+    const maxH = typeof window !== 'undefined'
+      ? Math.max(260, window.innerHeight - (menuPosition ? (menuPosition.y > 0 ? 30 : 60) : (wsDrawerPosition ? (window.innerHeight - wsDrawerPosition.y + 16) : 70)))
+      : 800;
+
+    const targetHeight = Math.min(maxH, Math.max(260, calculatedNeededH));
+
+    if (targetHeight > menuHeight) {
+      setMenuHeight(targetHeight);
+      if (menuPosition) {
+        const winH = window.innerHeight;
+        if (menuPosition.y + targetHeight > winH - 10) {
+          const clampedY = Math.max(10, winH - 10 - targetHeight);
+          setMenuPosition(prev => prev ? { ...prev, y: Math.round(clampedY) } : null);
+        }
+      }
+    }
+  }, [openNodes, treeDropdownOpen, displayedNavNodes.length, menuPosition, wsDrawerPosition]);
 
   // Magic slug: "?sear=" URL query parameter opens the Music Search Modal with the specified query
   useEffect(() => {
@@ -1194,11 +1223,15 @@ export const App: React.FC = () => {
       const deltaY = moveEv.clientY - startY;
       let newHeight = startHeight;
 
+      const visibleCount = flattenVisibleTree(displayedNavNodes, openNodes).length;
+      const calculatedNeededH = 67 + Math.max(1, visibleCount) * 28;
+
       if (isTopCorner) {
         // Dragging top corners upward increases height
         const proposedHeight = startHeight - deltaY;
         const maxHeight = Math.max(260, startPos.y + startHeight - 10);
-        newHeight = Math.max(220, Math.min(maxHeight, proposedHeight));
+        const minAllowedHeight = Math.min(maxHeight, calculatedNeededH);
+        newHeight = Math.max(minAllowedHeight, Math.min(maxHeight, proposedHeight));
 
         if (menuPosition) {
           const newY = Math.max(10, startPos.y - (newHeight - startHeight));
@@ -1208,7 +1241,8 @@ export const App: React.FC = () => {
         // Dragging bottom corners downward increases height
         const proposedHeight = startHeight + deltaY;
         const maxHeight = window.innerHeight - startPos.y - 10;
-        newHeight = Math.max(220, Math.min(maxHeight, proposedHeight));
+        const minAllowedHeight = Math.min(maxHeight, calculatedNeededH);
+        newHeight = Math.max(minAllowedHeight, Math.min(maxHeight, proposedHeight));
       }
 
       setMenuHeight(Math.round(newHeight));
@@ -2765,9 +2799,42 @@ export const App: React.FC = () => {
         return;
       }
 
-      // Music Search & Add keybind: 'a' / 'A', 's' / 'S', '/', or ⌘I / Ctrl+I
+      // Library Drawer Keybind: '/' to open/close drawer, rapid double-tap to pin
+      if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key === '/') {
+        e.preventDefault();
+        const now = Date.now();
+        const timeSinceLast = now - lastSlashTapTimeRef.current;
+
+        if (timeSinceLast > 0 && timeSinceLast < 280) {
+          // Double-tap: PIN drawer
+          lastSlashTapTimeRef.current = 0;
+          if (slashTapTimeoutRef.current) {
+            clearTimeout(slashTapTimeoutRef.current);
+            slashTapTimeoutRef.current = null;
+          }
+          setTreeDropdownOpen(true);
+          setIsMenuPinned(prev => {
+            const next = !prev;
+            showToast(next ? 'Library pinned' : 'Library unpinned');
+            return next;
+          });
+        } else {
+          // Single-tap: Toggle drawer (open/close) unless double-tap follows
+          lastSlashTapTimeRef.current = now;
+          if (slashTapTimeoutRef.current) {
+            clearTimeout(slashTapTimeoutRef.current);
+          }
+          slashTapTimeoutRef.current = setTimeout(() => {
+            slashTapTimeoutRef.current = null;
+            setTreeDropdownOpen(prev => !prev);
+          }, 240);
+        }
+        return;
+      }
+
+      // Music Search & Add keybind: 'a' / 'A', 's' / 'S', or ⌘I / Ctrl+I
       const isSearchShortcut =
-        (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'a' || e.key === 'A' || e.key === 's' || e.key === 'S' || e.key === '/')) ||
+        (!e.metaKey && !e.ctrlKey && !e.altKey && (e.key === 'a' || e.key === 'A' || e.key === 's' || e.key === 'S')) ||
         ((e.metaKey || e.ctrlKey) && (e.key === 'i' || e.key === 'I'));
 
       if (isSearchShortcut) {
@@ -2860,6 +2927,9 @@ export const App: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
+      if (slashTapTimeoutRef.current) {
+        clearTimeout(slashTapTimeoutRef.current);
+      }
     };
   }, [
     selectedNodeId,
@@ -3651,7 +3721,7 @@ export const App: React.FC = () => {
                   <div className="active-hero-content">
                     <div className="hero-main-left">
                       <CoverArt
-                        src={activeNode.type === 'Folder' || isActiveAlbumIncomplete ? null : (activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || (activeNode.type === 'Artist' ? artistProfile?.picture : null) || heroBackdrop)}
+                        src={activeNode.type === 'Folder' ? null : (activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || (activeNode.type === 'Artist' ? artistProfile?.picture : null) || heroBackdrop)}
                         alt={activeNode.name}
                         size={92}
                         type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : activeNode.type === 'Folder' ? 'folder' : 'album'}
@@ -4644,10 +4714,21 @@ export const App: React.FC = () => {
             type="button"
             className={`drawer-crumb-btn ${treeDropdownOpen ? 'active' : ''}`}
             onClick={() => setTreeDropdownOpen(prev => !prev)}
-            title="Browse Library Crates (..)"
+            title="Browse Library Crates (.. / /)"
             aria-label="Browse Library Crates"
           >
             ../
+          </button>
+
+          {/* Settings Button (Moved next to lib drawer button) */}
+          <button
+            type="button"
+            className="workspace-dock-settings-btn"
+            onClick={() => setSettingsOpen(true)}
+            title="Application & Library Settings (⌘,)"
+            aria-label="Settings"
+          >
+            <Settings size={13} />
           </button>
 
           <div className="drawer-dock-divider" />
@@ -4663,7 +4744,6 @@ export const App: React.FC = () => {
               const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
               const isActive = ws.id === activeWorkspaceId;
               const isTarget = isWorkspaceDropTarget === ws.id;
-              const flatCount = wsNode ? flattenTracks(wsNode).length : 0;
 
               return (
                 <div
@@ -4695,7 +4775,6 @@ export const App: React.FC = () => {
                     />
                   </div>
                   <span className="workspace-chip-title">{wsNode?.name || 'Workspace'}</span>
-                  {flatCount > 0 && <span className="workspace-chip-badge">{flatCount}</span>}
                   {wsIdx < 9 && <kbd className="header-kbd" style={{ fontSize: '9px', padding: '1px 3px' }}>⌘{wsIdx + 1}</kbd>}
                   {workspaces.length > 1 && (
                     <button
@@ -4714,17 +4793,6 @@ export const App: React.FC = () => {
               );
             })}
           </div>
-
-          {/* Settings Button (Left of Add WS Button) */}
-          <button
-            type="button"
-            className="workspace-dock-settings-btn"
-            onClick={() => setSettingsOpen(true)}
-            title="Application & Library Settings (⌘,)"
-            aria-label="Settings"
-          >
-            <Settings size={13} />
-          </button>
 
           {/* Add Workspace (+) Button & Popover */}
           <div

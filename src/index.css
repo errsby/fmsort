@@ -3151,6 +3151,18 @@ tr.album-incomplete .cover-art-wrapper {
   color: #d4d4d8;
 }
 
+/* Grey out album thumbnail on header when album is incomplete, like tracks */
+.active-hero-banner.album-page-incomplete .hero-main-left .cover-art-wrapper {
+  filter: grayscale(100%) brightness(0.68) contrast(0.92) !important;
+  opacity: 0.65 !important;
+  transition: filter 0.2s ease, opacity 0.2s ease;
+}
+
+.active-hero-banner.album-page-incomplete:hover .hero-main-left .cover-art-wrapper {
+  filter: grayscale(70%) brightness(0.85) !important;
+  opacity: 0.85 !important;
+}
+
 .active-hero-status-btn {
   display: inline-flex;
   align-items: center;
@@ -6000,11 +6012,14 @@ tr.h.is-selected td {
   color: #f59e0b !important;
 }
 
-/* Directory Tree List */
+/* Directory Tree List with Smooth Scrolling at Max Resizing */
 .drawer-tree-list {
   flex: 1;
-  min-height: 120px;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
   padding: 6px;
 }
 
