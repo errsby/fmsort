@@ -3543,11 +3543,7 @@ export const App: React.FC = () => {
           />
           <span className="workspace-picker-item-name">{n.name}</span>
           <div className="workspace-picker-item-meta">
-            {openWs ? (
-              <span className="workspace-picker-active-badge">ACTIVE</span>
-            ) : (
-              <span className="workspace-picker-type-badge">{n.type}</span>
-            )}
+            <span className="workspace-picker-type-badge">{n.type}</span>
             {n.tracks && n.tracks.length > 0 && (
               <span className="workspace-picker-count-badge">{n.tracks.length}</span>
             )}
@@ -5283,65 +5279,31 @@ export const App: React.FC = () => {
                   zIndex: 1200,
                 }}
               >
-                {/* 1. Header with Title & Quick Switch / Duplicate View */}
-                <div className="workspace-picker-header">
-                  <div className="workspace-picker-header-title">
-                    <FolderPlus size={14} style={{ color: '#60a5fa' }} />
-                    <span>Open as Workspace</span>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {activeNode && (
+                {/* Search Filter Bar (Matches Library Drawer CMD+K Box) */}
+                <div className="workspace-picker-search-bar">
+                  <div className="workspace-picker-search-box">
+                    <Search size={12} className="drawer-cmdk-icon" />
+                    <input
+                      type="search"
+                      className="workspace-picker-search-input"
+                      placeholder="Search library crates &amp; folders..."
+                      value={workspacePickerSearch}
+                      onChange={e => setWorkspacePickerSearch(e.target.value)}
+                      autoFocus
+                    />
+                    {workspacePickerSearch ? (
                       <button
                         type="button"
-                        className="workspace-picker-duplicate-btn"
-                        onClick={() => {
-                          const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-                          setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
-                          setActiveWorkspaceId(newWsId);
-                          setWorkspacePickerOpen(false);
-                          setWorkspacePickerSearch('');
-                        }}
-                        title={`Duplicate current view ("${activeNode.name}")`}
+                        className="workspace-picker-clear-search"
+                        onClick={() => setWorkspacePickerSearch('')}
+                        title="Clear filter"
                       >
-                        <Copy size={11} />
-                        <span>Duplicate View</span>
+                        <X size={11} />
                       </button>
+                    ) : (
+                      <kbd className="drawer-cmdk-kbd">ESC</kbd>
                     )}
-                    <button
-                      type="button"
-                      className="workspace-picker-close-btn"
-                      onClick={() => {
-                        setWorkspacePickerOpen(false);
-                        setWorkspacePickerSearch('');
-                      }}
-                      title="Close (Esc)"
-                    >
-                      <X size={13} />
-                    </button>
                   </div>
-                </div>
-
-                {/* 2. Unified Search Filter Bar */}
-                <div className="workspace-picker-search-bar">
-                  <Search size={12} className="workspace-picker-search-icon" />
-                  <input
-                    type="search"
-                    className="workspace-picker-search-input"
-                    placeholder="Filter library crates & folders..."
-                    value={workspacePickerSearch}
-                    onChange={e => setWorkspacePickerSearch(e.target.value)}
-                    autoFocus
-                  />
-                  {workspacePickerSearch && (
-                    <button
-                      type="button"
-                      className="workspace-picker-clear-search"
-                      onClick={() => setWorkspacePickerSearch('')}
-                      title="Clear filter"
-                    >
-                      <X size={11} />
-                    </button>
-                  )}
                 </div>
 
                 {/* 3. Unified Directory Tree List (Inspired by Library Drawer) */}
