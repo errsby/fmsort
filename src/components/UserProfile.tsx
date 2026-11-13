@@ -34,7 +34,7 @@ import {
 export interface UserProfileProps {
   tree: LibraryNode[];
   allLibraryTracks: Track[];
-  completedAlbumKeys: string[];
+  completedAlbumKeys: Set<string> | string[];
   onSelectNode: (node: LibraryNode) => void;
   onNavigateBackToLibrary: () => void;
   showToast: (msg: string) => void;
@@ -139,7 +139,11 @@ export const UserProfile: React.FC<UserProfileProps> = ({
     return candidates.slice(0, 16).map((crate, idx) => {
       const tracks = flattenTracks(crate);
       const totalSec = tracks.reduce((sum, t) => sum + (t.len || 0), 0);
-      const isCompleted = completedAlbumKeys.some(k => k.includes(crate.name));
+      const isCompleted = completedAlbumKeys instanceof Set
+        ? Array.from(completedAlbumKeys).some(k => k.includes(crate.name))
+        : Array.isArray(completedAlbumKeys)
+        ? completedAlbumKeys.some(k => k.includes(crate.name))
+        : false;
       const targetTag = idx % 3 === 0 ? 'USB 1 (Pioneer Rekordbox)' : idx % 3 === 1 ? 'Master Studio Archive' : 'Engine Prime SC6000';
       return {
         ...crate,

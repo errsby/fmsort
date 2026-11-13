@@ -5703,6 +5703,54 @@ tr.h.is-selected td {
   transition: none !important;
 }
 
+/* Detached-but-Connected Floating Library Window (Studio Dark Glass) */
+.detached-library-window {
+  position: fixed;
+  background: rgba(14, 14, 18, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.88), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: popoverFadeUp 0.16s ease;
+  transition: width 0.18s cubic-bezier(0.16, 1, 0.3, 1), height 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  z-index: 1100;
+}
+
+.detached-library-window.is-interacting {
+  transition: none !important;
+}
+
+.detached-library-window.is-pinned {
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.92), 0 0 0 1px rgba(245, 158, 11, 0.35);
+}
+
+/* Workspace Drawer Drag Grip */
+.ws-drawer-drag-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #52525b;
+  padding: 0 3px;
+  cursor: grab;
+  transition: color 0.14s ease;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.ws-drawer-drag-grip:hover {
+  color: #a1a1aa;
+}
+
+.ws-drawer-drag-grip:active {
+  cursor: grabbing;
+  color: #ffffff;
+}
+
 /* Collapsed Dock State */
 .floating-workspaces-dock-wrapper:not(.is-expanded) {
   display: inline-flex;
