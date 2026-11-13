@@ -2435,15 +2435,33 @@ tr.container-row.is-selected td:first-child {
 }
 
 /* Album Completion Status Styles */
-tr.container-row.album-incomplete:not(.is-selected) {
-  opacity: 0.42;
-  filter: grayscale(0.85);
-  transition: opacity 0.18s ease, filter 0.18s ease;
+tr.album-incomplete:not(.is-selected) {
+  opacity: 0.44;
+  transition: opacity 0.18s ease;
 }
 
-tr.container-row.album-incomplete:hover:not(.is-selected) {
-  opacity: 0.75;
-  filter: grayscale(0.4);
+tr.album-incomplete:not(.is-selected) td {
+  color: #71717a !important;
+}
+
+tr.album-incomplete:not(.is-selected) .ttl,
+tr.album-incomplete:not(.is-selected) .container-ttl {
+  color: #8e8e93 !important;
+  font-weight: 500 !important;
+}
+
+tr.album-incomplete:hover:not(.is-selected) {
+  opacity: 0.85;
+}
+
+tr.album-incomplete:hover:not(.is-selected) td {
+  color: #d4d4d8 !important;
+}
+
+/* Ensure album small thumbnail art remains clearly visible and vibrant even when row is greyed out */
+tr.album-incomplete .cover-art-wrapper {
+  opacity: 1 !important;
+  filter: none !important;
 }
 
 .active-hero-banner.album-page-incomplete {
@@ -4361,31 +4379,66 @@ tr.h.is-selected td {
    Footer Workspaces Dock (Option 3: macOS / Taskbar Style)
    ========================================================================= */
 
-/* Floating Workspaces Switcher - Invisible floating container directly above footer bar */
+/* Floating Workspaces Switcher - Left-aligned floating tab tray emerging seamlessly out of footer */
 .floating-workspaces-container {
   position: absolute;
-  bottom: calc(var(--footer-height, 42px) + 6px);
+  bottom: var(--footer-height, 48px);
   left: 0;
   right: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-end;
+  justify-content: flex-start;
   pointer-events: none;
   z-index: 45;
-  padding: 0 16px;
+  padding: 0 0 0 16px;
   background: transparent;
   border: none;
 }
 
 .floating-workspaces-dock-wrapper {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   pointer-events: auto;
   position: relative;
-  max-width: 90%;
+  max-width: calc(100% - 32px);
+  background: rgba(14, 14, 17, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(14, 14, 17, 0.96);
+  border-radius: 9px 9px 0 0;
+  padding: 4px 8px 3px 6px;
+  margin-bottom: -1px;
+  box-shadow: 0 -6px 20px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Seamless decorative tab shoulder / flange effect connecting into footer */
+.floating-workspaces-dock-wrapper::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  bottom: 0;
+  width: 7px;
+  height: 7px;
   background: transparent;
-  border: none;
+  border-bottom-right-radius: 7px;
+  box-shadow: 2px 2px 0 0 rgba(14, 14, 17, 0.96);
+  pointer-events: none;
+}
+
+.floating-workspaces-dock-wrapper::after {
+  content: '';
+  position: absolute;
+  right: -7px;
+  bottom: 0;
+  width: 7px;
+  height: 7px;
+  background: transparent;
+  border-bottom-left-radius: 7px;
+  box-shadow: -2px 2px 0 0 rgba(14, 14, 17, 0.96);
+  pointer-events: none;
 }
 
 /* Pinned Crates Section in Navigational Submenu */
@@ -4517,10 +4570,10 @@ tr.h.is-selected td {
 .footer-workspaces-dock {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 2px;
+  padding: 1px 0;
   min-width: 0;
   scrollbar-width: none;
   -ms-overflow-style: none;
@@ -4535,11 +4588,11 @@ tr.h.is-selected td {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
+  height: 26px;
   padding: 0 8px 0 6px;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   color: #a1a1aa;
   font-size: 11px;
   font-weight: 500;

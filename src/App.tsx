@@ -138,10 +138,25 @@ export interface Workspace {
 }
 
 export const App: React.FC = () => {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([
-    { id: 'ws-1', nodeId: '', history: [], historyIndex: 0 },
-  ]);
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>('ws-1');
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => {
+    try {
+      const saved = localStorage.getItem('fmsort_workspaces');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return [{ id: 'ws-1', nodeId: '', history: [], historyIndex: 0 }];
+  });
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('fmsort_active_workspace_id');
+      if (saved) return saved;
+    } catch {}
+    return 'ws-1';
+  });
   const [hoverPreviewNode, setHoverPreviewNode] = useState<LibraryNode | null>(null);
   const [hoverPreviewPos, setHoverPreviewPos] = useState<{ left: number } | null>(null);
   const hoverTimeoutRef = useRef<any>(null);
@@ -154,8 +169,25 @@ export const App: React.FC = () => {
   const draggedTracksRef = useRef<number[]>([]);
   const draggedNodesRef = useRef<string[]>([]);
   const isSwitchingWorkspaceDragRef = useRef<boolean>(false);
-  const activeWorkspaceIdRef = useRef<string>('ws-1');
+  const activeWorkspaceIdRef = useRef<string>(activeWorkspaceId);
   const activeNodeIdRef = useRef<string>('');
+
+  // Persist workspaces across page reloads
+  useEffect(() => {
+    try {
+      if (workspaces.length > 0) {
+        localStorage.setItem('fmsort_workspaces', JSON.stringify(workspaces));
+      }
+    } catch {}
+  }, [workspaces]);
+
+  useEffect(() => {
+    try {
+      if (activeWorkspaceId) {
+        localStorage.setItem('fmsort_active_workspace_id', activeWorkspaceId);
+      }
+    } catch {}
+  }, [activeWorkspaceId]);
   const [isWorkspaceDropTarget, setIsWorkspaceDropTarget] = useState<string | null>(null);
   const [pinnedCrateIds, setPinnedCrateIds] = useState<string[]>(() => {
     try {
@@ -682,16 +714,29 @@ export const App: React.FC = () => {
       if (targetId) {
         setActiveNodeId(targetId);
         activeNodeIdRef.current = targetId;
-        setWorkspaces(prev => prev.map(ws => {
-          if (ws.id === curWsId) {
-            return {
-              ...ws,
-              nodeId: targetId,
-              history: ws.history.length === 0 ? [targetId] : ws.history,
-            };
-          }
-          return ws;
-        }));
+        setWorkspaces(prev => {
+          const updated = prev.map(ws => {
+            if (ws.id === curWsId) {
+              return {
+                ...ws,
+                nodeId: targetId,
+                history: ws.history.length === 0 ? [targetId] : ws.history,
+              };
+            }
+            if ((!ws.nodeId || !findNodeById(data, ws.nodeId)) && data.length > 0) {
+              return {
+                ...ws,
+                nodeId: data[0].id,
+                history: ws.history.length === 0 ? [data[0].id] : ws.history,
+              };
+            }
+            return ws;
+          });
+          try {
+            localStorage.setItem('fmsort_workspaces', JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
         window.history.replaceState({ nodeId: targetId, workspaceId: curWsId }, '', window.location.pathname);
       }
     } catch (err) {
@@ -896,7 +941,8 @@ export const App: React.FC = () => {
 
     // 2. Fetch bigger art from Discogs
     const queryType = activeNode.type === 'Artist' ? 'artist' : 'release';
-    fetchDiscogsArtwork(activeNode.name, queryType)
+    const cleanQueryName = activeNode.name.replace(/\s*[\(\[](?:(?:\d{4}\s+)?(?:digital|master|remaster(?:ed)?|deluxe|anniversary|expanded|bonus|edition|version|reissue|definitive|mono|stereo|special|collector'?s|live|explicit|clean|vinyl|lp|cd|single|ep)[\s\w-]*|(?:\d{4}))[\)\]].*$/i, '').trim() || activeNode.name;
+    fetchDiscogsArtwork(cleanQueryName, queryType)
       .then(art => {
         if (!isCurrent) return;
         if (art && art.cover_image) {
@@ -1308,12 +1354,8 @@ export const App: React.FC = () => {
     if (child.id in collapsedSections) {
       return collapsedSections[child.id];
     }
-    // On artist pages, all albums/track items are collapsed by default when first opened
-    if (activeNode?.type === 'Artist') return true;
-    // Subfolders within items (depth > 0) are closed by default
-    if (depth > 0) return true;
-    // Immediate root items on other pages are opened by default
-    return false;
+    // Sub-containers (artists, albums, subfolders) are collapsed by default so folder and artist pages stay clean and organized
+    return true;
   };
 
   const toggleSectionCollapse = (id: string, currentlyCollapsed: boolean) => {
@@ -2571,7 +2613,7 @@ export const App: React.FC = () => {
                       />
                       <div className="hero-backdrop-scrim" />
                     </div>
-                  ) : activeNode.type === 'Folder' || isActiveAlbumIncomplete ? (
+                  ) : (
                     <div className="hero-backdrop" aria-hidden="true">
                       <div
                         className="hero-backdrop-glow"
@@ -2584,7 +2626,7 @@ export const App: React.FC = () => {
                       />
                       <div className="hero-backdrop-scrim" />
                     </div>
-                  ) : null}
+                  )}
 
                   <div className="active-hero-content">
                     <CoverArt

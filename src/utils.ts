@@ -191,7 +191,7 @@ export function groupRawReleases(releases: UnifiedReleaseSummary[]): GroupedAlbu
 
 /**
  * Normalizes an artist and album title to a canonical album key.
- * Strips release version suffixes (e.g. "(Deluxe Edition)", "[Remastered 2021]", etc.)
+ * Strips release version suffixes (e.g. "(Deluxe Edition)", "(2024 Digital Master)", "[Remastered 2021]", etc.)
  * so completion status seamlessly stretches across all versions of an album/track in any crate.
  * Exactly 1 canonical key is generated per album, ensuring completion counts are 1-to-1.
  */
@@ -203,10 +203,9 @@ export function getCanonicalAlbumKey(artistName?: string, albumName?: string): s
   const cleanArtist = rawArtist.toLowerCase().replace(/^(the|a|an)\s+/i, '').trim();
   const cleanAlbum = rawAlbum.toLowerCase();
 
-  // Strip parenthetical / bracketed edition tags like (Deluxe Edition), (Remastered), [Expanded], etc.
-  const baseAlbum = cleanAlbum
-    .replace(/\s*[\(\[](deluxe|remaster(ed)?|anniversary|expanded|bonus|edition|version|reissue|mono|stereo|special|collector'?s|live|explicit|clean|vinyl|lp|cd)[\)\]].*$/i, '')
-    .trim() || cleanAlbum;
+  // Strip parenthetical / bracketed edition tags like (Deluxe Edition), (2024 Digital Master), [Expanded], etc.
+  const editionRegex = /\s*[\(\[](?:(?:\d{4}\s+)?(?:digital|master|remaster(?:ed)?|deluxe|anniversary|expanded|bonus|edition|version|reissue|definitive|mono|stereo|special|collector'?s|live|explicit|clean|vinyl|lp|cd|single|ep)[\s\w-]*|(?:\d{4}))[\)\]].*$/i;
+  const baseAlbum = cleanAlbum.replace(editionRegex, '').trim() || cleanAlbum;
 
   return cleanArtist ? `${cleanArtist}:::${baseAlbum}` : `_:::${baseAlbum}`;
 }
@@ -230,16 +229,26 @@ export function isAlbumCompleted(
 
   if (completedKeys.has(canonicalKey)) return true;
 
-  // Fallback checks for legacy alias keys or partial artist matches
+  // Direct raw match fallback
+  const rawCleanArtist = (artistName || '').trim().toLowerCase().replace(/^(the|a|an)\s+/i, '').trim();
+  const rawCleanAlbum = (albumName || '').trim().toLowerCase();
+  const rawKey = rawCleanArtist ? `${rawCleanArtist}:::${rawCleanAlbum}` : `_:::${rawCleanAlbum}`;
+  if (completedKeys.has(rawKey)) return true;
+
+  // Fallback checks for legacy alias keys, canonical base matches, or partial artist matches
   const parts = canonicalKey.split(':::');
   const baseAlbum = parts[1] || '';
   if (baseAlbum) {
     if (completedKeys.has(`album:::${baseAlbum}`)) return true;
     if (completedKeys.has(`_:::${baseAlbum}`)) return true;
-    // If querying without artist (e.g. from standalone track), check if any completed key ends with :::baseAlbum
-    if (!parts[0] || parts[0] === '_') {
-      for (const k of completedKeys) {
-        if (k.endsWith(`:::${baseAlbum}`)) return true;
+    const editionRegex = /\s*[\(\[](?:(?:\d{4}\s+)?(?:digital|master|remaster(?:ed)?|deluxe|anniversary|expanded|bonus|edition|version|reissue|definitive|mono|stereo|special|collector'?s|live|explicit|clean|vinyl|lp|cd|single|ep)[\s\w-]*|(?:\d{4}))[\)\]].*$/i;
+
+    for (const k of completedKeys) {
+      const kParts = k.split(':::');
+      const kBase = (kParts[1] || '').replace(editionRegex, '').trim();
+      const artistMatches = !parts[0] || parts[0] === '_' || !kParts[0] || kParts[0] === '_' || parts[0] === kParts[0];
+      if (artistMatches && (kBase === baseAlbum || kParts[1] === baseAlbum)) {
+        return true;
       }
     }
   }
