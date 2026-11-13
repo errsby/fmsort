@@ -49,7 +49,6 @@ import { ContextMenu } from './components/ContextMenu';
 import type { ContextMenuState } from './components/ContextMenu';
 import { ArtistProjectsSuggestions } from './components/ArtistProjectsSuggestions';
 import { ArtistProfileHeader } from './components/ArtistProfileHeader';
-import { UserProfile } from './components/UserProfile';
 import {
   Search,
   FolderPlus,
@@ -61,6 +60,8 @@ import {
   Disc,
   Disc3,
   MoreHorizontal,
+  MoreVertical,
+  Move,
   Folder,
   FolderOpen,
   ExternalLink,
@@ -334,28 +335,9 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleWindowResize);
   }, [menuPosition, menuWidth, menuHeight, wsDrawerPosition]);
 
-  // Client-side route state (supports /profile and /)
-  const [currentRoute, setCurrentRoute] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return window.location.pathname;
-    }
-    return '/';
-  });
-
-  const navigateTo = (path: string) => {
-    if (window.location.pathname !== path) {
-      window.history.pushState({}, '', path);
-    }
-    setCurrentRoute(path);
-  };
-
-  useEffect(() => {
-    const handlePopState = () => {
-      setCurrentRoute(window.location.pathname);
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  // Library Window 3-dot options menu state
+  const [libMoreMenuOpen, setLibMoreMenuOpen] = useState(false);
+  const libMoreMenuRef = useRef<HTMLDivElement>(null);
 
   // "Select Multiple" Mode state
   const [selectMultipleMode, setSelectMultipleMode] = useState(false);
@@ -547,9 +529,6 @@ export const App: React.FC = () => {
     setSelectedTrackIds(new Set());
     setSelectedNodeIds(new Set([node.id]));
     lastSelectedNodeIdRef.current = node.id;
-    if (currentRoute !== '/') {
-      setCurrentRoute('/');
-    }
     if (!isMenuPinnedRef.current) {
       setTreeDropdownOpen(false);
     }
@@ -1207,6 +1186,12 @@ export const App: React.FC = () => {
       if (isDraggingMenuRef.current || isResizingDrawerRef.current || isDraggingWsRef.current) return;
       if (addMusicRef.current && !addMusicRef.current.contains(e.target as Node)) {
         setAddMusicMenuOpen(false);
+      }
+      if (
+        libMoreMenuRef.current &&
+        !libMoreMenuRef.current.contains(e.target as Node)
+      ) {
+        setLibMoreMenuOpen(false);
       }
       if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
         setColumnMenuOpen(false);
@@ -3249,25 +3234,7 @@ export const App: React.FC = () => {
             onDragLeave={handleEmptySpaceDragLeave}
             onDrop={handleEmptySpaceDrop}
           >
-        {currentRoute === '/profile' ? (
-          <UserProfile
-            tree={tree}
-            allLibraryTracks={allLibraryTracks}
-            completedAlbumKeys={completedAlbumKeys}
-            onSelectNode={node => {
-              navigateTo('/');
-              selectNode(node);
-            }}
-            onNavigateBackToLibrary={() => {
-              navigateTo('/');
-              if (tree.length > 0 && !activeNodeId) {
-                selectNode(tree[0]);
-              }
-            }}
-            showToast={showToast}
-            allContainers={allContainers}
-          />
-        ) : activeNode ? (
+        {activeNode ? (
           /* =========================================================================
              Container Detail View (Drilled Down View)
              ========================================================================= */
@@ -3474,24 +3441,6 @@ export const App: React.FC = () => {
                           </div>
                         )}
                       </div>
-
-                      {/* User Profile Pill */}
-                      <button
-                        type="button"
-                        className="user-profile-header-btn"
-                        onClick={() => navigateTo('/profile')}
-                        title="View Selector Profile (/profile)"
-                      >
-                        <CoverArt
-                          src={null}
-                          alt="err"
-                          size={18}
-                          type="artist"
-                          seed="err"
-                          rounded="full"
-                        />
-                        <span>@err</span>
-                      </button>
                     </div>
                   </div>
 
@@ -4113,13 +4062,27 @@ export const App: React.FC = () => {
         </div>
       )}
 
-      {/* 1. Detached-but-Connected Floating Library Window (Independently Movable & Resizable) */}
+      {/* 1. Detached-but-Connected Floating Library Window (Independently Movable) */}
       {treeDropdownOpen && (
         <div
           ref={dropdownContainerRef}
           className={`detached-library-window ${isInteracting ? 'is-interacting' : ''} ${isMenuPinned ? 'is-pinned' : ''}`}
           role="region"
           aria-label="Library Navigation Window"
+          onMouseDown={e => {
+            const target = e.target as HTMLElement;
+            if (
+              target.closest('button') ||
+              target.closest('input') ||
+              target.closest('.tree-node') ||
+              target.closest('.tree-node-row') ||
+              target.closest('.drawer-more-popover')
+            ) {
+              return;
+            }
+            handleLibDragStart(e);
+          }}
+          onDoubleClick={() => setMenuPosition(null)}
           style={{
             width: `${menuWidth}px`,
             height: `${menuHeight}px`,
@@ -4170,88 +4133,106 @@ export const App: React.FC = () => {
                 })()),
           }}
         >
-          {/* Top Resize Handle */}
-          <div
-            className="drawer-resize-handle-top"
-            onMouseDown={e => handleLibResizeStart(e, 'top')}
-            title="Drag vertically to resize height"
-          >
-            <div className="drawer-resize-bar" />
-          </div>
-
           <div className="drawer-library-expanded-panel">
-            {/* Draggable Header with Search (⌘K), Pin, Snap & Close */}
+            {/* Draggable Header with CMD+K Shortcut & 3-Dot Options Menu */}
             <div
-              className="drawer-menu-search-row"
+              className="drawer-menu-header-row"
               onMouseDown={handleLibDragStart}
               onDoubleClick={() => setMenuPosition(null)}
               title="Drag header to move library window · Double-click to snap back"
             >
-              <div className="drawer-drag-grip-indicator" title="Drag to move library window">
-                <GripHorizontal size={13} />
-              </div>
+              <button
+                type="button"
+                className="drawer-cmdk-trigger-btn"
+                onClick={() => {
+                  if (!isMenuPinnedRef.current) {
+                    setTreeDropdownOpen(false);
+                  }
+                  setCommandPaletteOpen(true);
+                }}
+                onMouseDown={e => e.stopPropagation()}
+                title="Open Command Palette (⌘K)"
+              >
+                <Search size={12} className="drawer-cmdk-icon" />
+                <span className="drawer-cmdk-label">Search library &amp; commands...</span>
+                <kbd className="drawer-cmdk-kbd">⌘K</kbd>
+              </button>
 
+              {/* Three-Dot Menu (Move, Pin, Reload/Snap, and Close) */}
               <div
-                className="drawer-menu-search-box"
+                className="drawer-menu-more-wrap"
+                ref={libMoreMenuRef}
                 onMouseDown={e => e.stopPropagation()}
               >
-                <Search size={13} className="drawer-menu-search-icon" />
-                <input
-                  type="search"
-                  className="drawer-menu-search-input"
-                  placeholder="Search crates or jump to… (⌘K)"
-                  value={menuSearch}
-                  onChange={e => setMenuSearch(e.target.value)}
-                  onMouseDown={e => e.stopPropagation()}
-                />
                 <button
                   type="button"
-                  className="drawer-menu-cmd-key"
-                  onClick={() => {
-                    if (!isMenuPinnedRef.current) {
-                      setTreeDropdownOpen(false);
-                    }
-                    setCommandPaletteOpen(true);
-                  }}
-                  onMouseDown={e => e.stopPropagation()}
-                  title="Open Command Palette (⌘K)"
+                  className={`drawer-menu-more-btn ${libMoreMenuOpen ? 'is-active' : ''}`}
+                  onClick={() => setLibMoreMenuOpen(prev => !prev)}
+                  title="Window Options"
+                  aria-label="Window Options"
                 >
-                  ⌘K
-                </button>
-              </div>
-
-              <div className="drawer-menu-header-actions" onMouseDown={e => e.stopPropagation()}>
-                <button
-                  type="button"
-                  className={`drawer-menu-action-btn ${isMenuPinned ? 'is-active' : ''}`}
-                  onClick={() => setIsMenuPinned(!isMenuPinned)}
-                  title={isMenuPinned ? 'Unpin window (click outside will close)' : 'Pin window (keep open while browsing)'}
-                  aria-label={isMenuPinned ? 'Unpin window' : 'Pin window'}
-                >
-                  <Pin size={12} style={isMenuPinned ? { color: '#f59e0b', fill: '#f59e0b' } : undefined} />
+                  <MoreVertical size={14} />
                 </button>
 
-                {menuPosition && (
-                  <button
-                    type="button"
-                    className="drawer-menu-action-btn"
-                    onClick={() => setMenuPosition(null)}
-                    title="Snap back above workspace drawer"
-                    aria-label="Snap back"
-                  >
-                    <RotateCcw size={12} />
-                  </button>
+                {libMoreMenuOpen && (
+                  <div className="drawer-more-popover" role="menu">
+                    {/* Move Window Item */}
+                    <div
+                      className="drawer-more-item drag-item"
+                      onMouseDown={e => {
+                        setLibMoreMenuOpen(false);
+                        handleLibDragStart(e);
+                      }}
+                      title="Drag to move window"
+                    >
+                      <Move size={13} />
+                      <span>Drag Window</span>
+                    </div>
+
+                    {/* Pin Window Item */}
+                    <button
+                      type="button"
+                      className={`drawer-more-item ${isMenuPinned ? 'active' : ''}`}
+                      onClick={() => {
+                        setIsMenuPinned(!isMenuPinned);
+                        setLibMoreMenuOpen(false);
+                      }}
+                    >
+                      <Pin size={13} style={isMenuPinned ? { color: '#f59e0b', fill: '#f59e0b' } : undefined} />
+                      <span>{isMenuPinned ? 'Unpin Window' : 'Pin Window'}</span>
+                      {isMenuPinned && <span className="drawer-more-badge">Pinned</span>}
+                    </button>
+
+                    {/* Reload / Snap Position Item */}
+                    <button
+                      type="button"
+                      className="drawer-more-item"
+                      onClick={() => {
+                        setMenuPosition(null);
+                        setLibMoreMenuOpen(false);
+                      }}
+                      title="Snap back above workspace dock"
+                    >
+                      <RotateCcw size={13} />
+                      <span>Reset Position</span>
+                    </button>
+
+                    <div className="drawer-more-divider" />
+
+                    {/* Close Window Item */}
+                    <button
+                      type="button"
+                      className="drawer-more-item danger"
+                      onClick={() => {
+                        setTreeDropdownOpen(false);
+                        setLibMoreMenuOpen(false);
+                      }}
+                    >
+                      <X size={13} />
+                      <span>Close</span>
+                    </button>
+                  </div>
                 )}
-
-                <button
-                  type="button"
-                  className="drawer-menu-action-btn close-btn"
-                  onClick={() => setTreeDropdownOpen(false)}
-                  title="Close library window"
-                  aria-label="Close library window"
-                >
-                  <X size={12} />
-                </button>
               </div>
             </div>
 
@@ -4271,53 +4252,7 @@ export const App: React.FC = () => {
                 displayedNavNodes.map(n => renderTreeNode(n, 0))
               )}
             </div>
-
-            {/* Footer Actions (Settings & Stats) */}
-            <div className="drawer-menu-footer-actions">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button
-                  type="button"
-                  className="drawer-menu-action-item"
-                  onClick={() => {
-                    if (!isMenuPinnedRef.current) {
-                      setTreeDropdownOpen(false);
-                    }
-                    setSettingsOpen(true);
-                  }}
-                  title="Library & Application Settings"
-                >
-                  <Settings size={13} style={{ color: '#a78bfa' }} />
-                  <span>Settings</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="drawer-menu-action-item"
-                  onClick={() => {
-                    if (!isMenuPinnedRef.current) {
-                      setTreeDropdownOpen(false);
-                    }
-                    navigateTo('/profile');
-                  }}
-                  title="User Profile (/profile)"
-                >
-                  <Radio size={13} style={{ color: '#38bdf8' }} />
-                  <span>My Profile</span>
-                </button>
-              </div>
-
-              <div className="drawer-menu-footer-meta">
-                <span>{allContainers.length} crates</span>
-              </div>
-            </div>
           </div>
-
-          {/* Corner Resize Handle */}
-          <div
-            className="drawer-resize-handle-corner"
-            onMouseDown={e => handleLibResizeStart(e, 'corner')}
-            title="Drag corner to resize width & height"
-          />
         </div>
       )}
 
@@ -4342,17 +4277,20 @@ export const App: React.FC = () => {
       >
         <div
           className={`floating-workspaces-dock-wrapper ${isInteractingWs ? 'is-interacting' : ''}`}
+          onMouseDown={e => {
+            const target = e.target as HTMLElement;
+            if (
+              target.closest('button') ||
+              target.closest('.workspace-chip') ||
+              target.closest('.workspace-picker-popover')
+            ) {
+              return;
+            }
+            handleWsDragStart(e);
+          }}
+          onDoubleClick={() => setWsDrawerPosition(null)}
+          title="Drag to move workspace dock · Double-click to snap back"
         >
-          {/* Drag Grip for Workspace Drawer */}
-          <div
-            className="ws-drawer-drag-grip"
-            onMouseDown={handleWsDragStart}
-            onDoubleClick={() => setWsDrawerPosition(null)}
-            title="Drag to move workspace drawer · Double-click to snap back to bottom-left"
-          >
-            <GripHorizontal size={13} />
-          </div>
-
           {/* Iconic ../ Button that opens the detached library UI */}
           <button
             type="button"
@@ -4423,6 +4361,17 @@ export const App: React.FC = () => {
               );
             })}
           </div>
+
+          {/* Settings Button (Left of Add WS Button) */}
+          <button
+            type="button"
+            className="workspace-dock-settings-btn"
+            onClick={() => setSettingsOpen(true)}
+            title="Application & Library Settings (⌘,)"
+            aria-label="Settings"
+          >
+            <Settings size={13} />
+          </button>
 
           {/* Add Workspace (+) Button & Popover */}
           <div className="workspace-add-container" ref={workspaceAddContainerRef}>
