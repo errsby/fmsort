@@ -8,6 +8,11 @@ import {
   isDiscogsConfigured,
   searchDiscogsReleases,
   searchDiscogsArtists,
+  parseDiscogsArtistCode,
+  isExplicitDiscogsArtistCode,
+  parseDiscogsArtistName,
+  getDiscogsArtistById,
+  getDiscogsArtistReleases,
 } from './discogs';
 import {
   searchMusicBrainzReleases,
@@ -314,6 +319,45 @@ export function deduplicateArtists(artists: UnifiedArtist[]): UnifiedArtist[] {
 }
 
 /**
+ * Resolves query if it is a Discogs artist code, artist URL, BBCode, or numeric ID.
+ */
+async function resolveArtistCodeQuery(q: string): Promise<{
+  searchQuery: string;
+  directArtist: UnifiedArtist | null;
+  artistId: number | null;
+  isExplicitArtist: boolean;
+}> {
+  const isExplicitArtist = isExplicitDiscogsArtistCode(q);
+  const artistId = parseDiscogsArtistCode(q);
+
+  let searchQuery = q;
+  let directArtist: UnifiedArtist | null = null;
+
+  if (artistId && isDiscogsConfigured()) {
+    const dArtist = await getDiscogsArtistById(artistId);
+    if (dArtist) {
+      directArtist = {
+        source: 'discogs',
+        id: dArtist.id,
+        name: dArtist.name,
+        thumb: dArtist.thumb,
+        nb_album: 0,
+      };
+      if (isExplicitArtist) {
+        searchQuery = dArtist.name;
+      }
+    }
+  } else {
+    const bbName = parseDiscogsArtistName(q);
+    if (bbName) {
+      searchQuery = bbName;
+    }
+  }
+
+  return { searchQuery, directArtist, artistId, isExplicitArtist };
+}
+
+/**
  * Complete Search Engine Execution:
  * Runs Deezer, Discogs, and MusicBrainz in parallel, applies canonical clustering,
  * caches results, and returns structured search results.
@@ -335,15 +379,41 @@ export async function executeHybridSearch(query: string): Promise<SearchResult> 
   }
 
   const discogsEnabled = isDiscogsConfigured();
+  const { searchQuery, directArtist, artistId, isExplicitArtist } = await resolveArtistCodeQuery(q);
+
+  const discogsReleasesPromise = (async () => {
+    if (!discogsEnabled) return [];
+    if (isExplicitArtist && artistId) {
+      return getDiscogsArtistReleases(artistId);
+    }
+    const releases = await searchDiscogsReleases(q).catch(() => []);
+    if (artistId && releases.length === 0) {
+      return getDiscogsArtistReleases(artistId).catch(() => []);
+    }
+    return releases;
+  })();
+
+  const discogsArtistsPromise = (async () => {
+    if (!discogsEnabled) return [];
+    if (directArtist) {
+      return [{
+        id: typeof directArtist.id === 'number' ? directArtist.id : parseInt(String(directArtist.id), 10) || 0,
+        name: directArtist.name,
+        thumb: directArtist.thumb,
+        cover_image: directArtist.thumb,
+      }];
+    }
+    return searchDiscogsArtists(q).catch(() => []);
+  })();
 
   // Run in parallel
   const [deezerReleases, deezerArtists, deezerTracks, discogsReleases, discogsArtists, mbReleases] = await Promise.all([
-    searchDeezerReleases(q).catch(() => []),
-    searchDeezerArtists(q).catch(() => []),
-    searchDeezerTracks(q).catch(() => []),
-    discogsEnabled ? searchDiscogsReleases(q).catch(() => []) : Promise.resolve([]),
-    discogsEnabled ? searchDiscogsArtists(q).catch(() => []) : Promise.resolve([]),
-    searchMusicBrainzReleases(q).catch(() => []),
+    searchDeezerReleases(searchQuery).catch(() => []),
+    searchDeezerArtists(searchQuery).catch(() => []),
+    searchDeezerTracks(searchQuery).catch(() => []),
+    discogsReleasesPromise,
+    discogsArtistsPromise,
+    searchMusicBrainzReleases(searchQuery).catch(() => []),
   ]);
 
   const rawList: RawReleaseItem[] = [];
@@ -407,6 +477,7 @@ export async function executeHybridSearch(query: string): Promise<SearchResult> 
 
   // Combine & deduplicate artists
   const allArtists: UnifiedArtist[] = [
+    ...(directArtist ? [directArtist] : []),
     ...deezerArtists.map(a => ({
       source: 'deezer' as const,
       id: a.id,
@@ -456,10 +527,12 @@ export async function executeFastSearch(query: string): Promise<{
   deezerCount: number;
 }> {
   const q = query.trim();
+  const { searchQuery, directArtist } = await resolveArtistCodeQuery(q);
+
   const [deezerReleases, deezerArtists, deezerTracks] = await Promise.all([
-    searchDeezerReleases(q).catch(() => []),
-    searchDeezerArtists(q).catch(() => []),
-    searchDeezerTracks(q).catch(() => []),
+    searchDeezerReleases(searchQuery).catch(() => []),
+    searchDeezerArtists(searchQuery).catch(() => []),
+    searchDeezerTracks(searchQuery).catch(() => []),
   ]);
 
   const rawDeezerList: RawReleaseItem[] = deezerReleases.map(d => ({
@@ -477,17 +550,20 @@ export async function executeFastSearch(query: string): Promise<{
     track_count: d.track_count,
   }));
 
-  const artists: UnifiedArtist[] = deezerArtists.map(a => ({
-    source: 'deezer' as const,
-    id: a.id,
-    name: a.name,
-    thumb: a.thumb,
-    nb_album: a.nb_album,
-  }));
+  const artists: UnifiedArtist[] = [
+    ...(directArtist ? [directArtist] : []),
+    ...deezerArtists.map(a => ({
+      source: 'deezer' as const,
+      id: a.id,
+      name: a.name,
+      thumb: a.thumb,
+      nb_album: a.nb_album,
+    })),
+  ];
 
   const albums = groupReleasesIntoAlbums(rawDeezerList);
   return {
-    artists,
+    artists: deduplicateArtists(artists),
     albums,
     tracks: deezerTracks,
     rawDeezerList,
@@ -506,11 +582,37 @@ export async function executeEnrichedSearch(
 ): Promise<SearchResult> {
   const q = query.trim();
   const discogsEnabled = isDiscogsConfigured();
+  const { searchQuery, directArtist, artistId, isExplicitArtist } = await resolveArtistCodeQuery(q);
+
+  const discogsReleasesPromise = (async () => {
+    if (!discogsEnabled) return [];
+    if (isExplicitArtist && artistId) {
+      return getDiscogsArtistReleases(artistId);
+    }
+    const releases = await searchDiscogsReleases(q).catch(() => []);
+    if (artistId && releases.length === 0) {
+      return getDiscogsArtistReleases(artistId).catch(() => []);
+    }
+    return releases;
+  })();
+
+  const discogsArtistsPromise = (async () => {
+    if (!discogsEnabled) return [];
+    if (directArtist) {
+      return [{
+        id: typeof directArtist.id === 'number' ? directArtist.id : parseInt(String(directArtist.id), 10) || 0,
+        name: directArtist.name,
+        thumb: directArtist.thumb,
+        cover_image: directArtist.thumb,
+      }];
+    }
+    return searchDiscogsArtists(q).catch(() => []);
+  })();
 
   const [discogsReleases, discogsArtists, mbReleases] = await Promise.all([
-    discogsEnabled ? searchDiscogsReleases(q).catch(() => []) : Promise.resolve([]),
-    discogsEnabled ? searchDiscogsArtists(q).catch(() => []) : Promise.resolve([]),
-    searchMusicBrainzReleases(q).catch(() => []),
+    discogsReleasesPromise,
+    discogsArtistsPromise,
+    searchMusicBrainzReleases(searchQuery).catch(() => []),
   ]);
 
   const discogsRaw: RawReleaseItem[] = discogsReleases.map(d => ({
@@ -554,7 +656,11 @@ export async function executeEnrichedSearch(
     nb_album: 0,
   }));
 
-  const combinedArtists = deduplicateArtists([...existingFastArtists, ...discogsArtistsMapped]);
+  const combinedArtists = deduplicateArtists([
+    ...(directArtist ? [directArtist] : []),
+    ...existingFastArtists,
+    ...discogsArtistsMapped,
+  ]);
   const totalVersions = combinedAlbums.reduce((acc, a) => acc + a.versions.length, 0);
 
   const result: SearchResult = {

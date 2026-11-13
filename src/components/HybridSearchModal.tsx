@@ -756,7 +756,7 @@ export const HybridSearchModal: React.FC<Props> = ({
               ref={inputRef}
               type="text"
               className="music-cmd-search-input"
-              placeholder="Search tracks, albums, artists, catalog numbers, barcodes, ISRCs..."
+              placeholder="Search tracks, albums, artists, barcodes, cat numbers, ISRCs, Discogs codes (e.g. a23524)..."
               value={query}
               onChange={e => {
                 setQuery(e.target.value);
@@ -1498,6 +1498,22 @@ export const HybridSearchModal: React.FC<Props> = ({
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <strong style={{ fontSize: 13, color: 'var(--fg)' }}>{artistName}</strong>
                             <span className="ty">Artist</span>
+                            {artist.id && (
+                              <span
+                                style={{
+                                  fontSize: 9,
+                                  padding: '1px 5px',
+                                  borderRadius: 3,
+                                  background: '#1c1c24',
+                                  color: '#a1a1aa',
+                                  border: '1px solid #272733',
+                                  fontFamily: 'var(--font-mono, monospace)',
+                                }}
+                                title={`Discogs Artist ID: ${artist.id}`}
+                              >
+                                a{artist.id}
+                              </span>
+                            )}
                           </div>
                           <small style={{ color: 'var(--mu)', fontSize: 11 }}>
                             {artist.nb_album ? `${artist.nb_album} releases cataloged` : 'Musical Artist'}

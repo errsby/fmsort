@@ -1,4 +1,28 @@
+import fs from 'fs';
+import path from 'path';
 import { getSetting } from './db';
+
+function loadEnvFile() {
+  try {
+    const envPath = path.resolve(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx > 0) {
+          const key = trimmed.slice(0, eqIdx).trim();
+          const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '');
+          if (!process.env[key]) {
+            process.env[key] = val;
+          }
+        }
+      }
+    }
+  } catch {}
+}
+loadEnvFile();
 
 interface DiscogsRateLimitItem {
   url: string;
@@ -163,6 +187,211 @@ export interface DiscogsArtistSummary {
   cover_image?: string;
 }
 
+export interface DiscogsArtistDetail {
+  id: number;
+  name: string;
+  realname?: string;
+  profile?: string;
+  thumb: string;
+  cover_image?: string;
+  uri?: string;
+}
+
+/**
+ * Detects if a query is a Discogs artist code:
+ * - e.g. "a23524", "[a23524]", "[a:23524]", "A23524"
+ * - "artist:23524", "artist/23524", "discogs:artist:23524", "discogs:23524"
+ * - "https://www.discogs.com/artist/23524-Arthur-Russell"
+ * - Or pure numeric IDs up to 7 digits (e.g. "23524", "108713")
+ */
+export function parseDiscogsArtistCode(query: string): number | null {
+  const clean = query.trim();
+  if (!clean) return null;
+
+  // 1. Discogs artist URL e.g. https://www.discogs.com/artist/23524-Arthur-Russell
+  const urlMatch = clean.match(/(?:https?:\/\/)?(?:www\.)?discogs\.com\/artist\/(\d+)/i);
+  if (urlMatch) {
+    const id = parseInt(urlMatch[1], 10);
+    if (!isNaN(id) && id > 0) return id;
+  }
+
+  // 2. Discogs BBCode or standard artist code: [a12345], a12345, [a:12345], a:12345
+  const codeMatch = clean.match(/^\[?a:?(\d+)\]?$/i);
+  if (codeMatch) {
+    const id = parseInt(codeMatch[1], 10);
+    if (!isNaN(id) && id > 0) return id;
+  }
+
+  // 3. Prefixes: artist:12345, artist/12345, discogs:artist:12345, discogs:12345
+  const prefixMatch = clean.match(/^(?:discogs:)?(?:artist[:/=#]|discogs:)(\d+)$/i);
+  if (prefixMatch) {
+    const id = parseInt(prefixMatch[1], 10);
+    if (!isNaN(id) && id > 0) return id;
+  }
+
+  // 4. Pure numeric (1 to 7 digits), excluding 8-14 digit barcodes (UPC/EAN)
+  if (/^\d{1,7}$/.test(clean)) {
+    const id = parseInt(clean, 10);
+    if (!isNaN(id) && id > 0) return id;
+  }
+
+  return null;
+}
+
+/**
+ * Returns true if the query is an EXPLICIT artist code
+ * (e.g. starts with 'a', '[a', 'artist:', 'discogs.com/artist/', etc.)
+ */
+export function isExplicitDiscogsArtistCode(query: string): boolean {
+  const clean = query.trim();
+  if (!clean) return false;
+  return (
+    /(?:https?:\/\/)?(?:www\.)?discogs\.com\/artist\/\d+/i.test(clean) ||
+    /^\[?a:?\d+\]?$/i.test(clean) ||
+    /^(?:discogs:)?(?:artist[:/=#]|discogs:)\d+$/i.test(clean)
+  );
+}
+
+/**
+ * Parses Discogs name BBCode e.g. [a=Arthur Russell]
+ */
+export function parseDiscogsArtistName(query: string): string | null {
+  const clean = query.trim();
+  const match = clean.match(/^\[a=([^\]]+)\]$/i);
+  return match ? match[1].trim() : null;
+}
+
+/**
+ * Parses Discogs release code e.g. r1918919, [r1918919], release:1918919, discogs.com/release/1918919
+ */
+export function parseDiscogsReleaseCode(query: string): number | null {
+  const clean = query.trim();
+  if (!clean) return null;
+
+  const urlMatch = clean.match(/(?:https?:\/\/)?(?:www\.)?discogs\.com\/release\/(\d+)/i);
+  if (urlMatch) {
+    const id = parseInt(urlMatch[1], 10);
+    if (!isNaN(id) && id > 0) return id;
+  }
+
+  const codeMatch = clean.match(/^\[?r:?(\d+)\]?$/i);
+  if (codeMatch) {
+    const id = parseInt(codeMatch[1], 10);
+    if (!isNaN(id) && id > 0) return id;
+  }
+
+  const prefixMatch = clean.match(/^(?:discogs:)?release[:/=#](\d+)$/i);
+  if (prefixMatch) {
+    const id = parseInt(prefixMatch[1], 10);
+    if (!isNaN(id) && id > 0) return id;
+  }
+
+  return null;
+}
+
+/**
+ * Parses Discogs master code e.g. m757880, [m757880], master:757880, discogs.com/master/757880
+ */
+export function parseDiscogsMasterCode(query: string): number | null {
+  const clean = query.trim();
+  if (!clean) return null;
+
+  const urlMatch = clean.match(/(?:https?:\/\/)?(?:www\.)?discogs\.com\/master\/(\d+)/i);
+  if (urlMatch) {
+    const id = parseInt(urlMatch[1], 10);
+    if (!isNaN(id) && id > 0) return id;
+  }
+
+  const codeMatch = clean.match(/^\[?m:?(\d+)\]?$/i);
+  if (codeMatch) {
+    const id = parseInt(codeMatch[1], 10);
+    if (!isNaN(id) && id > 0) return id;
+  }
+
+  const prefixMatch = clean.match(/^(?:discogs:)?master[:/=#](\d+)$/i);
+  if (prefixMatch) {
+    const id = parseInt(prefixMatch[1], 10);
+    if (!isNaN(id) && id > 0) return id;
+  }
+
+  return null;
+}
+
+/**
+ * Fetches an artist directly by Discogs ID
+ */
+export async function getDiscogsArtistById(artistId: number | string): Promise<DiscogsArtistDetail | null> {
+  const authHeader = getDiscogsAuthHeader();
+  if (!authHeader) return null;
+
+  const idNum = typeof artistId === 'number' ? artistId : parseInt(artistId, 10);
+  if (isNaN(idNum) || idNum <= 0) return null;
+
+  try {
+    const url = `https://api.discogs.com/artists/${idNum}`;
+    const data = await fetchDiscogsWithRateLimit<any>(url, authHeader);
+    if (!data || !data.id || !data.name) return null;
+
+    let thumb = '';
+    let cover_image = '';
+    if (Array.isArray(data.images) && data.images.length > 0) {
+      const primary = data.images.find((i: any) => i.type === 'primary') || data.images[0];
+      thumb = primary.uri150 || primary.uri || primary.resource_url || '';
+      cover_image = primary.uri || primary.resource_url || thumb;
+    }
+
+    return {
+      id: data.id,
+      name: data.name,
+      realname: data.realname,
+      profile: data.profile,
+      thumb,
+      cover_image,
+      uri: data.uri,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetches releases for a Discogs artist by ID
+ */
+export async function getDiscogsArtistReleases(artistId: number | string): Promise<DiscogsReleaseSummary[]> {
+  const authHeader = getDiscogsAuthHeader();
+  if (!authHeader) return [];
+
+  const idNum = typeof artistId === 'number' ? artistId : parseInt(artistId, 10);
+  if (isNaN(idNum) || idNum <= 0) return [];
+
+  try {
+    const url = `https://api.discogs.com/artists/${idNum}/releases?page=1&per_page=30&sort=year&sort_order=desc`;
+    const data = await fetchDiscogsWithRateLimit<any>(url, authHeader);
+    if (!data || !Array.isArray(data.releases)) return [];
+
+    return data.releases.map((r: any) => {
+      const releaseId = r.main_release || r.id;
+      const year = r.year ? parseInt(r.year, 10) || 0 : 0;
+      const format = r.format || (r.type === 'master' ? 'Vinyl LP / Master' : 'Release');
+      return {
+        id: releaseId,
+        title: r.title || 'Untitled',
+        artist: r.artist || 'Unknown Artist',
+        year,
+        format,
+        catalog_no: '—',
+        barcode: '—',
+        country: '',
+        label: '',
+        thumb: r.thumb || '',
+        cover_image: r.thumb || '',
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 export async function searchDiscogsArtists(query: string): Promise<DiscogsArtistSummary[]> {
   const authHeader = getDiscogsAuthHeader();
   if (!authHeader) return [];
@@ -170,7 +399,25 @@ export async function searchDiscogsArtists(query: string): Promise<DiscogsArtist
   const cleanQ = query.trim();
   if (!cleanQ) return [];
 
-  const url = `https://api.discogs.com/database/search?q=${encodeURIComponent(cleanQ)}&type=artist&per_page=6`;
+  // Check if query is a Discogs artist code or ID
+  const artistId = parseDiscogsArtistCode(cleanQ);
+  if (artistId) {
+    const directArtist = await getDiscogsArtistById(artistId);
+    if (directArtist) {
+      return [{
+        id: directArtist.id,
+        name: directArtist.name,
+        thumb: directArtist.thumb,
+        cover_image: directArtist.cover_image || directArtist.thumb,
+      }];
+    }
+  }
+
+  // Check if query is [a=Name] BBCode
+  const bbName = parseDiscogsArtistName(cleanQ);
+  const searchTerm = bbName || cleanQ;
+
+  const url = `https://api.discogs.com/database/search?q=${encodeURIComponent(searchTerm)}&type=artist&per_page=6`;
   const data = await fetchDiscogsWithRateLimit<any>(url, authHeader);
 
   if (!data || !Array.isArray(data.results)) {
@@ -194,6 +441,60 @@ export async function searchDiscogsReleases(query: string): Promise<DiscogsRelea
   const cleanQ = query.trim();
   if (!cleanQ) return [];
 
+  // 1. If explicit artist code (e.g. a23524, [a23524], artist:23524): fetch artist releases directly!
+  const isExplicitArtist = isExplicitDiscogsArtistCode(cleanQ);
+  const artistId = parseDiscogsArtistCode(cleanQ);
+  if (isExplicitArtist && artistId) {
+    return getDiscogsArtistReleases(artistId);
+  }
+
+  // 2. If release code (e.g. r1918919, [r1918919], release:1918919): fetch single release
+  const releaseId = parseDiscogsReleaseCode(cleanQ);
+  if (releaseId) {
+    const details = await getDiscogsReleaseDetails(releaseId).catch(() => null);
+    if (details) {
+      return [{
+        id: details.id,
+        title: details.title,
+        artist: details.artist,
+        year: details.year,
+        format: details.format,
+        catalog_no: details.catalog_no,
+        barcode: details.barcode,
+        country: '',
+        label: details.label,
+        thumb: details.cover_url,
+        cover_image: details.cover_url,
+      }];
+    }
+  }
+
+  // 3. If master code (e.g. m757880, [m757880], master:757880)
+  const masterId = parseDiscogsMasterCode(cleanQ);
+  if (masterId) {
+    try {
+      const mUrl = `https://api.discogs.com/masters/${masterId}`;
+      const mData = await fetchDiscogsWithRateLimit<any>(mUrl, authHeader);
+      const targetRelId = mData?.main_release || masterId;
+      const details = await getDiscogsReleaseDetails(targetRelId).catch(() => null);
+      if (details) {
+        return [{
+          id: details.id,
+          title: details.title,
+          artist: details.artist,
+          year: details.year,
+          format: details.format,
+          catalog_no: details.catalog_no,
+          barcode: details.barcode,
+          country: '',
+          label: details.label,
+          thumb: details.cover_url,
+          cover_image: details.cover_url,
+        }];
+      }
+    } catch {}
+  }
+
   const isBarcode = /^\d{8,14}$/.test(cleanQ);
   const searchParam = isBarcode ? `barcode=${encodeURIComponent(cleanQ)}` : `q=${encodeURIComponent(cleanQ)}`;
   let url = `https://api.discogs.com/database/search?${searchParam}&type=release&per_page=30`;
@@ -211,6 +512,14 @@ export async function searchDiscogsReleases(query: string): Promise<DiscogsRelea
       if (catnoData && Array.isArray(catnoData.results) && catnoData.results.length > 0) {
         data = catnoData;
       }
+    }
+  }
+
+  // If numeric ID (1-7 digits) that returned 0 database releases, also check artist releases
+  if ((!data || !Array.isArray(data.results) || data.results.length === 0) && artistId) {
+    const artistReleases = await getDiscogsArtistReleases(artistId);
+    if (artistReleases.length > 0) {
+      return artistReleases;
     }
   }
 
