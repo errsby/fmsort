@@ -5676,39 +5676,6 @@ tr.h.is-selected td {
   background: rgba(56, 189, 248, 0.02);
 }
 
-.drop-empty-space-indicator {
-  position: fixed;
-  bottom: 58px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(18, 18, 22, 0.92);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(56, 189, 248, 0.45);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 16px rgba(56, 189, 248, 0.2);
-  color: #38bdf8;
-  font-size: 13px;
-  font-weight: 500;
-  padding: 8px 18px;
-  border-radius: 9999px;
-  z-index: 9999;
-  pointer-events: none;
-  animation: dropIndicatorFadeIn 0.15s ease-out;
-}
-
-@keyframes dropIndicatorFadeIn {
-  from {
-    opacity: 0;
-    transform: translate(-50%, 6px);
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, 0);
-  }
-}
-
 /* =========================================================================
    Unified Bottom-Left Workspaces & Library Drawer (Docked & Floating)
    ========================================================================= */
@@ -6136,58 +6103,89 @@ tr.h.is-selected td {
 }
 
 /* =========================================================================
-   Bottom Floating Selection Actions Popup Bar
+   Attached & Connected Control Drawer (Selection Actions)
    ========================================================================= */
 .selection-popup-bar {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1000;
+  position: absolute;
+  z-index: 1040;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 10px 6px 12px;
-  background: rgba(18, 18, 23, 0.94);
+  gap: 8px;
+  padding: 4px 8px;
+  background: rgba(14, 14, 18, 0.95);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 12px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  animation: selectionPopupSlideUp 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   user-select: none;
+  width: max-content;
   max-width: calc(100vw - 32px);
   overflow-x: auto;
   scrollbar-width: none;
+  pointer-events: auto;
+  cursor: default;
+  transition: opacity 0.16s ease;
 }
 
 .selection-popup-bar::-webkit-scrollbar {
   display: none;
 }
 
-@keyframes selectionPopupSlideUp {
+.selection-popup-bar.open-above {
+  bottom: calc(100% + 6px);
+  top: auto;
+  left: 0;
+  animation: selectionDrawerSlideDown 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.selection-popup-bar.open-below {
+  top: calc(100% + 6px);
+  bottom: auto;
+  left: 0;
+  animation: selectionDrawerSlideUp 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.selection-popup-bar.align-right {
+  left: auto !important;
+  right: 0 !important;
+}
+
+@keyframes selectionDrawerSlideDown {
   from {
     opacity: 0;
-    transform: translate(-50%, 14px) scale(0.96);
+    transform: translateY(6px) scale(0.98);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, 0) scale(1);
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes selectionDrawerSlideUp {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 
 .selection-popup-info {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   white-space: nowrap;
+  padding: 0 2px;
 }
 
 .selection-popup-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 5px;
+  font-size: 11.5px;
   font-weight: 600;
   color: #ffffff;
 }
@@ -6202,33 +6200,34 @@ tr.h.is-selected td {
 }
 
 .selection-popup-sub {
-  font-size: 11px;
+  font-size: 10.5px;
   color: #a1a1aa;
   font-family: var(--font-mono, monospace);
   background: rgba(255, 255, 255, 0.06);
-  padding: 1px 5px;
-  border-radius: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
 }
 
 .selection-popup-divider {
   width: 1px;
-  height: 20px;
+  height: 18px;
   background: rgba(255, 255, 255, 0.12);
   flex-shrink: 0;
+  margin: 0 1px;
 }
 
 /* "Select Multiple" Mode Toggle Button */
 .selection-multi-toggle-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.12);
   color: #e4e4e7;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -6249,9 +6248,9 @@ tr.h.is-selected td {
 }
 
 .selection-multi-indicator {
-  font-size: 9.5px;
+  font-size: 9px;
   font-weight: 700;
-  padding: 1px 4px;
+  padding: 1px 3px;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.1);
   color: inherit;
@@ -6266,21 +6265,21 @@ tr.h.is-selected td {
 .selection-popup-actions {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
 .selection-action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  height: 28px;
-  padding: 0 9px;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: #e4e4e7;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.14s ease;
@@ -6304,22 +6303,22 @@ tr.h.is-selected td {
 }
 
 .selection-kbd {
-  font-size: 9.5px;
+  font-size: 9px;
   font-family: var(--font-mono, monospace);
   color: #a1a1aa;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 3px;
-  padding: 0 4px;
-  line-height: 14px;
+  padding: 0 3px;
+  line-height: 13px;
 }
 
 .selection-dismiss-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 5px;
   background: transparent;
   border: none;

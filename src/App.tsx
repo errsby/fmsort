@@ -337,6 +337,19 @@ export const App: React.FC = () => {
 
   // "Select Multiple" Mode state
   const [selectMultipleMode, setSelectMultipleMode] = useState(false);
+  // Attached Control Drawer (Selection Actions) placement relative to Workspace Dock
+  const [controlDrawerOpenBelow, setControlDrawerOpenBelow] = useState(false);
+  const [controlDrawerAlignRight, setControlDrawerAlignRight] = useState(false);
+
+  useEffect(() => {
+    if (wsDrawerPosition) {
+      setControlDrawerOpenBelow(wsDrawerPosition.y < 54);
+      setControlDrawerAlignRight(wsDrawerPosition.x + 460 > window.innerWidth - 12);
+    } else {
+      setControlDrawerOpenBelow(false);
+      setControlDrawerAlignRight(false);
+    }
+  }, [wsDrawerPosition, selectedTrackIds.size, selectedNodeIds.size]);
   const dragHoverTimeoutRef = useRef<any>(null);
   const draggedTracksRef = useRef<number[]>([]);
   const draggedNodesRef = useRef<string[]>([]);
@@ -964,7 +977,14 @@ export const App: React.FC = () => {
   const handleWsDragStart = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
-    if (target.closest('input') || target.closest('button') || target.closest('.workspace-chip')) return;
+    if (
+      target.closest('input') ||
+      target.closest('button') ||
+      target.closest('.workspace-chip') ||
+      target.closest('.selection-popup-bar')
+    ) {
+      return;
+    }
 
     e.preventDefault();
     e.stopPropagation();
@@ -989,6 +1009,8 @@ export const App: React.FC = () => {
         rect.height
       );
       setWsDrawerPosition(clamped);
+      setControlDrawerOpenBelow(clamped.y < 54);
+      setControlDrawerAlignRight(clamped.x + 460 > window.innerWidth - 12);
     };
 
     const handleMouseUp = () => {
@@ -4071,14 +4093,6 @@ export const App: React.FC = () => {
         onPasteItems={pasteClipboard}
       />
 
-      {/* Empty Space Drop Target Visual Indicator */}
-      {dropTargetNodeId === 'empty-space' && activeNode && (
-        <div className="drop-empty-space-indicator">
-          <FolderInput size={16} />
-          <span>Drop to move into &ldquo;{activeNode.name}&rdquo;</span>
-        </div>
-      )}
-
       {/* Floating Toast Notification */}
       {toastMessage && (
         <div className="fmsort-toast" role="status">
@@ -4107,11 +4121,15 @@ export const App: React.FC = () => {
                   zIndex: 1100,
                 }
               : (() => {
+                  const hasSelection = selectedTrackIds.size > 0 || selectedNodeIds.size > 0;
+                  const selectionAboveOffset = hasSelection && !controlDrawerOpenBelow ? 44 : 0;
+                  const selectionBelowOffset = hasSelection && controlDrawerOpenBelow ? 44 : 0;
+
                   if (!wsDrawerPosition) {
                     return {
                       position: 'fixed',
                       left: '16px',
-                      bottom: '58px',
+                      bottom: `${58 + selectionAboveOffset}px`,
                       top: 'auto',
                       right: 'auto',
                       zIndex: 1100,
@@ -4121,17 +4139,17 @@ export const App: React.FC = () => {
                   const winH = typeof window !== 'undefined' ? window.innerHeight : 800;
                   const clampedX = Math.max(10, Math.min(winW - menuWidth - 10, wsDrawerPosition.x));
                   const dockH = workspacesDockRef.current?.getBoundingClientRect().height || 38;
-                  if (wsDrawerPosition.y - menuHeight - 8 >= 10) {
+                  if (wsDrawerPosition.y - menuHeight - 8 - selectionAboveOffset >= 10) {
                     return {
                       position: 'fixed',
                       left: `${clampedX}px`,
-                      bottom: `calc(${winH - wsDrawerPosition.y}px + 8px)`,
+                      bottom: `calc(${winH - wsDrawerPosition.y}px + ${8 + selectionAboveOffset}px)`,
                       top: 'auto',
                       right: 'auto',
                       zIndex: 1100,
                     };
                   } else {
-                    const clampedY = Math.min(winH - menuHeight - 10, wsDrawerPosition.y + dockH + 8);
+                    const clampedY = Math.min(winH - menuHeight - 10, wsDrawerPosition.y + dockH + 8 + selectionBelowOffset);
                     return {
                       position: 'fixed',
                       left: `${clampedX}px`,
@@ -4250,15 +4268,262 @@ export const App: React.FC = () => {
             if (
               target.closest('button') ||
               target.closest('.workspace-chip') ||
-              target.closest('.workspace-picker-popover')
+              target.closest('.workspace-picker-popover') ||
+              target.closest('.selection-popup-bar')
             ) {
               return;
             }
             handleWsDragStart(e);
           }}
-          onDoubleClick={() => setWsDrawerPosition(null)}
+          onDoubleClick={e => {
+            const target = e.target as HTMLElement;
+            if (target.closest('.selection-popup-bar')) return;
+            setWsDrawerPosition(null);
+            setControlDrawerOpenBelow(false);
+            setControlDrawerAlignRight(false);
+          }}
           title="Drag to move workspace dock · Double-click to snap back"
         >
+          {/* Attached & Connected Control Drawer (Selection Actions) */}
+          {(selectedTrackIds.size > 0 || selectedNodeIds.size > 0) && (
+            <div
+              className={`selection-popup-bar ${controlDrawerOpenBelow ? 'open-below' : 'open-above'} ${controlDrawerAlignRight ? 'align-right' : ''}`}
+              role="region"
+              aria-label="Selection actions"
+              onMouseDown={e => e.stopPropagation()}
+            >
+              {/* 1. Selection count & status */}
+              <div className="selection-popup-info">
+                <div className="selection-popup-badge">
+                  <CheckSquare size={13} className="selection-badge-icon" />
+                  <span className="selection-popup-count">
+                    {selectedTrackIds.size > 0 && selectedNodeIds.size > 0
+                      ? `${selectedNodeIds.size} folders, ${selectedTrackIds.size} tracks`
+                      : selectedTrackIds.size > 0
+                        ? `${selectedTrackIds.size} ${selectedTrackIds.size === 1 ? 'track' : 'tracks'}`
+                        : `${selectedNodeIds.size} ${selectedNodeIds.size === 1 ? 'container' : 'containers'}`}
+                  </span>
+                </div>
+                {selectedTrackIds.size > 0 && (
+                  <span className="selection-popup-sub">
+                    {fmtDuration(
+                      activeFlatTracks
+                        .filter(t => selectedTrackIds.has(t.id))
+                        .reduce((sum, t) => sum + (t.len || 0), 0)
+                    )}
+                  </span>
+                )}
+              </div>
+
+              <div className="selection-popup-divider" />
+
+              {/* 2. "Select Multiple" Mode Toggle */}
+              <button
+                type="button"
+                className={`selection-multi-toggle-btn ${selectMultipleMode ? 'is-active' : ''}`}
+                onClick={() => {
+                  setSelectMultipleMode(prev => {
+                    const next = !prev;
+                    showToast(next ? 'Multi-select mode ON: Click items to toggle' : 'Multi-select mode OFF');
+                    return next;
+                  });
+                }}
+                title="Toggle click-to-select mode: click rows to add/remove without holding Shift or ⌘"
+              >
+                <CheckSquare size={13} />
+                <span>Select Multiple</span>
+                <span className="selection-multi-indicator">{selectMultipleMode ? 'ON' : 'OFF'}</span>
+              </button>
+
+              <div className="selection-popup-divider" />
+
+              {/* 3. Action Buttons */}
+              <div className="selection-popup-actions">
+                {/* Track-specific actions */}
+                {selectedTrackIds.size > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      className="selection-action-btn"
+                      onClick={() => {
+                        if (firstSelectedTrack) setActiveTrack(firstSelectedTrack);
+                      }}
+                      title="Edit metadata (E)"
+                    >
+                      <Edit3 size={13} />
+                      <span>Edit</span>
+                      <kbd className="selection-kbd">E</kbd>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="selection-action-btn"
+                      onClick={() => setMoveTracksOpen(true)}
+                      title="Move selected tracks (M)"
+                    >
+                      <FolderInput size={13} />
+                      <span>Move</span>
+                      <kbd className="selection-kbd">M</kbd>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="selection-action-btn"
+                      onClick={() => copySelectedItems(undefined, Array.from(selectedTrackIds), 'copy')}
+                      title="Copy tracks to clipboard (⌘C)"
+                    >
+                      <Copy size={13} />
+                      <span>Copy</span>
+                      <kbd className="selection-kbd">⌘C</kbd>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="selection-action-btn"
+                      onClick={() => {
+                        if (selectedTrackIds.size === 1 && firstSelectedTrack) {
+                          handleResolveIsrcAction(firstSelectedTrack);
+                        } else {
+                          handleBatchResolveIsrcAction();
+                        }
+                      }}
+                      title="Resolve ISRCs with Deezer/MusicBrainz (R)"
+                    >
+                      <Sparkles size={13} />
+                      <span>ISRCs</span>
+                      <kbd className="selection-kbd">R</kbd>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="selection-action-btn is-danger"
+                      onClick={() => {
+                        if (selectedTrackIds.size === 1 && firstSelectedTrack) {
+                          handleDeleteTrackAction(firstSelectedTrack);
+                        } else {
+                          handleBatchDeleteTracksAction();
+                        }
+                      }}
+                      title="Delete selected tracks (Backspace / ⌦)"
+                    >
+                      <Trash2 size={13} />
+                      <span>Delete</span>
+                      <kbd className="selection-kbd">⌫</kbd>
+                    </button>
+                  </>
+                )}
+
+                {/* Container-specific actions */}
+                {selectedNodeIds.size > 0 && (
+                  <>
+                    {selectedNode && (
+                      <button
+                        type="button"
+                        className="selection-action-btn"
+                        onClick={() => selectNode(selectedNode)}
+                        title="Open container (Enter)"
+                      >
+                        <Folder size={13} />
+                        <span>Open</span>
+                        <kbd className="selection-kbd">↵</kbd>
+                      </button>
+                    )}
+
+                    {selectedNode && (
+                      <button
+                        type="button"
+                        className="selection-action-btn"
+                        onClick={() => openInNewWorkspace(selectedNode)}
+                        title="Open in new workspace tab (⌘↵)"
+                      >
+                        <Layers size={13} />
+                        <span>New Tab</span>
+                      </button>
+                    )}
+
+                    {selectedNode && selectedNode.type === 'Album' && statusEnabled && (
+                      <button
+                        type="button"
+                        className="selection-action-btn"
+                        onClick={() => {
+                          const artist = selectedNode.tracks?.[0]?.a || (activeNode?.type === 'Artist' ? activeNode.name : '');
+                          const completed = isAlbumCompleted(artist, selectedNode.name, completedAlbumKeys);
+                          handleToggleAlbumCompleted(artist, selectedNode.name, !completed);
+                        }}
+                        title="Toggle album completed status (C)"
+                      >
+                        <CheckCircle2 size={13} />
+                        <span>Status</span>
+                        <kbd className="selection-kbd">C</kbd>
+                      </button>
+                    )}
+
+                    {selectedNode && (
+                      <button
+                        type="button"
+                        className="selection-action-btn"
+                        onClick={() => {
+                          setNodeToEdit(selectedNode);
+                          setNodeEditOpen(true);
+                        }}
+                        title="Rename / Edit container (E)"
+                      >
+                        <Edit3 size={13} />
+                        <span>Rename</span>
+                        <kbd className="selection-kbd">E</kbd>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      className="selection-action-btn"
+                      onClick={() => copySelectedItems(Array.from(selectedNodeIds), undefined, 'copy')}
+                      title="Copy container (⌘C)"
+                    >
+                      <Copy size={13} />
+                      <span>Copy</span>
+                      <kbd className="selection-kbd">⌘C</kbd>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="selection-action-btn is-danger"
+                      onClick={() => {
+                        const nodesToDelete = allContainers.filter(n => selectedNodeIds.has(n.id));
+                        if (nodesToDelete.length === 1) {
+                          handleDeleteNodeAction(nodesToDelete[0]);
+                        } else {
+                          handleBatchDeleteNodesAction(nodesToDelete);
+                        }
+                      }}
+                      title="Delete container(s) (Backspace / ⌦)"
+                    >
+                      <Trash2 size={13} />
+                      <span>Delete</span>
+                      <kbd className="selection-kbd">⌫</kbd>
+                    </button>
+                  </>
+                )}
+              </div>
+
+              <div className="selection-popup-divider" />
+
+              {/* 4. Dismiss / Clear Selection */}
+              <button
+                type="button"
+                className="selection-dismiss-btn"
+                onClick={() => {
+                  setSelectedTrackIds(new Set());
+                  setSelectedNodeIds(new Set());
+                  setSelectMultipleMode(false);
+                }}
+                title="Deselect all (Esc)"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )}
+
           {/* Iconic ../ Button that opens the detached library UI */}
           <button
             type="button"
@@ -4463,241 +4728,6 @@ export const App: React.FC = () => {
           )}
         </div>
       </div>
-
-      {/* Floating Selection Actions Popup Bar */}
-      {(selectedTrackIds.size > 0 || selectedNodeIds.size > 0) && (
-        <div className="selection-popup-bar" role="region" aria-label="Selection actions">
-          {/* 1. Selection count & status */}
-          <div className="selection-popup-info">
-            <div className="selection-popup-badge">
-              <CheckSquare size={13} className="selection-badge-icon" />
-              <span className="selection-popup-count">
-                {selectedTrackIds.size > 0 && selectedNodeIds.size > 0
-                  ? `${selectedNodeIds.size} folders, ${selectedTrackIds.size} tracks`
-                  : selectedTrackIds.size > 0
-                    ? `${selectedTrackIds.size} ${selectedTrackIds.size === 1 ? 'track' : 'tracks'}`
-                    : `${selectedNodeIds.size} ${selectedNodeIds.size === 1 ? 'container' : 'containers'}`}
-              </span>
-            </div>
-            {selectedTrackIds.size > 0 && (
-              <span className="selection-popup-sub">
-                {fmtDuration(
-                  activeFlatTracks
-                    .filter(t => selectedTrackIds.has(t.id))
-                    .reduce((sum, t) => sum + (t.len || 0), 0)
-                )}
-              </span>
-            )}
-          </div>
-
-          <div className="selection-popup-divider" />
-
-          {/* 2. "Select Multiple" Mode Toggle */}
-          <button
-            type="button"
-            className={`selection-multi-toggle-btn ${selectMultipleMode ? 'is-active' : ''}`}
-            onClick={() => {
-              setSelectMultipleMode(prev => {
-                const next = !prev;
-                showToast(next ? 'Multi-select mode ON: Click items to toggle' : 'Multi-select mode OFF');
-                return next;
-              });
-            }}
-            title="Toggle click-to-select mode: click rows to add/remove without holding Shift or ⌘"
-          >
-            <CheckSquare size={13} />
-            <span>Select Multiple</span>
-            <span className="selection-multi-indicator">{selectMultipleMode ? 'ON' : 'OFF'}</span>
-          </button>
-
-          <div className="selection-popup-divider" />
-
-          {/* 3. Action Buttons */}
-          <div className="selection-popup-actions">
-            {/* Track-specific actions */}
-            {selectedTrackIds.size > 0 && (
-              <>
-                <button
-                  type="button"
-                  className="selection-action-btn"
-                  onClick={() => {
-                    if (firstSelectedTrack) setActiveTrack(firstSelectedTrack);
-                  }}
-                  title="Edit metadata (E)"
-                >
-                  <Edit3 size={13} />
-                  <span>Edit</span>
-                  <kbd className="selection-kbd">E</kbd>
-                </button>
-
-                <button
-                  type="button"
-                  className="selection-action-btn"
-                  onClick={() => setMoveTracksOpen(true)}
-                  title="Move selected tracks (M)"
-                >
-                  <FolderInput size={13} />
-                  <span>Move</span>
-                  <kbd className="selection-kbd">M</kbd>
-                </button>
-
-                <button
-                  type="button"
-                  className="selection-action-btn"
-                  onClick={() => copySelectedItems(undefined, Array.from(selectedTrackIds), 'copy')}
-                  title="Copy tracks to clipboard (⌘C)"
-                >
-                  <Copy size={13} />
-                  <span>Copy</span>
-                  <kbd className="selection-kbd">⌘C</kbd>
-                </button>
-
-                <button
-                  type="button"
-                  className="selection-action-btn"
-                  onClick={() => {
-                    if (selectedTrackIds.size === 1 && firstSelectedTrack) {
-                      handleResolveIsrcAction(firstSelectedTrack);
-                    } else {
-                      handleBatchResolveIsrcAction();
-                    }
-                  }}
-                  title="Resolve ISRCs with Deezer/MusicBrainz (R)"
-                >
-                  <Sparkles size={13} />
-                  <span>ISRCs</span>
-                  <kbd className="selection-kbd">R</kbd>
-                </button>
-
-                <button
-                  type="button"
-                  className="selection-action-btn is-danger"
-                  onClick={() => {
-                    if (selectedTrackIds.size === 1 && firstSelectedTrack) {
-                      handleDeleteTrackAction(firstSelectedTrack);
-                    } else {
-                      handleBatchDeleteTracksAction();
-                    }
-                  }}
-                  title="Delete selected tracks (Backspace / ⌦)"
-                >
-                  <Trash2 size={13} />
-                  <span>Delete</span>
-                  <kbd className="selection-kbd">⌫</kbd>
-                </button>
-              </>
-            )}
-
-            {/* Container-specific actions */}
-            {selectedNodeIds.size > 0 && (
-              <>
-                {selectedNode && (
-                  <button
-                    type="button"
-                    className="selection-action-btn"
-                    onClick={() => selectNode(selectedNode)}
-                    title="Open container (Enter)"
-                  >
-                    <Folder size={13} />
-                    <span>Open</span>
-                    <kbd className="selection-kbd">↵</kbd>
-                  </button>
-                )}
-
-                {selectedNode && (
-                  <button
-                    type="button"
-                    className="selection-action-btn"
-                    onClick={() => openInNewWorkspace(selectedNode)}
-                    title="Open in new workspace tab (⌘↵)"
-                  >
-                    <Layers size={13} />
-                    <span>New Tab</span>
-                  </button>
-                )}
-
-                {selectedNode && selectedNode.type === 'Album' && statusEnabled && (
-                  <button
-                    type="button"
-                    className="selection-action-btn"
-                    onClick={() => {
-                      const artist = selectedNode.tracks?.[0]?.a || (activeNode?.type === 'Artist' ? activeNode.name : '');
-                      const completed = isAlbumCompleted(artist, selectedNode.name, completedAlbumKeys);
-                      handleToggleAlbumCompleted(artist, selectedNode.name, !completed);
-                    }}
-                    title="Toggle album completed status (C)"
-                  >
-                    <CheckCircle2 size={13} />
-                    <span>Status</span>
-                    <kbd className="selection-kbd">C</kbd>
-                  </button>
-                )}
-
-                {selectedNode && (
-                  <button
-                    type="button"
-                    className="selection-action-btn"
-                    onClick={() => {
-                      setNodeToEdit(selectedNode);
-                      setNodeEditOpen(true);
-                    }}
-                    title="Rename / Edit container (E)"
-                  >
-                    <Edit3 size={13} />
-                    <span>Rename</span>
-                    <kbd className="selection-kbd">E</kbd>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  className="selection-action-btn"
-                  onClick={() => copySelectedItems(Array.from(selectedNodeIds), undefined, 'copy')}
-                  title="Copy container (⌘C)"
-                >
-                  <Copy size={13} />
-                  <span>Copy</span>
-                  <kbd className="selection-kbd">⌘C</kbd>
-                </button>
-
-                <button
-                  type="button"
-                  className="selection-action-btn is-danger"
-                  onClick={() => {
-                    const nodesToDelete = allContainers.filter(n => selectedNodeIds.has(n.id));
-                    if (nodesToDelete.length === 1) {
-                      handleDeleteNodeAction(nodesToDelete[0]);
-                    } else {
-                      handleBatchDeleteNodesAction(nodesToDelete);
-                    }
-                  }}
-                  title="Delete container(s) (Backspace / ⌦)"
-                >
-                  <Trash2 size={13} />
-                  <span>Delete</span>
-                  <kbd className="selection-kbd">⌫</kbd>
-                </button>
-              </>
-            )}
-          </div>
-
-          <div className="selection-popup-divider" />
-
-          {/* 4. Dismiss / Clear Selection */}
-          <button
-            type="button"
-            className="selection-dismiss-btn"
-            onClick={() => {
-              setSelectedTrackIds(new Set());
-              setSelectedNodeIds(new Set());
-              setSelectMultipleMode(false);
-            }}
-            title="Deselect all (Esc)"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
     </>
   );
 };
