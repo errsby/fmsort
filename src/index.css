@@ -4552,6 +4552,14 @@ tr.h.is-selected td {
   max-width: 160px;
 }
 
+.workspace-chip * {
+  pointer-events: none;
+}
+
+.workspace-chip .workspace-chip-close {
+  pointer-events: auto;
+}
+
 .workspace-chip:hover {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.16);
@@ -4841,5 +4849,46 @@ tr.h.is-selected td {
   font-size: 10px;
   color: #71717a;
 }
+
+/* Empty Space Drag & Drop Feedback */
+.tw.is-empty-drop-target {
+  outline: 2px dashed rgba(56, 189, 248, 0.4);
+  outline-offset: -3px;
+  background: rgba(56, 189, 248, 0.02);
+}
+
+.drop-empty-space-indicator {
+  position: fixed;
+  bottom: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(18, 18, 22, 0.92);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 16px rgba(56, 189, 248, 0.2);
+  color: #38bdf8;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 18px;
+  border-radius: 9999px;
+  z-index: 9999;
+  pointer-events: none;
+  animation: dropIndicatorFadeIn 0.15s ease-out;
+}
+
+@keyframes dropIndicatorFadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
 
 

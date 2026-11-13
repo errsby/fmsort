@@ -151,6 +151,11 @@ export const App: React.FC = () => {
   const workspaceAddContainerRef = useRef<HTMLDivElement>(null);
   const workspacesDockRef = useRef<HTMLDivElement>(null);
   const dragHoverTimeoutRef = useRef<any>(null);
+  const draggedTracksRef = useRef<number[]>([]);
+  const draggedNodesRef = useRef<string[]>([]);
+  const isSwitchingWorkspaceDragRef = useRef<boolean>(false);
+  const activeWorkspaceIdRef = useRef<string>('ws-1');
+  const activeNodeIdRef = useRef<string>('');
   const [isWorkspaceDropTarget, setIsWorkspaceDropTarget] = useState<string | null>(null);
   const [pinnedCrateIds, setPinnedCrateIds] = useState<string[]>(() => {
     try {
@@ -472,13 +477,17 @@ export const App: React.FC = () => {
     showToast(`Opened "${node.name}" in new workspace`);
   };
 
-  const switchWorkspace = (wsId: string) => {
+  const switchWorkspace = (wsId: string, isDragging = false) => {
     const ws = workspaces.find(w => w.id === wsId);
     if (!ws) return;
+    activeWorkspaceIdRef.current = ws.id;
+    activeNodeIdRef.current = ws.nodeId;
     setActiveWorkspaceId(ws.id);
     setActiveNodeId(ws.nodeId);
-    setSelectedTrackIds(new Set());
-    setSelectedNodeIds(new Set());
+    if (!isDragging) {
+      setSelectedTrackIds(new Set());
+      setSelectedNodeIds(new Set());
+    }
     window.history.replaceState({ nodeId: ws.nodeId, workspaceId: ws.id }, '', window.location.pathname);
   };
 
@@ -499,6 +508,8 @@ export const App: React.FC = () => {
     if (activeWorkspaceId === wsId) {
       const newIdx = Math.max(0, idx - 1);
       const nextWs = remaining[newIdx];
+      activeWorkspaceIdRef.current = nextWs.id;
+      activeNodeIdRef.current = nextWs.nodeId;
       setActiveWorkspaceId(nextWs.id);
       setActiveNodeId(nextWs.nodeId);
       window.history.replaceState({ nodeId: nextWs.nodeId, workspaceId: nextWs.id }, '', window.location.pathname);
@@ -509,7 +520,9 @@ export const App: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
     e.dataTransfer.dropEffect = 'copy';
-    setIsWorkspaceDropTarget(wsId);
+    if (isWorkspaceDropTarget !== wsId) {
+      setIsWorkspaceDropTarget(wsId);
+    }
   };
 
   const handleWorkspaceChipDragEnter = (e: React.DragEvent, wsId: string) => {
@@ -517,31 +530,99 @@ export const App: React.FC = () => {
     e.stopPropagation();
     setIsWorkspaceDropTarget(wsId);
     if (dragHoverTimeoutRef.current) clearTimeout(dragHoverTimeoutRef.current);
+    // Spring-loaded workspace hover switch: 180ms feels instantaneous and responsive
     dragHoverTimeoutRef.current = setTimeout(() => {
-      switchWorkspace(wsId);
-    }, 300);
+      isSwitchingWorkspaceDragRef.current = true;
+      switchWorkspace(wsId, true);
+      setTimeout(() => {
+        isSwitchingWorkspaceDragRef.current = false;
+      }, 350);
+    }, 180);
   };
 
   const handleWorkspaceChipDragLeave = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (dragHoverTimeoutRef.current) clearTimeout(dragHoverTimeoutRef.current);
+    const currentTarget = e.currentTarget as HTMLElement;
+    const related = e.relatedTarget as Node | null;
+    if (related && currentTarget.contains(related)) {
+      return; // Still inside chip
+    }
+    if (dragHoverTimeoutRef.current) {
+      clearTimeout(dragHoverTimeoutRef.current);
+      dragHoverTimeoutRef.current = null;
+    }
     setIsWorkspaceDropTarget(null);
   };
 
-  const handleWorkspaceChipDrop = (e: React.DragEvent, wsId: string) => {
+  const handleWorkspaceChipDrop = async (e: React.DragEvent, wsId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (dragHoverTimeoutRef.current) clearTimeout(dragHoverTimeoutRef.current);
+    if (dragHoverTimeoutRef.current) {
+      clearTimeout(dragHoverTimeoutRef.current);
+      dragHoverTimeoutRef.current = null;
+    }
     setIsWorkspaceDropTarget(null);
-    switchWorkspace(wsId);
+
     const targetWs = workspaces.find(w => w.id === wsId);
-    const targetNode = targetWs ? findNodeById(tree, targetWs.nodeId) : null;
-    showToast(`Opened "${targetNode?.name || 'Workspace'}" — drop into any folder, album, or table row`);
+    if (!targetWs) return;
+    const targetNode = findNodeById(tree, targetWs.nodeId);
+    if (!targetNode) return;
+
+    // Switch to target workspace
+    switchWorkspace(wsId);
+
+    const trackIds = getDraggedTrackIds(e);
+    const nodeIds = getDraggedNodeIds(e);
+
+    if (trackIds.length > 0) {
+      try {
+        await moveTracksBatch(trackIds, targetNode.id);
+        showToast(`Moved ${trackIds.length} track${trackIds.length > 1 ? 's' : ''} into "${targetNode.name}"`);
+        clearDragState();
+        setSelectedTrackIds(new Set());
+        await loadTree(targetNode.id);
+      } catch (err: any) {
+        showToast(err?.message || 'Failed to move tracks into workspace');
+        clearDragState();
+      }
+      return;
+    }
+
+    if (nodeIds.length > 0) {
+      const validIds = nodeIds.filter(
+        id => id !== targetNode.id && !isDescendant(tree, id, targetNode.id)
+      );
+      if (validIds.length === 0) {
+        showToast('Cannot move a container into its own subfolder');
+        clearDragState();
+        return;
+      }
+      try {
+        await Promise.all(validIds.map(id => updateNode(id, { parent_id: targetNode.id })));
+        const label = validIds.length === 1
+          ? `"${findNodeById(tree, validIds[0])?.name || 'Container'}"`
+          : `${validIds.length} containers`;
+        showToast(`Moved ${label} into "${targetNode.name}"`);
+        clearDragState();
+        setSelectedNodeIds(new Set());
+        await loadTree(targetNode.id);
+      } catch (err: any) {
+        showToast(err?.message || 'Failed to move container into workspace');
+        clearDragState();
+      }
+      return;
+    }
+
+    clearDragState();
   };
 
   const handleWorkspaceChipMouseEnter = (node: LibraryNode | null, e: React.MouseEvent<HTMLDivElement>) => {
     if (!node) return;
+    // Do not pop up hover preview while dragging items across workspaces
+    if (draggingTrackIds.length > 0 || draggedTracksRef.current.length > 0 || draggingNodeIds.length > 0 || draggedNodesRef.current.length > 0) {
+      return;
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     const wrapperRect = workspacesDockRef.current?.getBoundingClientRect();
     const leftPos = rect.left - (wrapperRect?.left || 0);
@@ -576,13 +657,16 @@ export const App: React.FC = () => {
       const data = await fetchTree();
       setTree(data);
 
+      const curWsId = activeWorkspaceIdRef.current || activeWorkspaceId;
+      const curActiveNodeId = activeNodeIdRef.current || activeNodeId;
+
       let targetId = '';
       if (preferredNodeId && findNodeById(data, preferredNodeId)) {
         targetId = preferredNodeId;
-      } else if (activeNodeId && findNodeById(data, activeNodeId)) {
-        targetId = activeNodeId;
+      } else if (curActiveNodeId && findNodeById(data, curActiveNodeId)) {
+        targetId = curActiveNodeId;
       } else {
-        const curWs = workspaces.find(w => w.id === activeWorkspaceId);
+        const curWs = workspaces.find(w => w.id === curWsId);
         if (curWs && curWs.nodeId && findNodeById(data, curWs.nodeId)) {
           targetId = curWs.nodeId;
         } else {
@@ -597,8 +681,9 @@ export const App: React.FC = () => {
 
       if (targetId) {
         setActiveNodeId(targetId);
+        activeNodeIdRef.current = targetId;
         setWorkspaces(prev => prev.map(ws => {
-          if (ws.id === activeWorkspaceId) {
+          if (ws.id === curWsId) {
             return {
               ...ws,
               nodeId: targetId,
@@ -607,7 +692,7 @@ export const App: React.FC = () => {
           }
           return ws;
         }));
-        window.history.replaceState({ nodeId: targetId, workspaceId: activeWorkspaceId }, '', window.location.pathname);
+        window.history.replaceState({ nodeId: targetId, workspaceId: curWsId }, '', window.location.pathname);
       }
     } catch (err) {
       console.error('Failed to load library:', err);
@@ -1265,12 +1350,62 @@ export const App: React.FC = () => {
   };
 
   // Universal Drag & Drop Handlers (Tracks & Containers)
+  const clearDragState = () => {
+    if (dragHoverTimeoutRef.current) {
+      clearTimeout(dragHoverTimeoutRef.current);
+      dragHoverTimeoutRef.current = null;
+    }
+    isSwitchingWorkspaceDragRef.current = false;
+    draggedTracksRef.current = [];
+    draggedNodesRef.current = [];
+    setDraggingTrackIds([]);
+    setDraggingNodeId(null);
+    setDraggingNodeIds([]);
+    setDropTargetNodeId(null);
+    setIsWorkspaceDropTarget(null);
+  };
+
+  const getDraggedTrackIds = (e?: React.DragEvent): number[] => {
+    if (draggedTracksRef.current.length > 0) return draggedTracksRef.current;
+    if (draggingTrackIds.length > 0) return draggingTrackIds;
+    if (e && e.dataTransfer) {
+      try {
+        const raw = e.dataTransfer.getData('text/fmsort-tracks');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  };
+
+  const getDraggedNodeIds = (e?: React.DragEvent): string[] => {
+    if (draggedNodesRef.current.length > 0) return draggedNodesRef.current;
+    if (draggingNodeIds.length > 0) return draggingNodeIds;
+    if (draggingNodeId) return [draggingNodeId];
+    if (e && e.dataTransfer) {
+      try {
+        const raw = e.dataTransfer.getData('text/fmsort-nodes');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+        const single = e.dataTransfer.getData('text/fmsort-node');
+        if (single) return [single];
+      } catch {}
+    }
+    return [];
+  };
+
   const handleTrackDragStart = (e: React.DragEvent, track: Track) => {
     e.stopPropagation();
     const ids = selectedTrackIds.has(track.id) ? Array.from(selectedTrackIds) : [track.id];
     setDraggingTrackIds(ids);
+    draggedTracksRef.current = ids;
     setDraggingNodeId(null);
     setDraggingNodeIds([]);
+    draggedNodesRef.current = [];
     e.dataTransfer.setData('text/fmsort-type', 'tracks');
     e.dataTransfer.setData('text/fmsort-tracks', JSON.stringify(ids));
     e.dataTransfer.effectAllowed = 'move';
@@ -1284,7 +1419,9 @@ export const App: React.FC = () => {
     }
     setDraggingNodeIds(ids);
     setDraggingNodeId(node.id);
+    draggedNodesRef.current = ids;
     setDraggingTrackIds([]);
+    draggedTracksRef.current = [];
     e.dataTransfer.setData('text/fmsort-type', 'node');
     e.dataTransfer.setData('text/fmsort-nodes', JSON.stringify(ids));
     e.dataTransfer.setData('text/fmsort-node', node.id);
@@ -1292,22 +1429,25 @@ export const App: React.FC = () => {
   };
 
   const handleDragEnd = () => {
-    if (dragHoverTimeoutRef.current) clearTimeout(dragHoverTimeoutRef.current);
-    setDraggingTrackIds([]);
-    setDraggingNodeId(null);
-    setDraggingNodeIds([]);
-    setDropTargetNodeId(null);
-    setIsWorkspaceDropTarget(null);
+    if (isSwitchingWorkspaceDragRef.current) {
+      // Ignore synthetic dragend fired when workspace unmounts old table rows
+      return;
+    }
+    clearDragState();
   };
 
   const handleNodeDragOver = (e: React.DragEvent, targetNode: LibraryNode) => {
     const isSelfOrDescendant = draggingNodeIds.some(
       id => id === targetNode.id || isDescendant(tree, id, targetNode.id)
-    );
+    ) || (draggedNodesRef.current.some(
+      id => id === targetNode.id || isDescendant(tree, id, targetNode.id)
+    ));
     if (isSelfOrDescendant) {
       return;
     }
-    if (draggingTrackIds.length > 0 || draggingNodeIds.length > 0 || draggingNodeId) {
+    const hasTracks = draggingTrackIds.length > 0 || draggedTracksRef.current.length > 0 || e.dataTransfer.types.includes('text/fmsort-tracks');
+    const hasNodes = draggingNodeIds.length > 0 || draggingNodeId || draggedNodesRef.current.length > 0 || e.dataTransfer.types.includes('text/fmsort-nodes');
+    if (hasTracks || hasNodes) {
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
@@ -1318,6 +1458,11 @@ export const App: React.FC = () => {
   const handleNodeDragLeave = (e: React.DragEvent, targetNode: LibraryNode) => {
     e.preventDefault();
     e.stopPropagation();
+    const currentTarget = e.currentTarget as HTMLElement;
+    const related = e.relatedTarget as Node | null;
+    if (related && currentTarget.contains(related)) {
+      return;
+    }
     if (dropTargetNodeId === targetNode.id) {
       setDropTargetNodeId(null);
     }
@@ -1328,30 +1473,32 @@ export const App: React.FC = () => {
     e.stopPropagation();
     setDropTargetNodeId(null);
 
+    const trackIds = getDraggedTrackIds(e);
+    const nodeIds = getDraggedNodeIds(e);
+
     // 1. Moving tracks into this container
-    if (draggingTrackIds.length > 0) {
+    if (trackIds.length > 0) {
       try {
-        await moveTracksBatch(draggingTrackIds, targetNode.id);
-        showToast(`Moved ${draggingTrackIds.length} track${draggingTrackIds.length > 1 ? 's' : ''} into "${targetNode.name}"`);
+        await moveTracksBatch(trackIds, targetNode.id);
+        showToast(`Moved ${trackIds.length} track${trackIds.length > 1 ? 's' : ''} into "${targetNode.name}"`);
+        clearDragState();
         setSelectedTrackIds(new Set());
-        setDraggingTrackIds([]);
         await loadTree(activeNode?.id);
       } catch (err: any) {
         showToast(err?.message || 'Failed to move tracks');
+        clearDragState();
       }
       return;
     }
 
     // 2. Moving containers (Folder, Album, Artist, etc.) into this container
-    const idsToMove = draggingNodeIds.length > 0 ? draggingNodeIds : draggingNodeId ? [draggingNodeId] : [];
-    if (idsToMove.length > 0) {
-      const validIds = idsToMove.filter(
+    if (nodeIds.length > 0) {
+      const validIds = nodeIds.filter(
         id => id !== targetNode.id && !isDescendant(tree, id, targetNode.id)
       );
       if (validIds.length === 0) {
         showToast('Cannot move a container into its own subfolder');
-        setDraggingNodeIds([]);
-        setDraggingNodeId(null);
+        clearDragState();
         return;
       }
       try {
@@ -1360,73 +1507,126 @@ export const App: React.FC = () => {
           ? `"${findNodeById(tree, validIds[0])?.name || 'Container'}"`
           : `${validIds.length} containers`;
         showToast(`Moved ${label} into "${targetNode.name}"`);
-        setDraggingNodeIds([]);
-        setDraggingNodeId(null);
+        clearDragState();
         setSelectedNodeIds(new Set());
         await loadTree(activeNode?.id);
       } catch (err: any) {
         showToast(err?.message || 'Failed to move container');
+        clearDragState();
       }
       return;
     }
+
+    clearDragState();
   };
 
-  const handleUncategorizedDragOver = (e: React.DragEvent) => {
-    if (draggingNodeIds.length > 0 || draggingNodeId || draggingTrackIds.length > 0) {
+  const handleEmptySpaceDragOver = (e: React.DragEvent) => {
+    const hasTracks = draggingTrackIds.length > 0 || draggedTracksRef.current.length > 0 || e.dataTransfer.types.includes('text/fmsort-tracks');
+    const hasNodes = draggingNodeIds.length > 0 || draggingNodeId || draggedNodesRef.current.length > 0 || e.dataTransfer.types.includes('text/fmsort-nodes');
+    if (hasTracks || hasNodes) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
-      setDropTargetNodeId('uncategorized');
+      if (dropTargetNodeId !== 'empty-space') {
+        setDropTargetNodeId('empty-space');
+      }
     }
   };
 
-  const handleUncategorizedDragLeave = (e: React.DragEvent) => {
+  const handleEmptySpaceDragLeave = (e: React.DragEvent) => {
     const currentTarget = e.currentTarget as HTMLElement;
     const related = e.relatedTarget as Node | null;
     if (!related || !currentTarget.contains(related)) {
-      if (dropTargetNodeId === 'uncategorized') {
+      if (dropTargetNodeId === 'empty-space') {
         setDropTargetNodeId(null);
       }
     }
   };
 
-  const handleUncategorizedDrop = async (e: React.DragEvent) => {
-    const idsToMove = draggingNodeIds.length > 0 ? draggingNodeIds : draggingNodeId ? [draggingNodeId] : [];
-    if (idsToMove.length > 0) {
-      e.preventDefault();
-      e.stopPropagation();
-      setDropTargetNodeId(null);
+  const handleEmptySpaceDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTargetNodeId(null);
 
-      try {
-        await Promise.all(idsToMove.map(id => updateNode(id, { parent_id: null })));
-        const label = idsToMove.length === 1
-          ? `"${findNodeById(tree, idsToMove[0])?.name || 'Container'}"`
-          : `${idsToMove.length} containers`;
-        showToast(`Moved ${label} to Uncategorized (Root)`);
-        setDraggingNodeIds([]);
-        setDraggingNodeId(null);
-        setSelectedNodeIds(new Set());
-        await loadTree(activeNode?.id);
-      } catch (err: any) {
-        showToast(err?.message || 'Failed to move container to uncategorized');
-      }
-    } else if (draggingTrackIds.length > 0) {
-      e.preventDefault();
-      e.stopPropagation();
-      setDropTargetNodeId(null);
-
-      try {
-        let uncategorizedNode = tree.find(n => n.name.toLowerCase() === 'uncategorized' && !n.parent_id);
-        if (!uncategorizedNode) {
-          uncategorizedNode = await createNode({ name: 'Uncategorized', type: 'Folder', parent_id: null });
-        }
-        await moveTracksBatch(draggingTrackIds, uncategorizedNode.id);
-        showToast(`Moved ${draggingTrackIds.length} track(s) to Uncategorized`);
-        setDraggingTrackIds([]);
-        await loadTree(activeNode?.id);
-      } catch (err: any) {
-        showToast(err?.message || 'Failed to move tracks to uncategorized');
-      }
+    const targetNode = activeNode || (tree.length > 0 ? tree[0] : null);
+    if (!targetNode) {
+      showToast('No active folder open to drop into');
+      clearDragState();
+      return;
     }
+
+    const trackIds = getDraggedTrackIds(e);
+    const nodeIds = getDraggedNodeIds(e);
+
+    // 1. Moving tracks into active folder (loose / uncategorized inside active folder)
+    if (trackIds.length > 0) {
+      try {
+        // Exclude tracks that already belong directly to targetNode
+        const alreadyInTarget = allLibraryTracks.filter(
+          t => trackIds.includes(t.id) && t.node_id === targetNode.id
+        );
+        const idsToMove = trackIds.filter(
+          id => !alreadyInTarget.some(t => t.id === id)
+        );
+
+        if (idsToMove.length === 0) {
+          showToast(`Track${trackIds.length > 1 ? 's are' : ' is'} already in "${targetNode.name}"`);
+          clearDragState();
+          return;
+        }
+
+        await moveTracksBatch(idsToMove, targetNode.id);
+        const count = idsToMove.length;
+        showToast(`Moved ${count} track${count > 1 ? 's' : ''} into "${targetNode.name}"`);
+        clearDragState();
+        setSelectedTrackIds(new Set());
+        await loadTree(targetNode.id);
+      } catch (err: any) {
+        showToast(err?.message || 'Failed to move tracks into folder');
+        clearDragState();
+      }
+      return;
+    }
+
+    // 2. Moving containers into active folder
+    if (nodeIds.length > 0) {
+      const validIds = nodeIds.filter(
+        id => id !== targetNode.id && !isDescendant(tree, id, targetNode.id)
+      );
+      if (validIds.length === 0) {
+        showToast('Cannot move a container into itself or its own subfolder');
+        clearDragState();
+        return;
+      }
+
+      // Filter out containers that are already direct children of targetNode
+      const nodesToMove = validIds.filter(id => {
+        const n = findNodeById(tree, id);
+        return n && n.parent_id !== targetNode.id;
+      });
+
+      if (nodesToMove.length === 0) {
+        showToast(`Container${validIds.length > 1 ? 's are' : ' is'} already in "${targetNode.name}"`);
+        clearDragState();
+        return;
+      }
+
+      try {
+        await Promise.all(nodesToMove.map(id => updateNode(id, { parent_id: targetNode.id })));
+        const label = nodesToMove.length === 1
+          ? `"${findNodeById(tree, nodesToMove[0])?.name || 'Container'}"`
+          : `${nodesToMove.length} containers`;
+        showToast(`Moved ${label} into "${targetNode.name}"`);
+        clearDragState();
+        setSelectedNodeIds(new Set());
+        await loadTree(targetNode.id);
+      } catch (err: any) {
+        showToast(err?.message || 'Failed to move container into folder');
+        clearDragState();
+      }
+      return;
+    }
+
+    clearDragState();
   };
 
   const handleTrackClick = (track: Track, e: React.MouseEvent) => {
@@ -2330,10 +2530,10 @@ export const App: React.FC = () => {
         {/* Main Viewport: Scrollable Content + Docked Integrated Footer */}
         <div className="main-viewport">
           <main
-            className="main-content-scroll"
-            onDragOver={handleUncategorizedDragOver}
-            onDragLeave={handleUncategorizedDragLeave}
-            onDrop={handleUncategorizedDrop}
+            className={`main-content-scroll ${dropTargetNodeId === 'empty-space' ? 'is-empty-drop-target' : ''}`}
+            onDragOver={handleEmptySpaceDragOver}
+            onDragLeave={handleEmptySpaceDragLeave}
+            onDrop={handleEmptySpaceDrop}
           >
         {activeNode ? (
           /* =========================================================================
@@ -2342,9 +2542,9 @@ export const App: React.FC = () => {
           <div
             className="container-detail-view"
             onContextMenu={handleTableContextMenu}
-            onDragOver={handleUncategorizedDragOver}
-            onDragLeave={handleUncategorizedDragLeave}
-            onDrop={handleUncategorizedDrop}
+            onDragOver={handleEmptySpaceDragOver}
+            onDragLeave={handleEmptySpaceDragLeave}
+            onDrop={handleEmptySpaceDrop}
             onClick={() => {
               setSelectedNodeId(null);
               setSelectedTrackIds(new Set());
@@ -2544,10 +2744,10 @@ export const App: React.FC = () => {
 
             {/* Table */}
             <div
-              className="tw"
-              onDragOver={handleUncategorizedDragOver}
-              onDragLeave={handleUncategorizedDragLeave}
-              onDrop={handleUncategorizedDrop}
+              className={`tw ${dropTargetNodeId === 'empty-space' ? 'is-empty-drop-target' : ''}`}
+              onDragOver={handleEmptySpaceDragOver}
+              onDragLeave={handleEmptySpaceDragLeave}
+              onDrop={handleEmptySpaceDrop}
             >
                 <table>
                   <thead>
@@ -3477,11 +3677,11 @@ export const App: React.FC = () => {
         onShowToast={showToast}
       />
 
-      {/* Uncategorized Drop Target Visual Indicator */}
-      {dropTargetNodeId === 'uncategorized' && (
-        <div className="drop-uncategorized-indicator">
+      {/* Empty Space Drop Target Visual Indicator */}
+      {dropTargetNodeId === 'empty-space' && activeNode && (
+        <div className="drop-empty-space-indicator">
           <FolderInput size={16} />
-          <span>Drop here to move to Uncategorized (Root level)</span>
+          <span>Drop to move into &ldquo;{activeNode.name}&rdquo;</span>
         </div>
       )}
 
