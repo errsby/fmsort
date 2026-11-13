@@ -30,7 +30,7 @@ import { MoveTracksModal } from './components/MoveTracksModal';
 import { NodeEditModal } from './components/NodeEditModal';
 import { BackupModal } from './components/BackupModal';
 import { SocialWidgets } from './components/SocialWidgets';
-import { CoverArt } from './components/CoverArt';
+import { CoverArt, getFunkyPalette } from './components/CoverArt';
 import { ContextMenu } from './components/ContextMenu';
 import type { ContextMenuState } from './components/ContextMenu';
 import { ArtistProjectsSuggestions } from './components/ArtistProjectsSuggestions';
@@ -735,7 +735,7 @@ export const App: React.FC = () => {
             {hasChildren ? '›' : ''}
           </span>
           <CoverArt
-            src={n.cover_url || n.tracks?.[0]?.cover_url}
+            src={n.cover_url || (n.type !== 'Folder' ? n.tracks?.[0]?.cover_url : null)}
             alt={n.name}
             size={18}
             type={n.type === 'Artist' ? 'artist' : n.type === 'Playlist' ? 'playlist' : n.type === 'Folder' ? 'folder' : 'album'}
@@ -1022,7 +1022,7 @@ export const App: React.FC = () => {
             {/* Active Container Hero Banner with Discogs / Ambient Background Artwork */}
             {(activeNode.type === 'Album' || activeNode.type === 'Artist' || activeNode.type === 'Playlist' || activeNode.type === 'Folder') && (
               <div className="active-hero-banner">
-                {heroBackdrop && (
+                {heroBackdrop ? (
                   <div className="hero-backdrop" aria-hidden="true">
                     <div
                       className="hero-backdrop-glow"
@@ -1034,11 +1034,22 @@ export const App: React.FC = () => {
                     />
                     <div className="hero-backdrop-scrim" />
                   </div>
-                )}
+                ) : activeNode.type === 'Folder' ? (
+                  <div className="hero-backdrop" aria-hidden="true">
+                    <div
+                      className="hero-backdrop-glow"
+                      style={{
+                        background: `radial-gradient(ellipse 90% 90% at 20% 30%, ${getFunkyPalette(activeNode.name)[1]}2e 0%, transparent 70%), radial-gradient(ellipse 70% 70% at 80% 60%, ${getFunkyPalette(activeNode.name)[2]}24 0%, transparent 65%)`,
+                        filter: 'blur(36px)',
+                      }}
+                    />
+                    <div className="hero-backdrop-scrim" />
+                  </div>
+                ) : null}
 
                 <div className="active-hero-content">
                   <CoverArt
-                    src={activeNode.cover_url || activeNode.tracks?.[0]?.cover_url || heroBackdrop}
+                    src={activeNode.cover_url || (activeNode.type !== 'Folder' ? (activeNode.tracks?.[0]?.cover_url || heroBackdrop) : null)}
                     alt={activeNode.name}
                     size={92}
                     type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : activeNode.type === 'Folder' ? 'folder' : 'album'}
@@ -1364,7 +1375,7 @@ export const App: React.FC = () => {
                         <div style={{ color: 'var(--mu)', padding: '16px 12px', fontSize: 12 }}>Loading library...</div>
                       ) : tree.length === 0 ? (
                         <div className="empty-sidebar-box" style={{ padding: 14 }}>
-                          <Folder size={20} style={{ color: 'var(--mu)', marginBottom: 6 }} />
+                          <CoverArt size={28} type="folder" seed="Library" rounded={6} style={{ marginBottom: 6 }} />
                           <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 3, color: '#f4f4f5' }}>Blank Library</div>
                           <p style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 10px', lineHeight: 1.4 }}>
                             No crates in your library yet.

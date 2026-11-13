@@ -1,15 +1,64 @@
-import React, { useState } from 'react';
-import { Disc, User, Music, ListMusic, Folder } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Disc, User, Music, ListMusic } from 'lucide-react';
+import Avatar from 'boring-avatars';
 
-interface CoverArtProps {
-  src?: string | null;
-  alt?: string;
-  size?: number;
-  rounded?: number | 'full';
-  type?: 'album' | 'artist' | 'track' | 'playlist' | 'folder';
-  seed?: string;
-  className?: string;
-  style?: React.CSSProperties;
+export type FunkyVariant = 'bauhaus' | 'ring' | 'sunset' | 'pixel' | 'marble' | 'beam';
+export const FUNKY_VARIANTS: readonly FunkyVariant[] = ['bauhaus', 'ring', 'sunset', 'pixel', 'marble'];
+
+export const FUNKY_PALETTES: string[][] = [
+  // 1. Synthwave Neon / Cyberpunk
+  ['#0a0017', '#ff007f', '#00f0ff', '#ffe600', '#7928ca'],
+  // 2. 80s Memphis Boogie / Disco
+  ['#180b2a', '#ff0055', '#ff5400', '#ffbd00', '#00f5d4'],
+  // 3. Acid House / Electric Rave
+  ['#050505', '#39ff14', '#00f5d4', '#d000ff', '#ff007f'],
+  // 4. Velvet Soul / Deep Funk
+  ['#20002c', '#cbb4d4', '#e06b9f', '#ff7b54', '#ffd56b'],
+  // 5. Tokyo Vaporwave / City Pop
+  ['#09090e', '#f72585', '#7209b7', '#3a0ca3', '#4cc9f0'],
+  // 6. Bauhaus Constructivist
+  ['#141416', '#e63946', '#f1faee', '#a8dadc', '#e76f51'],
+  // 7. Tropical Afrobeat / Sunshine
+  ['#0c1b1a', '#ffb703', '#fb8500', '#02c39a', '#e71d36'],
+  // 8. Detroit Techno / Minimal Gold
+  ['#0d0e12', '#d4af37', '#64748b', '#06b6d4', '#f59e0b'],
+  // 9. Cosmic Vinyl / Purple Haze
+  ['#10002b', '#3c096c', '#7b2cbf', '#c77dff', '#e0aaff'],
+  // 10. Dub Bass / Reggae Sound System
+  ['#061d12', '#2a9d8f', '#e9c46a', '#f4a261', '#e76f51'],
+  // 11. Glitch Hyperpop / Candy
+  ['#0f051d', '#ff1493', '#00e5ff', '#fff01f', '#bf00ff'],
+  // 12. French Touch / Filter Disco
+  ['#190b28', '#ff3366', '#ff9933', '#33ccff', '#cc33ff'],
+];
+
+export function hashSeed(seed: string): number {
+  if (!seed) return 0;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash << 5) - hash + seed.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+export function getFunkyPalette(seed: string): string[] {
+  const hash = hashSeed(seed || 'Crate');
+  return FUNKY_PALETTES[hash % FUNKY_PALETTES.length];
+}
+
+export function getFunkyVariant(seed: string): FunkyVariant {
+  const hash = hashSeed(seed || 'Crate');
+  const variantHash = Math.floor(hash / FUNKY_PALETTES.length);
+  return FUNKY_VARIANTS[variantHash % FUNKY_VARIANTS.length];
+}
+
+export function getDiceBearUrl(
+  seed: string,
+  style: 'shapes' | 'rings' | 'glass' | 'identicon' = 'shapes'
+): string {
+  const clean = encodeURIComponent((seed || 'Crate').trim());
+  return `https://api.dicebear.com/9.x/${style}/svg?seed=${clean}&backgroundColor=09090b,18181b,1e1b4b,2e0854,022c22,450a0a,172554,0f172a`;
 }
 
 const GRADIENTS = [
@@ -48,6 +97,19 @@ function getInitials(text?: string): string {
   return text.slice(0, 2).toUpperCase();
 }
 
+export interface CoverArtProps {
+  src?: string | null;
+  alt?: string;
+  size?: number;
+  rounded?: number | 'full';
+  type?: 'album' | 'artist' | 'track' | 'playlist' | 'folder' | string;
+  seed?: string;
+  className?: string;
+  style?: React.CSSProperties;
+  variant?: FunkyVariant | 'auto';
+  funky?: boolean;
+}
+
 export const CoverArt: React.FC<CoverArtProps> = ({
   src,
   alt = 'Cover',
@@ -57,13 +119,71 @@ export const CoverArt: React.FC<CoverArtProps> = ({
   seed,
   className = '',
   style,
+  variant = 'auto',
+  funky,
 }) => {
   const [loadFailed, setLoadFailed] = useState(false);
 
+  useEffect(() => {
+    setLoadFailed(false);
+  }, [src]);
+
+  const isFolder = type === 'folder' || type === 'Folder';
+  const isFunky = funky !== undefined ? funky : isFolder;
+  const effectiveSeed = (seed?.trim() || alt?.trim() || (isFolder ? 'Crate' : ''));
   const borderRadius = rounded === 'full' ? '50%' : `${rounded}px`;
-  const bgGradient = getGradient(seed || alt || '');
   const hasValidImage = !!src && !loadFailed && src.trim() !== '' && src !== '—';
 
+  // If this is a folder (or explicitly funky) and has no valid custom image, render funky text-generated thumbnail
+  if (isFunky && !hasValidImage) {
+    const palette = getFunkyPalette(effectiveSeed);
+    const chosenVariant = variant && variant !== 'auto' ? variant : getFunkyVariant(effectiveSeed);
+
+    return (
+      <div
+        className={`cover-art-wrapper funky-thumbnail ${className}`}
+        title={effectiveSeed || 'Crate'}
+        style={{
+          width: size,
+          height: size,
+          minWidth: size,
+          minHeight: size,
+          borderRadius,
+          position: 'relative',
+          overflow: 'hidden',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: size >= 40 ? '0 4px 14px rgba(0, 0, 0, 0.5)' : '0 1px 4px rgba(0, 0, 0, 0.25)',
+          border: '1px solid rgba(255, 255, 255, 0.12)',
+          flexShrink: 0,
+          background: palette[0] || '#18181b',
+          ...style,
+        }}
+      >
+        <Avatar
+          size={size}
+          name={effectiveSeed}
+          variant={chosenVariant}
+          colors={palette}
+          square={rounded !== 'full'}
+        />
+        {/* Subtle glass gloss sheen */}
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0) 50%, rgba(0,0,0,0.3) 100%)',
+            pointerEvents: 'none',
+            borderRadius,
+          }}
+        />
+      </div>
+    );
+  }
+
+  // Standard album/artist/playlist fallback or image render
+  const bgGradient = getGradient(seed || alt || '');
   const iconSize = Math.max(10, Math.round(size * 0.44));
 
   const renderFallbackIcon = () => {
@@ -87,9 +207,8 @@ export const CoverArt: React.FC<CoverArtProps> = ({
     }
 
     const iconColor = 'rgba(255, 255, 255, 0.9)';
-    if (type === 'artist') return <User size={iconSize} color={iconColor} />;
-    if (type === 'playlist') return <ListMusic size={iconSize} color={iconColor} />;
-    if (type === 'folder') return <Folder size={iconSize} color={iconColor} />;
+    if (type === 'artist' || type === 'Artist') return <User size={iconSize} color={iconColor} />;
+    if (type === 'playlist' || type === 'Playlist') return <ListMusic size={iconSize} color={iconColor} />;
     if (type === 'track') return <Music size={iconSize} color={iconColor} />;
     return <Disc size={iconSize} color={iconColor} />;
   };

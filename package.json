@@ -11,9 +11,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "boring-avatars": "^2.0.4",
+    "lucide-react": "^0.475.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "lucide-react": "^0.475.0"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
