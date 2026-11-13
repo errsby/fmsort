@@ -558,7 +558,8 @@ textarea:focus {
 
 .crumb-tree-dropdown {
   position: absolute;
-  bottom: calc(100% + 8px);
+  top: calc(100% + 6px);
+  bottom: auto;
   left: 0;
   width: 340px;
   max-width: calc(100vw - 32px);
@@ -568,11 +569,12 @@ textarea:focus {
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 10px;
-  box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.08);
   z-index: 120;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  animation: popoverFadeDown 0.15s ease;
 }
 
 .crumb-menu-search-row {
@@ -2990,13 +2992,6 @@ tr.h .m {
   bottom: auto !important;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
   animation: popoverFadeDown 0.15s ease !important;
-}
-
-.active-hero-banner .crumb-tree-dropdown:not(.is-floating) {
-  top: calc(100% + 6px);
-  bottom: auto;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.08);
-  animation: popoverFadeDown 0.15s ease;
 }
 
 /* Micro artwork hover effects */

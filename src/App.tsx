@@ -389,6 +389,9 @@ export const App: React.FC = () => {
     setSelectedNodeIds(new Set([node.id]));
     lastSelectedNodeIdRef.current = node.id;
     setTreeDropdownOpen(false);
+    if (!isMenuPinnedRef.current) {
+      setMenuPosition(null);
+    }
 
     setWorkspaces(prev => prev.map(ws => {
       if (ws.id === activeWorkspaceId) {
@@ -963,6 +966,9 @@ export const App: React.FC = () => {
       }
       if (!isMenuPinnedRef.current && treeDropdownRef.current && !treeDropdownRef.current.contains(e.target as Node)) {
         setTreeDropdownOpen(false);
+    if (!isMenuPinnedRef.current) {
+      setMenuPosition(null);
+    }
       }
       if (
         workspacePickerRef.current &&
@@ -1005,7 +1011,10 @@ export const App: React.FC = () => {
           switchWorkspace(workspaces[targetIdx].id);
         }
       } else if (e.key === 'Escape') {
-        if (!isMenuPinnedRef.current) setTreeDropdownOpen(false);
+        if (!isMenuPinnedRef.current) {
+          setTreeDropdownOpen(false);
+          setMenuPosition(null);
+        }
         setWorkspacePickerOpen(false);
         setSelectedTrackIds(new Set());
         setSelectedNodeIds(new Set());
@@ -3057,7 +3066,16 @@ export const App: React.FC = () => {
                         <button
                           type="button"
                           className={`crumb-history-btn ${treeDropdownOpen ? 'active' : ''}`}
-                          onClick={() => setTreeDropdownOpen(!treeDropdownOpen)}
+                          onClick={() => {
+                            if (treeDropdownOpen) {
+                              setTreeDropdownOpen(false);
+                              if (!isMenuPinnedRef.current) {
+                                setMenuPosition(null);
+                              }
+                            } else {
+                              setTreeDropdownOpen(true);
+                            }
+                          }}
                           title="Browse Library Crates (..)"
                           aria-label="Browse Library Crates"
                         >
@@ -3067,7 +3085,7 @@ export const App: React.FC = () => {
                         {treeDropdownOpen && (
                           <div
                             ref={dropdownContainerRef}
-                            className={`crumb-tree-dropdown header-popover ${isMenuPinned ? 'is-pinned' : ''} ${menuPosition ? 'is-floating' : ''}`}
+                            className={`crumb-tree-dropdown ${isMenuPinned ? 'is-pinned' : ''} ${menuPosition ? 'is-floating' : ''}`}
                             role="menu"
                             style={{
                               height: menuHeight,
@@ -3075,9 +3093,9 @@ export const App: React.FC = () => {
                               ...(menuPosition
                                 ? {
                                     position: 'fixed',
-                                    left: menuPosition.x,
-                                    top: menuPosition.y,
-                                    zIndex: 1050,
+                                    left: `${menuPosition.x}px`,
+                                    top: `${menuPosition.y}px`,
+                                    zIndex: 2000,
                                   }
                                 : {}),
                             }}
@@ -3107,6 +3125,9 @@ export const App: React.FC = () => {
                                   className="crumb-menu-cmd-key"
                                   onClick={() => {
                                     setTreeDropdownOpen(false);
+    if (!isMenuPinnedRef.current) {
+      setMenuPosition(null);
+    }
                                     setCommandPaletteOpen(true);
                                   }}
                                   onMouseDown={e => e.stopPropagation()}
@@ -3130,7 +3151,11 @@ export const App: React.FC = () => {
                                   <button
                                     type="button"
                                     className="crumb-menu-close-window-btn"
-                                    onClick={() => setTreeDropdownOpen(false)}
+                                    onClick={() => {
+                                      setTreeDropdownOpen(false);
+                                      setMenuPosition(null);
+                                      setIsMenuPinned(false);
+                                    }}
                                     title="Close submenu"
                                     aria-label="Close submenu"
                                   >
@@ -3164,6 +3189,9 @@ export const App: React.FC = () => {
                                 className="crumb-menu-action-item"
                                 onClick={() => {
                                   setTreeDropdownOpen(false);
+    if (!isMenuPinnedRef.current) {
+      setMenuPosition(null);
+    }
                                   setSettingsOpen(true);
                                 }}
                                 title="Library & Application Settings"
