@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import type {
   LibraryNode,
   SearchProvider,
@@ -19,26 +19,30 @@ import {
   importSingleTrack,
   fetchReleaseTracklist,
 } from '../api';
-import { getAllNodes, groupRawReleases, fmtDuration } from '../utils';
+import { getAllNodes, groupRawReleases, fmtDuration, findNodePath } from '../utils';
 import { CoverArt } from './CoverArt';
 import { ErrorBoundary } from './ErrorBoundary';
 import {
-  Sparkles,
   Search,
-  Disc,
-  User,
-  Check,
-  Loader2,
-  ExternalLink,
-  ChevronDown,
-  ChevronRight,
-  Layers,
-  Radio,
-  SlidersHorizontal,
+  Sparkles,
   Play,
   Pause,
   Plus,
+  Check,
+  Loader2,
+  Layers,
   Music,
+  User,
+  Disc,
+  ChevronDown,
+  ChevronRight,
+  Folder,
+  SlidersHorizontal,
+  X,
+  CornerDownLeft,
+  ArrowUpDown,
+  KeyRound,
+  Radio,
 } from 'lucide-react';
 
 interface Props {
@@ -62,25 +66,32 @@ export const HybridSearchModal: React.FC<Props> = ({
   initialQuery,
   initialTargetNodeId,
 }) => {
+  // Search provider & token state
   const [provider, setProvider] = useState<SearchProvider>('hybrid');
   const [hasDiscogsToken, setHasDiscogsToken] = useState<boolean | null>(null);
   const [tokenInput, setTokenInput] = useState<string>('');
   const [isEditingToken, setIsEditingToken] = useState(false);
   const [savingToken, setSavingToken] = useState(false);
 
+  // Search query & results
   const [query, setQuery] = useState('');
   const [artistResults, setArtistResults] = useState<UnifiedArtistSummary[]>([]);
   const [albumResults, setAlbumResults] = useState<GroupedAlbum[]>([]);
   const [trackResults, setTrackResults] = useState<UnifiedTrackSummary[]>([]);
   const [selectedVersions, setSelectedVersions] = useState<Record<string, number>>({});
   const [activeFilter, setActiveFilter] = useState<FilterCategory>('all');
+  const [selectedIndex, setSelectedIndex] = useState<number>(0);
 
+  // Audio preview playback
   const [playingTrackId, setPlayingTrackId] = useState<string | number | null>(null);
   const [addedTrackIds, setAddedTrackIds] = useState<Set<string | number>>(new Set());
+
+  // Album tracklist accordion
   const [expandedAlbumId, setExpandedAlbumId] = useState<string | null>(null);
   const [albumTracklists, setAlbumTracklists] = useState<Record<string, UnifiedTrackSummary[]>>({});
   const [loadingTracklistId, setLoadingTracklistId] = useState<string | null>(null);
 
+  // Counts & loading
   const [counts, setCounts] = useState<{
     artists: number;
     albums?: number;
@@ -89,18 +100,20 @@ export const HybridSearchModal: React.FC<Props> = ({
     deezerCount?: number;
     discogsCount?: number;
   } | null>(null);
-
   const [loading, setLoading] = useState(false);
   const [discogsProgressiveLoading, setDiscogsProgressiveLoading] = useState(false);
 
+  // Destination & options
   const [importingKey, setImportingKey] = useState<string | null>(null);
   const [addedArtists, setAddedArtists] = useState<Set<string>>(new Set());
   const [targetNodeId, setTargetNodeId] = useState<string>('');
   const [createAlbumContainer, setCreateAlbumContainer] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Refs
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const resultsContainerRef = useRef<HTMLDivElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -112,6 +125,14 @@ export const HybridSearchModal: React.FC<Props> = ({
     }
   }, [allTreeNodes]);
 
+  const targetNodeName = useMemo(() => {
+    if (!targetNodeId || targetNodeId === 'uncategorized' || targetNodeId === 'root') {
+      return 'Uncategorized (Root)';
+    }
+    const found = allContainers.find(c => c.id === targetNodeId);
+    return found ? found.name : 'Selected Crate';
+  }, [targetNodeId, allContainers]);
+
   const checkTokenStatus = async () => {
     try {
       const status = await fetchDiscogsStatus();
@@ -121,6 +142,7 @@ export const HybridSearchModal: React.FC<Props> = ({
     }
   };
 
+  // Audio cleanup on unmount
   useEffect(() => {
     return () => {
       if (audioRef.current) {
@@ -129,6 +151,7 @@ export const HybridSearchModal: React.FC<Props> = ({
     };
   }, []);
 
+  // Modal open reset
   useEffect(() => {
     if (isOpen) {
       const defaultTarget = initialTargetNodeId || currentNode?.id || allTreeNodes?.[0]?.id || allContainers[0]?.id || 'uncategorized';
@@ -139,6 +162,7 @@ export const HybridSearchModal: React.FC<Props> = ({
       setTrackResults([]);
       setSelectedVersions({});
       setActiveFilter('all');
+      setSelectedIndex(0);
       setCounts(null);
       setAddedArtists(new Set());
       setAddedTrackIds(new Set());
@@ -146,6 +170,7 @@ export const HybridSearchModal: React.FC<Props> = ({
       setAlbumTracklists({});
       setError(null);
       checkTokenStatus();
+
       const timer = setTimeout(() => {
         try {
           if (inputRef.current) {
@@ -155,10 +180,8 @@ export const HybridSearchModal: React.FC<Props> = ({
               inputRef.current.setSelectionRange(len, len);
             }
           }
-        } catch {
-          // ignore focus failure
-        }
-      }, 100);
+        } catch {}
+      }, 80);
       return () => clearTimeout(timer);
     } else {
       if (audioRef.current) {
@@ -168,6 +191,7 @@ export const HybridSearchModal: React.FC<Props> = ({
     }
   }, [isOpen, currentNode, allTreeNodes, initialQuery, initialTargetNodeId]);
 
+  // Live streaming search effect with 120ms debounce
   useEffect(() => {
     if (!isOpen) return;
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
@@ -195,7 +219,6 @@ export const HybridSearchModal: React.FC<Props> = ({
     setLoading(true);
     setError(null);
 
-    // Fast 120ms debounce for responsive instant typing
     debounceTimer.current = setTimeout(async () => {
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -305,7 +328,7 @@ export const HybridSearchModal: React.FC<Props> = ({
     };
   }, [query, isOpen, provider]);
 
-  // Safe filtered albums according to active filter chip (Hooks called unconditionally at top level)
+  // Filtered albums according to active filter
   const filteredAlbums = useMemo(() => {
     if (!albumResults || !Array.isArray(albumResults)) return [];
     if (activeFilter === 'tracks' || activeFilter === 'artists') return [];
@@ -344,12 +367,112 @@ export const HybridSearchModal: React.FC<Props> = ({
     return albumResults.filter(a => a && (a.sources || []).includes('deezer')).length;
   }, [albumResults]);
 
-  const totalVersionCount = useMemo(() => {
-    if (!albumResults || !Array.isArray(albumResults)) return 0;
-    return albumResults.reduce((acc, a) => acc + (a?.versions?.length || 0), 0);
-  }, [albumResults]);
+  // Visible tracks according to active filter
+  const visibleTracks = useMemo(() => {
+    if (activeFilter === 'albums' || activeFilter === 'artists' || activeFilter === 'vinyl') {
+      return [];
+    }
+    return trackResults;
+  }, [trackResults, activeFilter]);
 
-  if (!isOpen) return null;
+  // Visible artists according to active filter
+  const visibleArtists = useMemo(() => {
+    if (activeFilter === 'tracks' || activeFilter === 'albums' || activeFilter === 'vinyl' || activeFilter === 'digital') {
+      return [];
+    }
+    return artistResults;
+  }, [artistResults, activeFilter]);
+
+  // Flattened selectable items for CMD+K keyboard navigation
+  const selectableItems = useMemo(() => {
+    const items: { type: 'track' | 'album' | 'artist'; id: string | number; data: any }[] = [];
+    for (const t of visibleTracks) {
+      items.push({ type: 'track', id: t.id, data: t });
+    }
+    for (const a of filteredAlbums) {
+      items.push({ type: 'album', id: a.id, data: a });
+    }
+    for (const art of visibleArtists) {
+      items.push({ type: 'artist', id: art.name, data: art });
+    }
+    return items;
+  }, [visibleTracks, filteredAlbums, visibleArtists]);
+
+  // Format version labels without platform branding
+  const formatVersionLabel = useCallback((ver: ReleaseVersion): string => {
+    let label = ver.badgeLabel || '';
+    // Strip platform names like "DEEZER · " or "DISCOGS · "
+    label = label.replace(/^(deezer|discogs|musicbrainz)\s*[·-]\s*/i, '');
+    if (label && label !== 'Standard Release' && label !== 'Standard Version') {
+      return label;
+    }
+    const parts: string[] = [];
+    if (ver.format) parts.push(ver.format);
+    if (ver.year && ver.year > 0) parts.push(String(ver.year));
+    if (ver.country && ver.country !== '—') parts.push(ver.country);
+    if (ver.track_count && ver.track_count > 0) parts.push(`${ver.track_count} tracks`);
+    return parts.length > 0 ? parts.join(' · ') : 'Standard Edition';
+  }, []);
+
+  // Format badges without platform branding (Format tags only)
+  const getFormatBadge = (formatName: string) => {
+    const fmt = (formatName || '').toLowerCase();
+    if (fmt.includes('vinyl') || fmt.includes('lp') || fmt.includes('12"') || fmt.includes('7"')) {
+      return (
+        <span
+          key="fmt-vinyl"
+          style={{
+            fontSize: 9,
+            padding: '1px 5px',
+            borderRadius: 3,
+            background: '#422006',
+            color: '#fde68a',
+            border: '1px solid #78350f',
+            fontWeight: 600,
+            letterSpacing: '0.04em',
+          }}
+        >
+          VINYL
+        </span>
+      );
+    }
+    if (fmt.includes('cd')) {
+      return (
+        <span
+          key="fmt-cd"
+          style={{
+            fontSize: 9,
+            padding: '1px 5px',
+            borderRadius: 3,
+            background: '#1e293b',
+            color: '#cbd5e1',
+            border: '1px solid #334155',
+            fontWeight: 600,
+            letterSpacing: '0.04em',
+          }}
+        >
+          CD
+        </span>
+      );
+    }
+    return (
+      <span
+        key="fmt-digital"
+        style={{
+          fontSize: 9,
+          padding: '1px 5px',
+          borderRadius: 3,
+          background: '#1e1b4b',
+          color: '#c7d2fe',
+          border: '1px solid #3730a3',
+          fontWeight: 600,
+          letterSpacing: '0.04em',
+        }}
+      >
+        DIGITAL
+      </span>
+    );
+  };
 
   const handleSaveToken = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -367,6 +490,7 @@ export const HybridSearchModal: React.FC<Props> = ({
         const res = await searchHybrid(query.trim());
         setArtistResults(res.artists || []);
         if (res.albums) setAlbumResults(res.albums);
+        if (res.tracks) setTrackResults(res.tracks);
         setCounts(res.counts || null);
         setLoading(false);
       }
@@ -374,44 +498,6 @@ export const HybridSearchModal: React.FC<Props> = ({
       setError(err.message || 'Failed to save token');
     } finally {
       setSavingToken(false);
-    }
-  };
-
-  const handleAddArtist = async (artist: UnifiedArtistSummary) => {
-    if (!targetNodeId || !artist) return;
-    const key = `artist-${artist.name || 'artist'}`;
-    setImportingKey(key);
-    setError(null);
-    try {
-      const { destNodeId } = await importArtistContainer(artist.name, targetNodeId, artist.thumb);
-      setAddedArtists(prev => new Set(prev).add(artist.name));
-      onImportSuccess(destNodeId);
-    } catch (err: any) {
-      setError(err.message || 'Failed to add artist container');
-    } finally {
-      setImportingKey(null);
-    }
-  };
-
-  const handleImportRelease = async (version: ReleaseVersion) => {
-    if (!targetNodeId || !version) return;
-    const key = `release-${version.source}-${version.id}`;
-    setImportingKey(key);
-    setError(null);
-    try {
-      const { destNodeId } = await importUniversalRelease(
-        version.source,
-        version.id,
-        targetNodeId,
-        createAlbumContainer,
-        version.thumb
-      );
-      onImportSuccess(destNodeId);
-      onClose();
-    } catch (err: any) {
-      setError(err.message || 'Failed to import release');
-    } finally {
-      setImportingKey(null);
     }
   };
 
@@ -428,7 +514,7 @@ export const HybridSearchModal: React.FC<Props> = ({
       audioRef.current.pause();
       audioRef.current.src = track.preview;
       audioRef.current.play().catch(e => {
-        console.warn('Preview playback error', e);
+        console.warn('Preview error', e);
         setPlayingTrackId(null);
       });
       setPlayingTrackId(track.id);
@@ -461,6 +547,44 @@ export const HybridSearchModal: React.FC<Props> = ({
     }
   };
 
+  const handleImportRelease = async (version: ReleaseVersion) => {
+    if (!targetNodeId || !version) return;
+    const key = `release-${version.source}-${version.id}`;
+    setImportingKey(key);
+    setError(null);
+    try {
+      const { destNodeId } = await importUniversalRelease(
+        version.source,
+        version.id,
+        targetNodeId,
+        createAlbumContainer,
+        version.thumb
+      );
+      onImportSuccess(destNodeId);
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Failed to import release');
+    } finally {
+      setImportingKey(null);
+    }
+  };
+
+  const handleAddArtist = async (artist: UnifiedArtistSummary) => {
+    if (!targetNodeId || !artist) return;
+    const key = `artist-${artist.name || 'artist'}`;
+    setImportingKey(key);
+    setError(null);
+    try {
+      const { destNodeId } = await importArtistContainer(artist.name, targetNodeId, artist.thumb);
+      setAddedArtists(prev => new Set(prev).add(artist.name));
+      onImportSuccess(destNodeId);
+    } catch (err: any) {
+      setError(err.message || 'Failed to add artist container');
+    } finally {
+      setImportingKey(null);
+    }
+  };
+
   const toggleAlbumTracks = async (albumId: string, version: ReleaseVersion) => {
     if (expandedAlbumId === albumId) {
       setExpandedAlbumId(null);
@@ -480,276 +604,161 @@ export const HybridSearchModal: React.FC<Props> = ({
     }
   };
 
-  const getSourceBadge = (source: string) => {
-    switch (source) {
-      case 'discogs':
-        return (
-          <span
-            key="discogs"
-            style={{
-              fontSize: 9,
-              padding: '1px 5px',
-              borderRadius: 3,
-              background: '#172554',
-              color: '#93c5fd',
-              border: '1px solid #1e40af',
-              fontWeight: 600,
-              letterSpacing: '0.04em',
-            }}
-          >
-            DISCOGS
-          </span>
-        );
-      case 'deezer':
-        return (
-          <span
-            key="deezer"
-            style={{
-              fontSize: 9,
-              padding: '1px 5px',
-              borderRadius: 3,
-              background: '#3b0764',
-              color: '#d8b4fe',
-              border: '1px solid #6b21a8',
-              fontWeight: 600,
-              letterSpacing: '0.04em',
-            }}
-          >
-            DEEZER
-          </span>
-        );
-      case 'musicbrainz':
-        return (
-          <span
-            key="musicbrainz"
-            style={{
-              fontSize: 9,
-              padding: '1px 5px',
-              borderRadius: 3,
-              background: '#451a03',
-              color: '#fcd34d',
-              border: '1px solid #92400e',
-              fontWeight: 600,
-              letterSpacing: '0.04em',
-            }}
-          >
-            MUSICBRAINZ
-          </span>
-        );
-      default:
-        return null;
+  // Keyboard navigation matching CMD+K command palette
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+      return;
+    }
+
+    if (selectableItems.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex(prev => (prev + 1 < selectableItems.length ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex(prev => (prev - 1 >= 0 ? prev - 1 : selectableItems.length - 1));
+    } else if (e.key === 'Enter') {
+      const item = selectableItems[selectedIndex];
+      if (item) {
+        e.preventDefault();
+        if (item.type === 'track') {
+          handleAddTrack(item.data);
+        } else if (item.type === 'album') {
+          const versions = item.data.versions || [];
+          const ver = versions[selectedVersions[item.data.id] || 0] || versions[0];
+          if (ver) handleImportRelease(ver);
+        } else if (item.type === 'artist') {
+          handleAddArtist(item.data);
+        }
+      }
     }
   };
 
+  if (!isOpen) return null;
+
   return (
     <>
-      <div className="ov on" onClick={onClose} />
-      <div className="dlg on search-dialog-wrap" role="dialog" aria-label="Search and Import Releases">
-        <ErrorBoundary componentName="Music Search Engine Dialog">
-          {/* Top Header */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <h2 style={{ margin: 0, fontSize: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Sparkles size={16} style={{ color: '#818cf8' }} />
-                <span>Search Music</span>
-              </h2>
+      {/* Background Overlay */}
+      <div className="ov on" onClick={onClose} style={{ backdropFilter: 'blur(6px)' }} />
 
-              {/* Provider Tabs */}
-              <div style={{ display: 'flex', background: 'var(--bg)', border: '1px solid var(--bd)', borderRadius: 6, padding: 2 }}>
-                <button
-                  type="button"
-                  onClick={() => setProvider('hybrid')}
-                  style={{
-                    border: 'none',
-                    background: provider === 'hybrid' ? 'var(--hv)' : 'transparent',
-                    color: provider === 'hybrid' ? 'var(--fg)' : 'var(--mu)',
-                    padding: '3px 8px',
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    borderRadius: 4,
-                  }}
-                >
-                  ⚡ Hybrid (Artists &amp; Albums)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setProvider('discogs')}
-                  style={{
-                    border: 'none',
-                    background: provider === 'discogs' ? 'var(--hv)' : 'transparent',
-                    color: provider === 'discogs' ? 'var(--fg)' : 'var(--mu)',
-                    padding: '3px 8px',
-                    fontSize: 11,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    borderRadius: 4,
-                  }}
-                >
-                  Discogs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setProvider('deezer')}
-                  style={{
-                    border: 'none',
-                    background: provider === 'deezer' ? 'var(--hv)' : 'transparent',
-                    color: provider === 'deezer' ? 'var(--fg)' : 'var(--mu)',
-                    padding: '3px 8px',
-                    fontSize: 11,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    borderRadius: 4,
-                  }}
-                >
-                  Deezer
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setProvider('musicbrainz')}
-                  style={{
-                    border: 'none',
-                    background: provider === 'musicbrainz' ? 'var(--hv)' : 'transparent',
-                    color: provider === 'musicbrainz' ? 'var(--fg)' : 'var(--mu)',
-                    padding: '3px 8px',
-                    fontSize: 11,
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                    borderRadius: 4,
-                  }}
-                >
-                  MusicBrainz
-                </button>
-              </div>
-            </div>
-            <button onClick={onClose} style={{ padding: '2px 8px', cursor: 'pointer' }}>✕</button>
-          </div>
+      {/* Floating CMD+K Style Dialog */}
+      <div
+        className="dlg on music-command-palette"
+        role="dialog"
+        aria-label="Music Search Command Palette"
+        onKeyDown={handleKeyDown}
+      >
+        <ErrorBoundary componentName="Music Command Palette">
+          {/* ============================================================ */}
+          {/* TOP SEARCH BAR (SPOTLIGHT / CMD+K STYLE)                     */}
+          {/* ============================================================ */}
+          <div
+            style={{
+              padding: '12px 16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              background: '#111115',
+              borderBottom: '1px solid #22222a',
+            }}
+          >
+            <Search size={18} style={{ color: '#818cf8', flexShrink: 0 }} />
 
-          {/* Server Provider Status Banner */}
-          <div style={{ marginBottom: 12 }}>
-            {hasDiscogsToken ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#93c5fd', background: '#0f172a', border: '1px solid #1e3a5f', padding: '4px 10px', borderRadius: 6 }}>
-                <span>✓ Discogs Catalog (17.5M+ pressings) &amp; Deezer Streaming Active</span>
-              </div>
-            ) : (
-              <div style={{ background: '#1c1917', border: '1px solid #78350f', borderRadius: 6, padding: '6px 10px', fontSize: 11, color: 'var(--mu)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>⚡ Deezer active. Discogs credentials not configured in <code>.env</code>.</span>
-                <button
-                  type="button"
-                  onClick={() => setIsEditingToken(!isEditingToken)}
-                  style={{ border: 'none', background: 'transparent', padding: '1px 4px', fontSize: 11, color: '#fde68a', cursor: 'pointer', textDecoration: 'underline' }}
-                >
-                  {isEditingToken ? 'Hide' : 'Configure Discogs'}
-                </button>
-              </div>
+            <input
+              ref={inputRef}
+              type="text"
+              className="music-cmd-search-input"
+              placeholder="Search tracks, albums, artists, vinyl catalog numbers, barcodes..."
+              value={query}
+              onChange={e => {
+                setQuery(e.target.value);
+                setSelectedIndex(0);
+              }}
+              autoComplete="off"
+              autoFocus
+            />
+
+            {loading && <Loader2 size={16} className="spin" style={{ color: '#818cf8', flexShrink: 0 }} />}
+
+            {query && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery('');
+                  setSelectedIndex(0);
+                  inputRef.current?.focus();
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--mu)',
+                  cursor: 'pointer',
+                  padding: 3,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+                title="Clear query"
+              >
+                <X size={15} />
+              </button>
             )}
 
-            {isEditingToken && (
-              <div style={{ marginTop: 8, background: '#18181b', border: '1px solid var(--bd)', borderRadius: 6, padding: 10 }}>
-                <p style={{ margin: '0 0 8px', fontSize: 11, color: 'var(--mu)' }}>
-                  Insert credentials into <code>.env</code> (recommended) or paste a Discogs token below:
-                </p>
-                <form onSubmit={handleSaveToken} style={{ display: 'flex', gap: 6 }}>
-                  <input
-                    type="password"
-                    placeholder="Paste Discogs Personal Access Token..."
-                    value={tokenInput}
-                    onChange={e => setTokenInput(e.target.value)}
-                    style={{ flex: 1, fontSize: 11, padding: '4px 8px' }}
-                  />
-                  <button type="submit" className="p" style={{ fontSize: 11, padding: '4px 10px' }} disabled={savingToken || !tokenInput.trim()}>
-                    {savingToken ? 'Saving...' : 'Save Token'}
-                  </button>
-                  <button type="button" style={{ fontSize: 11 }} onClick={() => setIsEditingToken(false)}>
-                    Close
-                  </button>
-                </form>
-              </div>
-            )}
+            <button
+              type="button"
+              className="music-cmd-kbd"
+              onClick={onClose}
+              title="Close modal (Esc)"
+              style={{ cursor: 'pointer' }}
+            >
+              ESC
+            </button>
           </div>
 
-          {/* Destination & Options */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-              <label style={{ color: 'var(--mu)', fontSize: 12 }}>
-                Destination container:
-                <select
-                  value={targetNodeId}
-                  onChange={e => setTargetNodeId(e.target.value)}
-                  style={{ marginLeft: 6 }}
-                >
-                  <option value="uncategorized">[Root] Uncategorized (Root Library)</option>
-                  {allContainers.map(c => (
-                    <option key={c.id} value={c.id}>
-                      [{c.type || 'Folder'}] {c.name || 'Untitled'}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={createAlbumContainer}
-                  onChange={e => setCreateAlbumContainer(e.target.checked)}
-                />
-                Create Album container on import
-              </label>
-            </div>
-
-            {/* Search Input Bar with Clear & Icon */}
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <Search size={14} style={{ position: 'absolute', left: 10, color: 'var(--mu)', pointerEvents: 'none' }} />
-              <input
-                ref={inputRef}
-                type="text"
-                placeholder="Search albums, artists, catalog numbers, barcodes, vinyl pressings..."
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                autoComplete="off"
-                style={{ paddingLeft: 32, paddingRight: query ? 30 : 10 }}
-              />
-              {query && (
-                <button
-                  type="button"
-                  onClick={() => setQuery('')}
-                  style={{
-                    position: 'absolute',
-                    right: 8,
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'var(--mu)',
-                    fontSize: 12,
-                    cursor: 'pointer',
-                    padding: 2,
-                  }}
-                  title="Clear query"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Organization Filter Chips */}
-          {(albumResults.length > 0 || artistResults.length > 0 || trackResults.length > 0) && (
-            <div className="search-filter-pills">
+          {/* ============================================================ */}
+          {/* SUB-BAR: FILTER CHIPS & DESTINATION CONTROL                  */}
+          {/* ============================================================ */}
+          <div
+            style={{
+              padding: '8px 16px',
+              background: '#0d0d11',
+              borderBottom: '1px solid #1c1c22',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexWrap: 'wrap',
+            }}
+          >
+            {/* Filter Category Chips */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <button
                 type="button"
                 className={`search-filter-pill ${activeFilter === 'all' ? 'active' : ''}`}
-                onClick={() => setActiveFilter('all')}
+                onClick={() => {
+                  setActiveFilter('all');
+                  setSelectedIndex(0);
+                }}
               >
-                <span>All Results</span>
-                <span className="search-filter-count">{albumResults.length + artistResults.length + trackResults.length}</span>
+                <span>All</span>
+                {(trackResults.length > 0 || albumResults.length > 0 || artistResults.length > 0) && (
+                  <span className="search-filter-count">{trackResults.length + albumResults.length + artistResults.length}</span>
+                )}
               </button>
 
               {trackResults.length > 0 && (
                 <button
                   type="button"
                   className={`search-filter-pill ${activeFilter === 'tracks' ? 'active' : ''}`}
-                  onClick={() => setActiveFilter('tracks')}
+                  onClick={() => {
+                    setActiveFilter('tracks');
+                    setSelectedIndex(0);
+                  }}
                 >
-                  <span>🎵 Tracks</span>
+                  <Music size={11} />
+                  <span>Tracks</span>
                   <span className="search-filter-count">{trackResults.length}</span>
                 </button>
               )}
@@ -758,9 +767,13 @@ export const HybridSearchModal: React.FC<Props> = ({
                 <button
                   type="button"
                   className={`search-filter-pill ${activeFilter === 'albums' ? 'active' : ''}`}
-                  onClick={() => setActiveFilter('albums')}
+                  onClick={() => {
+                    setActiveFilter('albums');
+                    setSelectedIndex(0);
+                  }}
                 >
-                  <span>Unique Albums</span>
+                  <Disc size={11} />
+                  <span>Albums</span>
                   <span className="search-filter-count">{albumResults.length}</span>
                 </button>
               )}
@@ -769,7 +782,10 @@ export const HybridSearchModal: React.FC<Props> = ({
                 <button
                   type="button"
                   className={`search-filter-pill ${activeFilter === 'vinyl' ? 'active' : ''}`}
-                  onClick={() => setActiveFilter('vinyl')}
+                  onClick={() => {
+                    setActiveFilter('vinyl');
+                    setSelectedIndex(0);
+                  }}
                 >
                   <span>Vinyl &amp; Physical</span>
                   <span className="search-filter-count">{vinylCount}</span>
@@ -780,9 +796,12 @@ export const HybridSearchModal: React.FC<Props> = ({
                 <button
                   type="button"
                   className={`search-filter-pill ${activeFilter === 'digital' ? 'active' : ''}`}
-                  onClick={() => setActiveFilter('digital')}
+                  onClick={() => {
+                    setActiveFilter('digital');
+                    setSelectedIndex(0);
+                  }}
                 >
-                  <span>Digital Streaming</span>
+                  <span>Digital</span>
                   <span className="search-filter-count">{digitalCount}</span>
                 </button>
               )}
@@ -791,43 +810,129 @@ export const HybridSearchModal: React.FC<Props> = ({
                 <button
                   type="button"
                   className={`search-filter-pill ${activeFilter === 'artists' ? 'active' : ''}`}
-                  onClick={() => setActiveFilter('artists')}
+                  onClick={() => {
+                    setActiveFilter('artists');
+                    setSelectedIndex(0);
+                  }}
                 >
+                  <User size={11} />
                   <span>Artists</span>
                   <span className="search-filter-count">{artistResults.length}</span>
                 </button>
               )}
+            </div>
 
-              {totalVersionCount > albumResults.length && (
-                <span style={{ fontSize: 11, color: '#71717a', marginLeft: 'auto' }}>
-                  {totalVersionCount} pressings/versions cataloged
-                </span>
-              )}
+            {/* Catalog Source Picker & Destination Container */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {/* Catalog Source Selector (No platform branding labels!) */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--mu)' }}>
+                <span>Source:</span>
+                <select
+                  value={provider}
+                  onChange={e => setProvider(e.target.value as SearchProvider)}
+                  style={{
+                    fontSize: 11,
+                    padding: '2px 6px',
+                    background: '#16161b',
+                    border: '1px solid #282832',
+                    borderRadius: 4,
+                    color: 'var(--fg)',
+                  }}
+                >
+                  <option value="hybrid">All Catalogs (Unified)</option>
+                  <option value="discogs">Vinyl &amp; Physical Pressings</option>
+                  <option value="deezer">Digital Streaming Catalog</option>
+                  <option value="musicbrainz">Open Music Database</option>
+                </select>
+              </label>
+
+              {/* Destination Crate Selector */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--mu)' }}>
+                <Folder size={12} style={{ color: '#818cf8' }} />
+                <span>To:</span>
+                <select
+                  value={targetNodeId}
+                  onChange={e => setTargetNodeId(e.target.value)}
+                  style={{
+                    fontSize: 11,
+                    padding: '2px 6px',
+                    background: '#16161b',
+                    border: '1px solid #282832',
+                    borderRadius: 4,
+                    color: 'var(--fg)',
+                    maxWidth: 160,
+                  }}
+                >
+                  <option value="uncategorized">[Root] Uncategorized</option>
+                  {allContainers.map(c => (
+                    <option key={c.id} value={c.id}>
+                      [{c.type || 'Folder'}] {c.name || 'Untitled'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {/* Create Album Container Checkbox */}
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--mu)', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={createAlbumContainer}
+                  onChange={e => setCreateAlbumContainer(e.target.checked)}
+                />
+                <span>Album folder</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Discogs Token Configuration Header if unconfigured */}
+          {!hasDiscogsToken && (
+            <div style={{ background: '#181512', borderBottom: '1px solid #3d240e', padding: '6px 16px', fontSize: 11, color: '#fde68a', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Vinyl catalog access available. Configure access token for high-rate pressings.</span>
+              <button
+                type="button"
+                onClick={() => setIsEditingToken(!isEditingToken)}
+                style={{ background: 'transparent', border: 'none', color: '#f59e0b', cursor: 'pointer', textDecoration: 'underline', fontSize: 11 }}
+              >
+                {isEditingToken ? 'Hide' : 'Configure Access Token'}
+              </button>
+            </div>
+          )}
+
+          {isEditingToken && (
+            <div style={{ padding: '10px 16px', background: '#141419', borderBottom: '1px solid #24242e' }}>
+              <form onSubmit={handleSaveToken} style={{ display: 'flex', gap: 8 }}>
+                <input
+                  type="password"
+                  placeholder="Paste access token..."
+                  value={tokenInput}
+                  onChange={e => setTokenInput(e.target.value)}
+                  style={{ flex: 1, fontSize: 11, padding: '4px 8px' }}
+                />
+                <button type="submit" className="p" style={{ fontSize: 11, padding: '4px 10px' }} disabled={savingToken || !tokenInput.trim()}>
+                  {savingToken ? 'Saving...' : 'Save'}
+                </button>
+                <button type="button" style={{ fontSize: 11 }} onClick={() => setIsEditingToken(false)}>
+                  Cancel
+                </button>
+              </form>
             </div>
           )}
 
           {error && (
-            <div style={{ color: '#f87171', padding: '8px 0', fontSize: 12 }}>
+            <div style={{ color: '#f87171', padding: '8px 16px', fontSize: 12, background: 'rgba(239, 68, 68, 0.1)', borderBottom: '1px solid rgba(239, 68, 68, 0.2)' }}>
               {error}
             </div>
           )}
 
-          {loading && (
-            <div style={{ color: 'var(--mu)', padding: '14px 0', textAlign: 'center', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-              <Loader2 size={15} className="spin" />
-              <span>Searching music catalogs...</span>
-            </div>
-          )}
-
-          {/* Progressive Discogs Enrichment Indicator */}
+          {/* Progressive Discogs Loading Banner */}
           {discogsProgressiveLoading && (
-            <div className="progressive-search-banner">
-              <div className="progressive-spinner" />
-              <span>Fast digital albums loaded · Grouping Discogs vinyl pressings into album dropdowns...</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 16px', background: 'rgba(99, 102, 241, 0.08)', borderBottom: '1px solid rgba(99, 102, 241, 0.2)', fontSize: 11, color: '#a5b4fc' }}>
+              <Loader2 size={12} className="spin" />
+              <span>Cataloging vinyl pressings and physical variants...</span>
             </div>
           )}
 
-          {/* Hidden Audio Player for 30s previews */}
+          {/* Hidden audio element for preview */}
           <audio
             ref={audioRef}
             onEnded={() => setPlayingTrackId(null)}
@@ -835,41 +940,61 @@ export const HybridSearchModal: React.FC<Props> = ({
             style={{ display: 'none' }}
           />
 
-          {/* Results Container */}
-          <div style={{ marginTop: 6 }}>
-            {!loading && artistResults.length === 0 && albumResults.length === 0 && trackResults.length === 0 && query.trim() !== '' && (
-              <p style={{ color: 'var(--mu)', margin: '14px 0', textAlign: 'center' }}>
-                No tracks, artists, or albums found matching &ldquo;{query}&rdquo;.
-              </p>
+          {/* ============================================================ */}
+          {/* RESULTS LIST AREA (CMD+K SPOTLIGHT STYLE)                    */}
+          {/* ============================================================ */}
+          <div
+            ref={resultsContainerRef}
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              padding: '12px 16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+              minHeight: 280,
+              maxHeight: '62vh',
+            }}
+          >
+            {/* Empty State */}
+            {!loading && visibleTracks.length === 0 && filteredAlbums.length === 0 && visibleArtists.length === 0 && (
+              <div style={{ textAlign: 'center', color: 'var(--mu)', padding: '48px 16px', fontSize: 13 }}>
+                {query.trim() === '' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                    <Search size={24} style={{ color: '#3f3f46' }} />
+                    <p style={{ margin: 0 }}>Start typing to search songs, albums, artists, or vinyl pressings.</p>
+                  </div>
+                ) : (
+                  <p style={{ margin: 0 }}>No results found matching &ldquo;{query}&rdquo;.</p>
+                )}
+              </div>
             )}
 
             {/* ============================================================ */}
-            {/* SECTION 0: INDIVIDUAL TRACKS                                 */}
+            {/* SECTION 1: TRACKS                                            */}
             {/* ============================================================ */}
-            {trackResults.length > 0 && (activeFilter === 'all' || activeFilter === 'tracks') && (
-              <div style={{ marginBottom: 18 }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '6px 0',
-                  borderBottom: '1px solid var(--bd)',
-                  marginBottom: 10,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: '#e4e4e7',
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase'
-                }}>
-                  <span>🎵 Individual Tracks ({trackResults.length})</span>
-                  <span style={{ color: 'var(--mu)', fontWeight: 400, textTransform: 'none', fontSize: 11 }}>
-                    — Preview 30s clips &amp; add individual songs directly to your crate
-                  </span>
+            {visibleTracks.length > 0 && (
+              <div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#a1a1aa',
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <Music size={12} style={{ color: '#818cf8' }} />
+                  <span>Tracks ({visibleTracks.length})</span>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {trackResults.map((track) => {
-                    if (!track) return null;
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {visibleTracks.map((track, trackIdx) => {
+                    const isSelected = selectableItems[selectedIndex]?.type === 'track' && selectableItems[selectedIndex]?.id === track.id;
                     const isAdded = addedTrackIds.has(track.id);
                     const isImporting = importingKey === `track-${track.id}`;
                     const isPlaying = playingTrackId === track.id;
@@ -877,27 +1002,22 @@ export const HybridSearchModal: React.FC<Props> = ({
                     return (
                       <div
                         key={`track-${track.id}`}
-                        className="r"
-                        style={{
-                          padding: '6px 10px',
-                          background: isPlaying ? 'rgba(99, 102, 241, 0.08)' : '#121216',
-                          borderRadius: 6,
-                          border: isPlaying ? '1px solid #6366f1' : '1px solid #222228',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                        }}
+                        className={`music-cmd-item ${isSelected ? 'selected' : ''}`}
+                        onClick={() => setSelectedIndex(trackIdx)}
                       >
-                        {/* Cover Art with Play Button Overlay */}
+                        {/* Cover Art with Play Button */}
                         <div
-                          style={{ position: 'relative', width: 44, height: 44, flexShrink: 0, cursor: track.preview ? 'pointer' : 'default' }}
-                          onClick={() => track.preview && togglePlayPreview(track)}
-                          title={track.preview ? (isPlaying ? 'Pause preview' : 'Play 30s preview') : 'No audio preview available'}
+                          style={{ position: 'relative', width: 40, height: 40, flexShrink: 0, cursor: track.preview ? 'pointer' : 'default' }}
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (track.preview) togglePlayPreview(track);
+                          }}
+                          title={track.preview ? (isPlaying ? 'Pause preview' : 'Play 30s preview') : 'No preview'}
                         >
                           <CoverArt
                             src={track.cover}
                             alt={track.title}
-                            size={44}
+                            size={40}
                             type="album"
                             seed={track.title || track.artist}
                             rounded={4}
@@ -907,27 +1027,26 @@ export const HybridSearchModal: React.FC<Props> = ({
                               style={{
                                 position: 'absolute',
                                 inset: 0,
-                                background: isPlaying ? 'rgba(0, 0, 0, 0.45)' : 'rgba(0, 0, 0, 0.25)',
+                                background: isPlaying ? 'rgba(0, 0, 0, 0.55)' : 'rgba(0, 0, 0, 0.25)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 borderRadius: 4,
-                                transition: 'background 0.15s ease',
                               }}
                             >
                               {isPlaying ? (
-                                <Pause size={18} style={{ color: '#818cf8', fill: '#818cf8' }} />
+                                <Pause size={16} style={{ color: '#818cf8', fill: '#818cf8' }} />
                               ) : (
-                                <Play size={16} style={{ color: '#ffffff', fill: '#ffffff', marginLeft: 2 }} />
+                                <Play size={14} style={{ color: '#ffffff', fill: '#ffffff', marginLeft: 2 }} />
                               )}
                             </div>
                           )}
                         </div>
 
                         {/* Track Info */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <strong style={{ fontSize: 13, color: isPlaying ? '#a5b4fc' : 'var(--fg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '65%' }}>
+                            <strong style={{ fontSize: 13, color: isPlaying ? '#a5b4fc' : 'var(--fg)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '65%' }}>
                               {track.title}
                             </strong>
                             {track.duration > 0 && (
@@ -943,19 +1062,18 @@ export const HybridSearchModal: React.FC<Props> = ({
                                   borderRadius: 3,
                                   background: '#14532d',
                                   color: '#86efac',
-                                  border: '1px solid #166534',
                                   fontWeight: 600,
-                                  letterSpacing: '0.04em',
                                 }}
                                 title={`ISRC: ${track.isrc}`}
                               >
                                 ISRC
                               </span>
                             )}
-                            {getSourceBadge(track.source || 'deezer')}
+                            {getFormatBadge('Digital')}
                           </div>
-                          <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            <span style={{ color: '#e4e4e7', cursor: 'pointer' }} onClick={() => setQuery(track.artist)} title="Search artist">
+
+                          <div style={{ fontSize: 11, color: 'var(--mu)', display: 'flex', alignItems: 'center', gap: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span style={{ color: '#d4d4d8', cursor: 'pointer' }} onClick={() => setQuery(track.artist)} title="Search artist">
                               {track.artist}
                             </span>
                             <span>·</span>
@@ -963,43 +1081,44 @@ export const HybridSearchModal: React.FC<Props> = ({
                           </div>
                         </div>
 
-                        {/* Action Buttons */}
+                        {/* Actions */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                           {track.preview && (
                             <button
                               type="button"
-                              onClick={() => togglePlayPreview(track)}
+                              onClick={e => {
+                                e.stopPropagation();
+                                togglePlayPreview(track);
+                              }}
                               style={{
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: 4,
                                 fontSize: 11,
-                                padding: '4px 8px',
+                                padding: '3px 8px',
                                 background: isPlaying ? '#312e81' : 'transparent',
-                                border: isPlaying ? '1px solid #6366f1' : '1px solid var(--bd)',
+                                border: isPlaying ? '1px solid #6366f1' : '1px solid #272730',
                                 color: isPlaying ? '#e0e7ff' : 'var(--fg)',
                                 borderRadius: 4,
                                 cursor: 'pointer',
                               }}
                               title={isPlaying ? 'Pause audio preview' : 'Listen to 30-second audio preview'}
                             >
-                              {isPlaying ? <Pause size={12} /> : <Play size={12} />}
+                              {isPlaying ? <Pause size={11} /> : <Play size={11} />}
                               <span>{isPlaying ? 'Playing' : 'Preview'}</span>
                             </button>
                           )}
+
                           <button
                             type="button"
                             className={isAdded ? '' : 'p'}
                             disabled={isImporting || isAdded}
-                            onClick={() => handleAddTrack(track)}
-                            style={{
-                              fontSize: 11,
-                              padding: '4px 10px',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4,
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleAddTrack(track);
                             }}
-                            title={`Add "${track.title}" to destination`}
+                            style={{ fontSize: 11, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                            title={`Add "${track.title}" to ${targetNodeName}`}
                           >
                             {isAdded ? (
                               <>
@@ -1027,121 +1146,29 @@ export const HybridSearchModal: React.FC<Props> = ({
             )}
 
             {/* ============================================================ */}
-            {/* SECTION 1: ARTISTS                                           */}
-            {/* ============================================================ */}
-            {artistResults.length > 0 && (activeFilter === 'all' || activeFilter === 'artists') && (
-              <div style={{ marginBottom: 18 }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '6px 0',
-                  borderBottom: '1px solid var(--bd)',
-                  marginBottom: 10,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: '#e4e4e7',
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase'
-                }}>
-                  <span>👤 Artists ({artistResults.length})</span>
-                  <span style={{ color: 'var(--mu)', fontWeight: 400, textTransform: 'none', fontSize: 11 }}>
-                    — Create artist container or explore releases
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {artistResults.map((artist, idx) => {
-                    if (!artist) return null;
-                    const artistName = artist.name || 'Unknown Artist';
-                    const key = `artist-${artistName}-${idx}`;
-                    const isImporting = importingKey === key;
-                    const isAdded = addedArtists.has(artistName);
-
-                    return (
-                      <div
-                        key={key}
-                        className="r"
-                        style={{
-                          padding: '8px 10px',
-                          background: '#121216',
-                          borderRadius: 6,
-                          border: '1px solid #222228',
-                        }}
-                      >
-                        <CoverArt
-                          src={artist.thumb}
-                          alt={artistName}
-                          size={40}
-                          type="artist"
-                          seed={artistName}
-                          rounded="full"
-                        />
-
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <strong style={{ fontSize: 13 }}>{artistName}</strong>
-                            <span className="ty">Artist</span>
-                            {getSourceBadge(artist.source)}
-                          </div>
-                          <small style={{ color: 'var(--mu)' }}>
-                            {artist.nb_album ? `${artist.nb_album} releases cataloged` : 'Musical Artist'}
-                          </small>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                          <button
-                            type="button"
-                            style={{ fontSize: 11, padding: '3px 8px' }}
-                            title="Search releases specifically by this artist"
-                            onClick={() => setQuery(artistName)}
-                          >
-                            View Releases
-                          </button>
-                          <button
-                            type="button"
-                            className={isAdded ? '' : 'p'}
-                            disabled={isImporting || isAdded}
-                            onClick={() => handleAddArtist(artist)}
-                            style={{ fontSize: 11, padding: '3px 10px' }}
-                          >
-                            {isAdded ? 'Added ✓' : isImporting ? 'Adding...' : '+ Add Artist'}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* ============================================================ */}
-            {/* SECTION 2: CANONICAL ALBUMS WITH SELECTABLE VERSIONS         */}
+            {/* SECTION 2: ALBUMS (CANONICAL WITH VERSION SELECTOR)          */}
             {/* ============================================================ */}
             {filteredAlbums.length > 0 && (
               <div>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '6px 0',
-                  borderBottom: '1px solid var(--bd)',
-                  marginBottom: 10,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: '#e4e4e7',
-                  letterSpacing: '0.06em',
-                  textTransform: 'uppercase'
-                }}>
-                  <span>💿 Albums ({filteredAlbums.length})</span>
-                  <span style={{ color: 'var(--mu)', fontWeight: 400, textTransform: 'none', fontSize: 11 }}>
-                    — 1 version displayed per album · select variants from dropdown
-                  </span>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#a1a1aa',
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <Disc size={12} style={{ color: '#818cf8' }} />
+                  <span>Albums ({filteredAlbums.length})</span>
                 </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {filteredAlbums.map((album, albumIdx) => {
-                    if (!album) return null;
                     const albumId = album.id || `album-${albumIdx}`;
                     const versions: ReleaseVersion[] = (album.versions && Array.isArray(album.versions) && album.versions.length > 0)
                       ? album.versions
@@ -1164,174 +1191,187 @@ export const HybridSearchModal: React.FC<Props> = ({
                     const activeVersion: ReleaseVersion = versions[selectedIdx] || versions[0];
                     const importKey = `release-${activeVersion.source}-${activeVersion.id}`;
                     const isImporting = importingKey === importKey;
+                    const isSelected = selectableItems[selectedIndex]?.type === 'album' && selectableItems[selectedIndex]?.id === album.id;
+                    const isExpanded = expandedAlbumId === albumId;
 
                     return (
                       <div key={albumId} style={{ display: 'flex', flexDirection: 'column' }}>
-                        <div className="album-search-card" style={{ marginBottom: expandedAlbumId === albumId ? 0 : 8, borderRadius: expandedAlbumId === albumId ? '8px 8px 0 0' : 8 }}>
+                        <div
+                          className={`music-cmd-item ${isSelected ? 'selected' : ''}`}
+                          style={{
+                            background: isExpanded ? '#15151c' : '#111115',
+                            border: isExpanded ? '1px solid #2e2e38' : '1px solid #202028',
+                            borderRadius: isExpanded ? '6px 6px 0 0' : 6,
+                            padding: '10px 12px',
+                          }}
+                          onClick={() => setSelectedIndex(visibleTracks.length + albumIdx)}
+                        >
                           {/* Album Artwork */}
                           <CoverArt
                             src={activeVersion.thumb || album.thumb}
                             alt={album.title || 'Album'}
-                            size={52}
+                            size={48}
                             type="album"
                             seed={album.title || album.artist || 'Album'}
                             rounded={6}
                           />
 
                           {/* Info & Versions Dropdown */}
-                          <div className="album-search-card-info">
-                            <div className="album-search-card-header">
-                              <span className="album-search-title">{album.title || 'Untitled'}</span>
-                              <span style={{ color: 'var(--mu)' }}>by</span>
-                              <span className="album-search-artist">{album.artist || 'Unknown'}</span>
+                          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                              <strong style={{ fontSize: 13, color: 'var(--fg)' }}>{album.title || 'Untitled'}</strong>
+                              <span style={{ color: 'var(--mu)', fontSize: 12 }}>by</span>
+                              <span style={{ color: '#e4e4e7', fontSize: 12 }}>{album.artist || 'Unknown'}</span>
                               <div style={{ display: 'inline-flex', gap: 4, marginLeft: 'auto' }}>
-                                {(album.sources || []).map(s => getSourceBadge(s))}
+                                {getFormatBadge(activeVersion.format || album.primaryFormat)}
                               </div>
                             </div>
 
-                            {/* Version Selector Dropdown */}
-                            <div className="album-version-picker-wrap">
+                            {/* Version Selector (Format & Year, NO platform branding) */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                               {versions.length > 1 ? (
-                                <>
-                                  <span className="album-version-label">
-                                    <Layers size={11} style={{ verticalAlign: -1, marginRight: 3 }} />
-                                    Version ({versions.length}):
-                                  </span>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                  <Layers size={11} style={{ color: 'var(--mu)' }} />
                                   <select
-                                    className="album-version-select"
                                     value={selectedIdx}
                                     onChange={e => {
                                       const idx = Number(e.target.value);
-                                      setSelectedVersions(prev => ({
-                                        ...prev,
-                                        [albumId]: idx,
-                                      }));
+                                      setSelectedVersions(prev => ({ ...prev, [albumId]: idx }));
                                     }}
+                                    style={{
+                                      fontSize: 11,
+                                      padding: '2px 6px',
+                                      background: '#181820',
+                                      border: '1px solid #2b2b36',
+                                      borderRadius: 4,
+                                      color: 'var(--fg)',
+                                      maxWidth: 260,
+                                    }}
+                                    onClick={e => e.stopPropagation()}
                                   >
                                     {versions.map((ver, idx) => (
                                       <option key={`${ver.source}-${ver.id}-${idx}`} value={idx}>
-                                        {ver.badgeLabel || `${ver.source.toUpperCase()} · ${ver.format || 'Release'} (${ver.year || '—'})`}
+                                        {formatVersionLabel(ver)}
                                       </option>
                                     ))}
                                   </select>
-                                </>
+                                </div>
                               ) : (
-                                <span className="album-version-single-tag">
-                                  {activeVersion.badgeLabel || 'Standard Version'}
+                                <span style={{ fontSize: 11, color: 'var(--mu)' }}>
+                                  {formatVersionLabel(activeVersion)}
                                 </span>
                               )}
-                            </div>
 
-                            {/* Active Version Detailed Metadata */}
-                            <div className="album-version-meta-row">
-                              {Boolean(activeVersion.year && activeVersion.year > 0) && (
-                                <span>{activeVersion.year}</span>
-                              )}
-                              {Boolean(activeVersion.format) && (
-                                <span> · {activeVersion.format}</span>
-                              )}
-                              {Boolean(activeVersion.label && activeVersion.label !== '—') && (
-                                <span> · {activeVersion.label}</span>
-                              )}
-                              {Boolean(activeVersion.catalog_no && activeVersion.catalog_no !== '—') && (
-                                <span> · Cat #{activeVersion.catalog_no}</span>
-                              )}
-                              {Boolean(activeVersion.barcode && activeVersion.barcode !== '—') && (
-                                <span> · Barcode {activeVersion.barcode}</span>
-                              )}
-                              {Boolean(activeVersion.track_count) && (
-                                <span> · {activeVersion.track_count} tracks</span>
-                              )}
+                              {/* Metadata chips */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#71717a' }}>
+                                {Boolean(activeVersion.year && activeVersion.year > 0) && (
+                                  <span>{activeVersion.year}</span>
+                                )}
+                                {Boolean(activeVersion.label && activeVersion.label !== '—') && (
+                                  <span>· {activeVersion.label}</span>
+                                )}
+                                {Boolean(activeVersion.catalog_no && activeVersion.catalog_no !== '—') && (
+                                  <span>· #{activeVersion.catalog_no}</span>
+                                )}
+                              </div>
                             </div>
                           </div>
 
-                          {/* Action Buttons: Import Release & View Tracks */}
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0, alignItems: 'stretch' }}>
+                          {/* Action Buttons */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                             <button
-                              className="p"
-                              disabled={importingKey !== null}
-                              onClick={() => handleImportRelease(activeVersion)}
-                              style={{ padding: '6px 12px', fontSize: 12 }}
-                              title={`Import entire album "${activeVersion.title || album.title}"`}
+                              type="button"
+                              onClick={e => {
+                                e.stopPropagation();
+                                toggleAlbumTracks(albumId, activeVersion);
+                              }}
+                              style={{
+                                fontSize: 11,
+                                padding: '4px 8px',
+                                background: isExpanded ? '#272730' : 'transparent',
+                                border: '1px solid #272730',
+                                borderRadius: 4,
+                                color: isExpanded ? '#ffffff' : 'var(--mu)',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                              }}
+                              title="Inspect tracks in this album"
                             >
-                              {isImporting ? (
-                                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                                  <Loader2 size={12} className="spin" />
-                                  <span>Importing...</span>
-                                </span>
-                              ) : (
-                                <span>Import Album</span>
-                              )}
+                              <Music size={11} />
+                              <span>{isExpanded ? 'Hide' : 'Tracks'}</span>
+                              {isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
                             </button>
 
                             <button
                               type="button"
-                              onClick={() => toggleAlbumTracks(albumId, activeVersion)}
-                              style={{
-                                fontSize: 11,
-                                padding: '3px 8px',
-                                background: expandedAlbumId === albumId ? '#27272a' : 'transparent',
-                                border: '1px solid var(--bd)',
-                                borderRadius: 4,
-                                color: expandedAlbumId === albumId ? '#e4e4e7' : 'var(--mu)',
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 4,
+                              className="p"
+                              disabled={importingKey !== null}
+                              onClick={e => {
+                                e.stopPropagation();
+                                handleImportRelease(activeVersion);
                               }}
-                              title="View individual tracks to preview or add single songs"
+                              style={{ fontSize: 11, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                              title={`Import entire release into ${targetNodeName}`}
                             >
-                              <Music size={11} />
-                              <span>{expandedAlbumId === albumId ? 'Hide Tracks' : 'View Tracks'}</span>
-                              {expandedAlbumId === albumId ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                              {isImporting ? (
+                                <>
+                                  <Loader2 size={12} className="spin" />
+                                  <span>Importing...</span>
+                                </>
+                              ) : (
+                                <span>Import Album</span>
+                              )}
                             </button>
                           </div>
                         </div>
 
-                        {/* Expandable Album Tracklist */}
-                        {expandedAlbumId === albumId && (
+                        {/* Expandable Tracklist Accordion */}
+                        {isExpanded && (
                           <div
                             style={{
-                              marginBottom: 8,
                               padding: '10px 14px',
-                              background: '#0d0d11',
-                              borderRadius: '0 0 8px 8px',
-                              border: '1px solid #22222a',
+                              background: '#0a0a0e',
+                              borderRadius: '0 0 6px 6px',
+                              border: '1px solid #2e2e38',
                               borderTop: 'none',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 4,
                             }}
                           >
                             {loadingTracklistId === albumId ? (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--mu)', fontSize: 12, padding: '8px 4px' }}>
-                                <Loader2 size={13} className="spin" />
-                                <span>Loading tracklist from {activeVersion.source.toUpperCase()}...</span>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--mu)', fontSize: 12, padding: '6px 0' }}>
+                                <Loader2 size={12} className="spin" />
+                                <span>Loading tracklist...</span>
                               </div>
                             ) : (!albumTracklists[albumId] || albumTracklists[albumId].length === 0) ? (
-                              <span style={{ fontSize: 11, color: 'var(--mu)' }}>No tracklist data found for this version.</span>
+                              <span style={{ fontSize: 11, color: 'var(--mu)' }}>No tracklist data available for this version.</span>
                             ) : (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <div style={{ fontSize: 11, color: 'var(--mu)', marginBottom: 4, display: 'flex', justifyContent: 'space-between' }}>
+                              <>
+                                <div style={{ fontSize: 11, color: 'var(--mu)', display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
                                   <span>Tracks ({albumTracklists[albumId].length}):</span>
-                                  <span>Click &ldquo;+ Add&rdquo; to add any individual track to your crate</span>
+                                  <span>Click &ldquo;+ Add&rdquo; to add individual songs to your crate</span>
                                 </div>
                                 {albumTracklists[albumId].map((t, tIdx) => {
-                                  const isAdded = addedTrackIds.has(t.id);
-                                  const isImportingTrack = importingKey === `track-${t.id}`;
-                                  const isPlaying = playingTrackId === t.id;
+                                  const isTrackAdded = addedTrackIds.has(t.id);
+                                  const isImportingThisTrack = importingKey === `track-${t.id}`;
+                                  const isTrackPlaying = playingTrackId === t.id;
 
                                   return (
                                     <div
-                                      key={`album-track-${t.id}-${tIdx}`}
+                                      key={`alb-t-${t.id}-${tIdx}`}
                                       style={{
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: 8,
                                         padding: '4px 6px',
                                         borderRadius: 4,
-                                        background: isPlaying ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
+                                        background: isTrackPlaying ? 'rgba(99, 102, 241, 0.1)' : 'transparent',
                                       }}
                                     >
-                                      <span style={{ fontSize: 11, color: 'var(--mu)', width: 22, textAlign: 'right', flexShrink: 0 }}>
+                                      <span style={{ fontSize: 11, color: 'var(--mu)', width: 20, textAlign: 'right', flexShrink: 0 }}>
                                         {tIdx + 1}.
                                       </span>
                                       {t.preview && (
@@ -1343,13 +1383,13 @@ export const HybridSearchModal: React.FC<Props> = ({
                                             border: 'none',
                                             padding: 2,
                                             cursor: 'pointer',
-                                            color: isPlaying ? '#818cf8' : 'var(--mu)',
+                                            color: isTrackPlaying ? '#818cf8' : 'var(--mu)',
                                             display: 'flex',
                                             alignItems: 'center',
                                           }}
-                                          title={isPlaying ? 'Pause preview' : 'Play 30s preview'}
+                                          title={isTrackPlaying ? 'Pause preview' : 'Play preview'}
                                         >
-                                          {isPlaying ? <Pause size={12} /> : <Play size={12} />}
+                                          {isTrackPlaying ? <Pause size={12} /> : <Play size={12} />}
                                         </button>
                                       )}
                                       <span
@@ -1359,8 +1399,8 @@ export const HybridSearchModal: React.FC<Props> = ({
                                           overflow: 'hidden',
                                           textOverflow: 'ellipsis',
                                           whiteSpace: 'nowrap',
-                                          color: isPlaying ? '#a5b4fc' : 'var(--fg)',
-                                          fontWeight: isPlaying ? 600 : 400,
+                                          color: isTrackPlaying ? '#a5b4fc' : 'var(--fg)',
+                                          fontWeight: isTrackPlaying ? 600 : 400,
                                         }}
                                       >
                                         {t.title}
@@ -1371,31 +1411,21 @@ export const HybridSearchModal: React.FC<Props> = ({
                                         </span>
                                       )}
                                       {t.isrc && (
-                                        <span
-                                          style={{
-                                            fontSize: 9,
-                                            padding: '1px 4px',
-                                            borderRadius: 2,
-                                            background: '#14532d',
-                                            color: '#86efac',
-                                            fontWeight: 600,
-                                          }}
-                                          title={`ISRC: ${t.isrc}`}
-                                        >
+                                        <span style={{ fontSize: 9, padding: '1px 4px', borderRadius: 2, background: '#14532d', color: '#86efac', fontWeight: 600 }}>
                                           ISRC
                                         </span>
                                       )}
                                       <button
                                         type="button"
-                                        className={isAdded ? '' : 'p'}
-                                        disabled={isImportingTrack || isAdded}
+                                        className={isTrackAdded ? '' : 'p'}
+                                        disabled={isImportingThisTrack || isTrackAdded}
                                         onClick={() => handleAddTrack({ ...t, cover: t.cover || activeVersion.thumb || album.thumb })}
                                         style={{ fontSize: 10, padding: '2px 8px', flexShrink: 0 }}
-                                        title={`Add track "${t.title}" to destination`}
+                                        title={`Add "${t.title}" to ${targetNodeName}`}
                                       >
-                                        {isAdded ? (
+                                        {isTrackAdded ? (
                                           <span style={{ color: '#4ade80' }}>Added ✓</span>
-                                        ) : isImportingTrack ? (
+                                        ) : isImportingThisTrack ? (
                                           'Adding...'
                                         ) : (
                                           '+ Add'
@@ -1404,7 +1434,7 @@ export const HybridSearchModal: React.FC<Props> = ({
                                     </div>
                                   );
                                 })}
-                              </div>
+                              </>
                             )}
                           </div>
                         )}
@@ -1414,6 +1444,139 @@ export const HybridSearchModal: React.FC<Props> = ({
                 </div>
               </div>
             )}
+
+            {/* ============================================================ */}
+            {/* SECTION 3: ARTISTS                                           */}
+            {/* ============================================================ */}
+            {visibleArtists.length > 0 && (
+              <div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: '#a1a1aa',
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    marginBottom: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <User size={12} style={{ color: '#818cf8' }} />
+                  <span>Artists ({visibleArtists.length})</span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {visibleArtists.map((artist, artistIdx) => {
+                    if (!artist) return null;
+                    const artistName = artist.name || 'Unknown Artist';
+                    const key = `artist-${artistName}-${artistIdx}`;
+                    const isImporting = importingKey === key;
+                    const isAdded = addedArtists.has(artistName);
+                    const isSelected = selectableItems[selectedIndex]?.type === 'artist' && selectableItems[selectedIndex]?.id === artistName;
+
+                    return (
+                      <div
+                        key={key}
+                        className={`music-cmd-item ${isSelected ? 'selected' : ''}`}
+                        onClick={() => setSelectedIndex(visibleTracks.length + filteredAlbums.length + artistIdx)}
+                      >
+                        <CoverArt
+                          src={artist.thumb}
+                          alt={artistName}
+                          size={38}
+                          type="artist"
+                          seed={artistName}
+                          rounded="full"
+                        />
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <strong style={{ fontSize: 13, color: 'var(--fg)' }}>{artistName}</strong>
+                            <span className="ty">Artist</span>
+                          </div>
+                          <small style={{ color: 'var(--mu)', fontSize: 11 }}>
+                            {artist.nb_album ? `${artist.nb_album} releases cataloged` : 'Musical Artist'}
+                          </small>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                          <button
+                            type="button"
+                            style={{ fontSize: 11, padding: '3px 8px', background: 'transparent', border: '1px solid #272730', borderRadius: 4, color: 'var(--fg)', cursor: 'pointer' }}
+                            title="Search releases specifically by this artist"
+                            onClick={e => {
+                              e.stopPropagation();
+                              setQuery(artistName);
+                              setActiveFilter('albums');
+                            }}
+                          >
+                            View Releases
+                          </button>
+                          <button
+                            type="button"
+                            className={isAdded ? '' : 'p'}
+                            disabled={isImporting || isAdded}
+                            onClick={e => {
+                              e.stopPropagation();
+                              handleAddArtist(artist);
+                            }}
+                            style={{ fontSize: 11, padding: '3px 10px' }}
+                            title={`Add artist container "${artistName}" to ${targetNodeName}`}
+                          >
+                            {isAdded ? 'Added ✓' : isImporting ? 'Adding...' : '+ Add Artist'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ============================================================ */}
+          {/* FOOTER BAR (KEYBOARD HINTS & CURRENT TARGET)                 */}
+          {/* ============================================================ */}
+          <div
+            style={{
+              padding: '8px 16px',
+              background: '#09090c',
+              borderTop: '1px solid #1c1c22',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 11,
+              color: '#71717a',
+              flexWrap: 'wrap',
+              gap: 8,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span className="music-cmd-kbd">↑</span>
+                <span className="music-cmd-kbd">↓</span>
+                <span>navigate</span>
+              </span>
+
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span className="music-cmd-kbd">↵</span>
+                <span>add to crate</span>
+              </span>
+
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span className="music-cmd-kbd">esc</span>
+                <span>close</span>
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span>Destination:</span>
+              <span style={{ color: '#a5b4fc', fontWeight: 500, background: 'rgba(99, 102, 241, 0.1)', padding: '1px 6px', borderRadius: 4, border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+                {targetNodeName}
+              </span>
+            </div>
           </div>
         </ErrorBoundary>
       </div>
