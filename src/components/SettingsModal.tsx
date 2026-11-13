@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Settings,
   CheckCircle2,
@@ -7,9 +7,10 @@ import {
   X,
   RotateCcw,
   Layers,
-  ArrowLeft,
-  Search,
-  SlidersHorizontal,
+  Database,
+  CheckSquare,
+  Keyboard,
+  ExternalLink,
 } from 'lucide-react';
 
 interface Props {
@@ -22,6 +23,8 @@ interface Props {
   onOpenExport?: () => void;
 }
 
+type SettingsTab = 'general' | 'backup' | 'shortcuts';
+
 export const SettingsModal: React.FC<Props> = ({
   isOpen,
   onClose,
@@ -31,307 +34,268 @@ export const SettingsModal: React.FC<Props> = ({
   onResetCompleted,
   onOpenExport,
 }) => {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('general');
+
   if (!isOpen) return null;
 
   return (
     <>
       <div className="ov on" onClick={onClose} />
       <div
-        className="dlg on"
+        className="dlg on settings-redesign-modal"
         role="dialog"
         aria-label="Application Settings"
-        style={{ maxWidth: 560, padding: '20px 24px', maxHeight: '88vh', overflowY: 'auto' }}
       >
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-            <div
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: 6,
-                background: 'rgba(167, 139, 250, 0.15)',
-                border: '1px solid rgba(167, 139, 250, 0.35)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#c4b5fd',
-              }}
-            >
+        <div className="settings-header">
+          <div className="settings-header-left">
+            <div className="settings-header-icon-wrap">
               <Settings size={16} />
             </div>
             <div>
-              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: '#f4f4f5' }}>Settings</h2>
-              <div style={{ fontSize: 11, color: 'var(--mu)', marginTop: 1 }}>Preferences, Library Status &amp; Shortcuts</div>
+              <h2 className="settings-header-title">Settings &amp; Preferences</h2>
+              <div className="settings-header-sub">Configure library behavior, completion tracking &amp; keybinds</div>
             </div>
           </div>
           <button
             type="button"
+            className="settings-close-btn"
             onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'var(--mu)',
-              cursor: 'pointer',
-              padding: '4px 8px',
-              borderRadius: 4,
-              fontSize: 16,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
             title="Close (Esc)"
           >
-            <X size={16} />
+            <X size={15} />
           </button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {/* Status Mode Card */}
-          <div
-            style={{
-              border: `1px solid ${statusEnabled ? 'rgba(99, 102, 241, 0.45)' : 'var(--bd)'}`,
-              background: statusEnabled ? 'rgba(99, 102, 241, 0.08)' : 'rgba(255, 255, 255, 0.02)',
-              borderRadius: 8,
-              padding: 14,
-              transition: 'all 0.2s ease',
-            }}
+        {/* Tab Navigation */}
+        <div className="settings-tab-nav">
+          <button
+            type="button"
+            className={`settings-tab-btn ${activeTab === 'general' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('general')}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-                  <ShieldCheck size={16} style={{ color: statusEnabled ? '#818cf8' : 'var(--mu)' }} />
-                  <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#fafafa' }}>
-                    Album Completion Status
-                  </h4>
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      padding: '1px 6px',
-                      borderRadius: 4,
-                      background: statusEnabled ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.08)',
-                      color: statusEnabled ? '#4ade80' : 'var(--mu)',
-                      border: `1px solid ${statusEnabled ? 'rgba(34, 197, 94, 0.4)' : 'transparent'}`,
-                    }}
-                  >
-                    {statusEnabled ? 'Enabled' : 'Disabled'}
-                  </span>
-                </div>
-                <p style={{ margin: '0 0 10px', color: 'var(--mu)', fontSize: 12, lineHeight: 1.45 }}>
-                  When enabled, uncompleted albums are greyed out and do not display cover banner thumbnails.
-                  Marking an album as completed (via right-click or shortcut <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '0 4px', borderRadius: 3, color: '#fafafa' }}>C</kbd>) reveals its artwork and full vibrancy.
-                  Completion status automatically stretches across all versions of the album across all your crates.
-                </p>
-              </div>
+            <ShieldCheck size={14} />
+            <span>General &amp; Status</span>
+          </button>
+          <button
+            type="button"
+            className={`settings-tab-btn ${activeTab === 'backup' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('backup')}
+          >
+            <Layers size={14} />
+            <span>Backup &amp; Archive</span>
+          </button>
+          <button
+            type="button"
+            className={`settings-tab-btn ${activeTab === 'shortcuts' ? 'is-active' : ''}`}
+            onClick={() => setActiveTab('shortcuts')}
+          >
+            <Keyboard size={14} />
+            <span>Keybinds</span>
+          </button>
+        </div>
 
-              {/* Toggle Switch */}
-              <button
-                type="button"
-                onClick={() => onToggleStatus(!statusEnabled)}
-                style={{
-                  width: 44,
-                  height: 24,
-                  borderRadius: 12,
-                  background: statusEnabled ? '#4f46e5' : '#27272a',
-                  border: `1px solid ${statusEnabled ? '#6366f1' : '#3f3f46'}`,
-                  position: 'relative',
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                  transition: 'background 0.2s ease',
-                  padding: 0,
-                }}
-                role="switch"
-                aria-checked={statusEnabled}
-                title={`Turn Status ${statusEnabled ? 'Off' : 'On'}`}
-              >
-                <div
-                  style={{
-                    width: 18,
-                    height: 18,
-                    borderRadius: '50%',
-                    background: '#ffffff',
-                    position: 'absolute',
-                    top: 2,
-                    left: statusEnabled ? 22 : 2,
-                    transition: 'left 0.2s ease',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.4)',
-                  }}
-                />
-              </button>
-            </div>
+        {/* Tab Content */}
+        <div className="settings-tab-body">
+          {activeTab === 'general' && (
+            <div className="settings-section-stack">
+              {/* Album Completion Mode Card */}
+              <div className={`settings-card ${statusEnabled ? 'status-active' : ''}`}>
+                <div className="settings-card-row">
+                  <div className="settings-card-info">
+                    <div className="settings-card-title-row">
+                      <ShieldCheck size={15} className="settings-card-icon" style={{ color: statusEnabled ? '#818cf8' : '#71717a' }} />
+                      <h4 className="settings-card-title">Album Completion Mode</h4>
+                      <span className={`settings-status-badge ${statusEnabled ? 'enabled' : ''}`}>
+                        {statusEnabled ? 'Active' : 'Disabled'}
+                      </span>
+                    </div>
+                    <p className="settings-card-desc">
+                      Dims uncompleted albums and tracks in lists. Marking an album as completed (<kbd className="settings-kbd">C</kbd>) reveals full vibrancy across all crates.
+                    </p>
+                  </div>
 
-            {/* Status Statistics & Reset */}
-            {statusEnabled && (
-              <div
-                style={{
-                  marginTop: 10,
-                  paddingTop: 10,
-                  borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#e4e4e7' }}>
-                  <CheckCircle2 size={13} style={{ color: '#22c55e' }} />
-                  <span>
-                    <strong>{completedCount}</strong> album{completedCount === 1 ? '' : 's'} marked as completed
-                  </span>
-                </div>
-
-                {completedCount > 0 && (
+                  {/* Toggle Switch */}
                   <button
                     type="button"
-                    onClick={onResetCompleted}
-                    style={{
-                      background: 'rgba(239, 68, 68, 0.1)',
-                      border: '1px solid rgba(239, 68, 68, 0.25)',
-                      color: '#f87171',
-                      padding: '2px 8px',
-                      borderRadius: 4,
-                      fontSize: 11,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
-                    title="Reset all completed marks"
+                    className={`settings-toggle-switch ${statusEnabled ? 'on' : ''}`}
+                    onClick={() => onToggleStatus(!statusEnabled)}
+                    role="switch"
+                    aria-checked={statusEnabled}
+                    title={`Turn Completion Status ${statusEnabled ? 'Off' : 'On'}`}
                   >
-                    <RotateCcw size={11} />
-                    <span>Reset All</span>
+                    <div className="settings-toggle-knob" />
                   </button>
+                </div>
+
+                {/* Sub-box: Count & Reset */}
+                {statusEnabled && (
+                  <div className="settings-subbox">
+                    <div className="settings-subbox-left">
+                      <CheckCircle2 size={13} style={{ color: '#22c55e' }} />
+                      <span>
+                        <strong>{completedCount}</strong> album{completedCount === 1 ? '' : 's'} completed
+                      </span>
+                    </div>
+
+                    {completedCount > 0 && (
+                      <button
+                        type="button"
+                        className="settings-reset-btn"
+                        onClick={onResetCompleted}
+                        title="Reset all completed album marks"
+                      >
+                        <RotateCcw size={11} />
+                        <span>Reset All</span>
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-          </div>
 
-          {/* Export & Backup Section */}
-          <div
-            style={{
-              border: '1px solid var(--bd)',
-              background: 'rgba(255, 255, 255, 0.02)',
-              borderRadius: 8,
-              padding: 14,
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
-                  <Layers size={16} style={{ color: '#38bdf8' }} />
-                  <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: '#fafafa' }}>
-                    Library Backup &amp; Export
-                  </h4>
+              {/* Workflow & Productivity Preferences */}
+              <div className="settings-card">
+                <div className="settings-card-title-row" style={{ marginBottom: 10 }}>
+                  <CheckSquare size={14} style={{ color: '#38bdf8' }} />
+                  <h4 className="settings-card-title">Interactive Workflow Controls</h4>
                 </div>
-                <p style={{ margin: 0, color: 'var(--mu)', fontSize: 12, lineHeight: 1.45 }}>
-                  Export your entire crates hierarchy, tracks, and metadata to a portable JSON backup file, or restore from an existing archive.
-                </p>
-              </div>
+                <div className="settings-compact-list">
+                  <div className="settings-compact-item">
+                    <div className="settings-compact-left">
+                      <span className="settings-compact-name">Selection Action Bar</span>
+                      <span className="settings-compact-desc">Bottom popup bar showing batch operations when items are highlighted</span>
+                    </div>
+                    <span className="settings-pill-active">Enabled</span>
+                  </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenExport?.();
-                }}
-                style={{
-                  background: 'rgba(56, 189, 248, 0.12)',
-                  border: '1px solid rgba(56, 189, 248, 0.35)',
-                  color: '#7dd3fc',
-                  padding: '6px 14px',
-                  borderRadius: 5,
-                  fontSize: 12,
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                }}
-                title="Open Export & Backup Archive (⌘E)"
-              >
-                <Layers size={14} />
-                <span>Export / Backup</span>
-              </button>
-            </div>
-          </div>
+                  <div className="settings-compact-item">
+                    <div className="settings-compact-left">
+                      <span className="settings-compact-name">Click-to-Select Mode</span>
+                      <span className="settings-compact-desc">Multi-select items rapidly without needing to hold Shift or Cmd key</span>
+                    </div>
+                    <span className="settings-pill-active">Available</span>
+                  </div>
 
-          {/* Comprehensive Key Shortcuts Reference */}
-          <div
-            style={{
-              border: '1px solid var(--bd)',
-              background: 'rgba(255, 255, 255, 0.02)',
-              borderRadius: 8,
-              padding: 14,
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-              <Sparkles size={15} style={{ color: '#a78bfa' }} />
-              <h4 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#f4f4f5' }}>
-                Key Shortcuts Reference
-              </h4>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {/* Category: Navigation */}
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#818cf8', marginBottom: 5 }}>
-                  Navigation &amp; Views
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 12px', fontSize: 11, color: 'var(--mu)' }}>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Backspace</kbd> / <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>[</kbd> Go back up / parent</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Alt + →</kbd> / <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>]</kbd> Go forward in history</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Enter</kbd> Open container / Inspect track</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Space</kbd> Preview &amp; inspect track</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘\</kbd> Toggle workspace dock collapse</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>Esc</kbd> Close modal / Clear selection</div>
-                </div>
-              </div>
-
-              {/* Category: Music & Catalog */}
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#38bdf8', marginBottom: 5 }}>
-                  Releases &amp; Catalog
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 12px', fontSize: 11, color: 'var(--mu)' }}>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>A</kbd> / <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘I</kbd> Search releases (Discogs)</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>T</kbd> Add track manually</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>N</kbd> New container (Folder / Album)</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>C</kbd> Toggle Album Completed status</div>
-                </div>
-              </div>
-
-              {/* Category: Tools & Batch */}
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#34d399', marginBottom: 5 }}>
-                  Tools &amp; Organization
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 12px', fontSize: 11, color: 'var(--mu)' }}>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘K</kbd> Command Palette / Quick jump</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘F</kbd> Filter tracks in crate</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘A</kbd> Select all items in view</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘C</kbd> / <kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘X</kbd> Copy / Cut selected items</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘V</kbd> Paste items into active folder</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>M</kbd> Move selected tracks / items</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>R</kbd> Resolve missing ISRC codes</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>E</kbd> Rename / edit container</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌘E</kbd> Export &amp; backup library</div>
-                  <div><kbd style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3, color: '#fafafa' }}>⌫</kbd> Delete selected items</div>
+                  <div className="settings-compact-item">
+                    <div className="settings-compact-left">
+                      <span className="settings-compact-name">Pinnable Navigational Submenu</span>
+                      <span className="settings-compact-desc">Drag, vertically resize, and pin the crate hierarchy menu to the screen</span>
+                    </div>
+                    <span className="settings-pill-active">Available</span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {activeTab === 'backup' && (
+            <div className="settings-section-stack">
+              <div className="settings-card">
+                <div className="settings-card-row">
+                  <div className="settings-card-info">
+                    <div className="settings-card-title-row">
+                      <Layers size={15} style={{ color: '#38bdf8' }} />
+                      <h4 className="settings-card-title">Library Backup &amp; Archive</h4>
+                      <span className="settings-status-badge enabled">JSON</span>
+                    </div>
+                    <p className="settings-card-desc">
+                      Export your entire crates hierarchy, track records, and metadata to a portable JSON backup file.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="settings-action-btn primary"
+                    onClick={() => {
+                      onClose();
+                      onOpenExport?.();
+                    }}
+                    title="Open Export & Backup Archive (⌘E)"
+                  >
+                    <Layers size={13} />
+                    <span>Export / Backup</span>
+                    <kbd className="settings-kbd">⌘E</kbd>
+                  </button>
+                </div>
+              </div>
+
+              <div className="settings-card">
+                <div className="settings-card-row">
+                  <div className="settings-card-info">
+                    <div className="settings-card-title-row">
+                      <Database size={15} style={{ color: '#a78bfa' }} />
+                      <h4 className="settings-card-title">SQLite Database Health</h4>
+                    </div>
+                    <p className="settings-card-desc">
+                      Continuous database persistence with SQLite WAL mode. All crate operations, renames, and track links are permanently saved.
+                    </p>
+                  </div>
+                  <span className="settings-pill-active">Healthy</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'shortcuts' && (
+            <div className="settings-section-stack">
+              <div className="settings-card">
+                <div className="settings-card-title-row" style={{ marginBottom: 12 }}>
+                  <Sparkles size={14} style={{ color: '#a78bfa' }} />
+                  <h4 className="settings-card-title">Complete Keyboard Shortcuts</h4>
+                </div>
+
+                <div className="settings-shortcuts-grid">
+                  {/* Category: Navigation */}
+                  <div className="settings-shortcut-group">
+                    <div className="settings-shortcut-cat-title">Navigation &amp; Views</div>
+                    <div className="settings-shortcut-row"><kbd className="settings-kbd">Backspace</kbd> / <kbd className="settings-kbd">[</kbd> <span>Go back / parent</span></div>
+                    <div className="settings-shortcut-row"><kbd className="settings-kbd">Alt + →</kbd> / <kbd className="settings-kbd">]</kbd> <span>Go forward in history</span></div>
+                    <div className="settings-shortcut-row"><kbd className="settings-kbd">Enter</kbd> <span>Open container / Inspect</span></div>
+                    <div className="settings-shortcut-row"><kbd className="settings-kbd">Space</kbd> <span>Quick preview track</span></div>
+                    <div className="settings-shortcut-row"><kbd className="settings-kbd">⌘\</kbd> <span>Toggle workspace drawer</span></div>
+                    <div className="settings-shortcut-row"><kbd className="settings-kbd">Esc</kbd> <span>Close modal / Clear selection</span></div>
+                  </div>
+
+                  {/* Category: Catalog */}
+                  <div className="settings-shortcut-group">
+                    <div className="settings-shortcut-cat-title">Releases &amp; Music</div>
+                    <div className="settings-shortcut-row"><kbd className="settings-kbd">A</kbd> / <kbd className="settings-kbd">⌘I</kbd> <span>Search &amp; import releases</span></div>
+                    <div className="settings-shortcut-row"><kbd className="settings-kbd">T</kbd> <span>Add track manually</span></div>
+                    <div className="settings-shortcut-row"><kbd className="settings-kbd">N</kbd> <span>New folder / crate</span></div>
+                    <div className="settings-shortcut-row"><kbd className="settings-kbd">C</kbd> <span>Toggle album completion</span></div>
+                  </div>
+
+                  {/* Category: Tools */}
+                  <div className="settings-shortcut-group" style={{ gridColumn: 'span 2' }}>
+                    <div className="settings-shortcut-cat-title">Organization &amp; Batch Operations</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 14px' }}>
+                      <div className="settings-shortcut-row"><kbd className="settings-kbd">⌘K</kbd> <span>Command Palette</span></div>
+                      <div className="settings-shortcut-row"><kbd className="settings-kbd">⌘F</kbd> <span>Filter tracks in crate</span></div>
+                      <div className="settings-shortcut-row"><kbd className="settings-kbd">⌘A</kbd> <span>Select all in active view</span></div>
+                      <div className="settings-shortcut-row"><kbd className="settings-kbd">⌘C</kbd> / <kbd className="settings-kbd">⌘X</kbd> <span>Copy / Cut selection</span></div>
+                      <div className="settings-shortcut-row"><kbd className="settings-kbd">⌘V</kbd> <span>Paste items into folder</span></div>
+                      <div className="settings-shortcut-row"><kbd className="settings-kbd">M</kbd> <span>Move selected tracks</span></div>
+                      <div className="settings-shortcut-row"><kbd className="settings-kbd">R</kbd> <span>Resolve missing ISRCs</span></div>
+                      <div className="settings-shortcut-row"><kbd className="settings-kbd">E</kbd> <span>Edit metadata / rename</span></div>
+                      <div className="settings-shortcut-row"><kbd className="settings-kbd">⌘E</kbd> <span>Export &amp; backup library</span></div>
+                      <div className="settings-shortcut-row"><kbd className="settings-kbd">⌫</kbd> <span>Delete selected items</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 18 }}>
+        <div className="settings-footer">
+          <div className="settings-footer-brand">
+            FMSort Studio · Local Catalog Manager
+          </div>
           <button
             type="button"
-            className="p"
+            className="settings-done-btn"
             onClick={onClose}
-            style={{ padding: '6px 20px', fontSize: 12, borderRadius: 5 }}
           >
             Done
           </button>

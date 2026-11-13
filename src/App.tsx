@@ -75,6 +75,13 @@ import {
   Copy,
   Pin,
   PinOff,
+  Edit3,
+  Trash2,
+  CheckSquare,
+  CheckCircle2,
+  X,
+  GripHorizontal,
+  GripVertical,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -158,9 +165,39 @@ export const App: React.FC = () => {
     } catch {}
     return 'ws-1';
   });
-  const [workspaceDropdownOpen, setWorkspaceDropdownOpen] = useState(false);
+  const [workspacesCollapsed, setWorkspacesCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('fmsort_workspaces_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('fmsort_workspaces_collapsed', String(workspacesCollapsed));
+    } catch {}
+  }, [workspacesCollapsed]);
+
+  const [hoverPreviewNode, setHoverPreviewNode] = useState<LibraryNode | null>(null);
+  const [hoverPreviewPos, setHoverPreviewPos] = useState<{ left: number } | null>(null);
+  const hoverTimeoutRef = useRef<any>(null);
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
   const [workspacePickerSearch, setWorkspacePickerSearch] = useState('');
-  const workspaceDropdownRef = useRef<HTMLDivElement>(null);
+  const workspacePickerRef = useRef<HTMLDivElement>(null);
+  const workspaceAddContainerRef = useRef<HTMLDivElement>(null);
+  const workspacesDockRef = useRef<HTMLDivElement>(null);
+
+  // Navigational Submenu Draggable, Resizable & Pinnable
+  const [isMenuPinned, setIsMenuPinned] = useState(false);
+  const isMenuPinnedRef = useRef(false);
+  isMenuPinnedRef.current = isMenuPinned;
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  const [menuHeight, setMenuHeight] = useState<number>(480);
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
+
+  // "Select Multiple" Mode state
+  const [selectMultipleMode, setSelectMultipleMode] = useState(false);
   const dragHoverTimeoutRef = useRef<any>(null);
   const draggedTracksRef = useRef<number[]>([]);
   const draggedNodesRef = useRef<string[]>([]);
@@ -677,7 +714,73 @@ export const App: React.FC = () => {
     clearDragState();
   };
 
+  const handleWorkspaceChipMouseEnter = (node: LibraryNode | null, e: React.MouseEvent<HTMLDivElement>) => {
+    if (!node) return;
+    if (draggingTrackIds.length > 0 || draggedTracksRef.current.length > 0 || draggingNodeIds.length > 0 || draggedNodesRef.current.length > 0) {
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const wrapperRect = workspacesDockRef.current?.getBoundingClientRect();
+    const leftPos = rect.left - (wrapperRect?.left || 0);
 
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoverPreviewNode(node);
+      setHoverPreviewPos({ left: Math.max(0, leftPos - 10) });
+    }, 220);
+  };
+
+  const handleWorkspaceChipMouseLeave = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    setHoverPreviewNode(null);
+    setHoverPreviewPos(null);
+  };
+
+  // Navigational Submenu Drag & Move
+  const handleMenuDragStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const dropdownEl = dropdownContainerRef.current;
+    if (!dropdownEl) return;
+    const rect = dropdownEl.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+
+    const handleMouseMove = (moveEv: MouseEvent) => {
+      const newX = Math.max(10, Math.min(window.innerWidth - rect.width - 10, moveEv.clientX - offsetX));
+      const newY = Math.max(10, Math.min(window.innerHeight - 100, moveEv.clientY - offsetY));
+      setMenuPosition({ x: newX, y: newY });
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  // Navigational Submenu Vertical Resize
+  const handleMenuResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const startHeight = menuHeight;
+
+    const handleMouseMove = (moveEv: MouseEvent) => {
+      const deltaY = moveEv.clientY - startY;
+      const newHeight = Math.max(260, Math.min(window.innerHeight - 80, startHeight + deltaY));
+      setMenuHeight(newHeight);
+    };
+
+    const handleMouseUp = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
 
   const loadTree = async (preferredNodeId?: string) => {
     try {
@@ -804,11 +907,15 @@ export const App: React.FC = () => {
       if (columnMenuRef.current && !columnMenuRef.current.contains(e.target as Node)) {
         setColumnMenuOpen(false);
       }
-      if (treeDropdownRef.current && !treeDropdownRef.current.contains(e.target as Node)) {
+      if (!isMenuPinnedRef.current && treeDropdownRef.current && !treeDropdownRef.current.contains(e.target as Node)) {
         setTreeDropdownOpen(false);
       }
-      if (workspaceDropdownRef.current && !workspaceDropdownRef.current.contains(e.target as Node)) {
-        setWorkspaceDropdownOpen(false);
+      if (
+        workspacePickerRef.current &&
+        !workspacePickerRef.current.contains(e.target as Node) &&
+        !workspaceAddContainerRef.current?.contains(e.target as Node)
+      ) {
+        setWorkspacePickerOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -823,7 +930,10 @@ export const App: React.FC = () => {
         setCommandPaletteOpen(true);
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 't') {
         e.preventDefault();
-        setWorkspaceDropdownOpen(prev => !prev);
+        setWorkspacePickerOpen(prev => !prev);
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === '\\' || e.key === '|')) {
+        e.preventDefault();
+        setWorkspacesCollapsed(prev => !prev);
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w') {
         e.preventDefault();
         closeWorkspace(activeWorkspaceId);
@@ -841,8 +951,11 @@ export const App: React.FC = () => {
           switchWorkspace(workspaces[targetIdx].id);
         }
       } else if (e.key === 'Escape') {
-        setTreeDropdownOpen(false);
-        setWorkspaceDropdownOpen(false);
+        if (!isMenuPinnedRef.current) setTreeDropdownOpen(false);
+        setWorkspacePickerOpen(false);
+        setSelectedTrackIds(new Set());
+        setSelectedNodeIds(new Set());
+        setSelectMultipleMode(false);
         setContextMenu(prev => ({ ...prev, isOpen: false }));
         setImportModalOpen(false);
         setTuneImportOpen(false);
@@ -1906,7 +2019,7 @@ export const App: React.FC = () => {
 
     lastSelectedTrackIdRef.current = track.id;
 
-    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+    if (selectMultipleMode || e.shiftKey || e.metaKey || e.ctrlKey) {
       setSelectedTrackIds(prev => {
         const next = new Set(prev);
         if (next.has(track.id)) next.delete(track.id);
@@ -1956,7 +2069,7 @@ export const App: React.FC = () => {
 
     lastSelectedNodeIdRef.current = node.id;
 
-    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+    if (selectMultipleMode || e.shiftKey || e.metaKey || e.ctrlKey) {
       setSelectedNodeIds(prev => {
         const next = new Set(prev);
         if (next.has(node.id)) next.delete(node.id);
@@ -2893,7 +3006,57 @@ export const App: React.FC = () => {
                         </button>
 
                         {treeDropdownOpen && (
-                          <div className="crumb-tree-dropdown header-popover" role="menu">
+                          <div
+                            ref={dropdownContainerRef}
+                            className={`crumb-tree-dropdown header-popover ${isMenuPinned ? 'is-pinned' : ''}`}
+                            role="menu"
+                            style={{
+                              height: menuHeight,
+                              maxHeight: 'calc(100vh - 60px)',
+                              ...(menuPosition
+                                ? {
+                                    position: 'fixed',
+                                    left: menuPosition.x,
+                                    top: menuPosition.y,
+                                    zIndex: 1050,
+                                  }
+                                : {}),
+                            }}
+                          >
+                            {/* Submenu Top Window Bar with Drag Handle & Pin Control */}
+                            <div className="crumb-menu-window-bar">
+                              <div
+                                className="crumb-menu-drag-handle"
+                                onMouseDown={handleMenuDragStart}
+                                onDoubleClick={() => setMenuPosition(null)}
+                                title="Drag to reposition submenu · Double-click to snap back"
+                              >
+                                <GripHorizontal size={13} className="crumb-menu-grip-icon" />
+                                <span className="crumb-menu-window-title">Library Directory</span>
+                              </div>
+                              <div className="crumb-menu-window-actions">
+                                <button
+                                  type="button"
+                                  className={`crumb-menu-pin-btn ${isMenuPinned ? 'is-active' : ''}`}
+                                  onClick={() => setIsMenuPinned(!isMenuPinned)}
+                                  title={isMenuPinned ? 'Unpin submenu (click outside will close)' : 'Pin submenu (keep open while browsing)'}
+                                >
+                                  {isMenuPinned ? <PinOff size={12} /> : <Pin size={12} />}
+                                  <span>{isMenuPinned ? 'Pinned' : 'Pin'}</span>
+                                </button>
+                                {(menuPosition || isMenuPinned) && (
+                                  <button
+                                    type="button"
+                                    className="crumb-menu-close-window-btn"
+                                    onClick={() => setTreeDropdownOpen(false)}
+                                    title="Close submenu"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
                             {/* Menu Header with Integrated Search Box (⌘K) */}
                             <div className="crumb-menu-search-row">
                               <div className="crumb-menu-search-box">
@@ -3049,6 +3212,15 @@ export const App: React.FC = () => {
                                 </span>
                               </button>
                             </div>
+
+                            {/* Vertical Resize Handle */}
+                            <div
+                              className="crumb-menu-resize-handle"
+                              onMouseDown={handleMenuResizeStart}
+                              title="Drag vertically to resize"
+                            >
+                              <div className="crumb-menu-resize-bar" />
+                            </div>
                           </div>
                         )}
                       </div>
@@ -3096,6 +3268,219 @@ export const App: React.FC = () => {
                           );
                         })}
                       </nav>
+                    </div>
+
+                    {/* Top Workspace Drawer */}
+                    <div className="hero-top-workspaces-drawer" ref={workspacesDockRef}>
+                      <div className={`floating-workspaces-dock-wrapper ${workspacesCollapsed ? 'is-collapsed' : ''}`}>
+                        {!workspacesCollapsed ? (
+                          <>
+                            <div className="footer-workspaces-dock">
+                              {workspaces.map((ws, wsIdx) => {
+                                const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
+                                const isActive = ws.id === activeWorkspaceId;
+                                const isTarget = isWorkspaceDropTarget === ws.id;
+                                const flatCount = wsNode ? flattenTracks(wsNode).length : 0;
+
+                                return (
+                                  <div
+                                    key={ws.id}
+                                    className={`workspace-chip ${isActive ? 'active' : ''} ${isTarget ? 'is-drop-target' : ''}`}
+                                    onClick={() => switchWorkspace(ws.id)}
+                                    onAuxClick={e => {
+                                      if (e.button === 1 && workspaces.length > 1) {
+                                        e.preventDefault();
+                                        closeWorkspace(ws.id);
+                                      }
+                                    }}
+                                    onMouseEnter={e => handleWorkspaceChipMouseEnter(wsNode, e)}
+                                    onMouseLeave={handleWorkspaceChipMouseLeave}
+                                    onDragEnter={e => handleWorkspaceChipDragEnter(e, ws.id)}
+                                    onDragOver={e => handleWorkspaceChipDragOver(e, ws.id)}
+                                    onDragLeave={handleWorkspaceChipDragLeave}
+                                    onDrop={e => handleWorkspaceChipDrop(e, ws.id)}
+                                    title={`Switch to "${wsNode?.name || 'Workspace'}" (⌘${wsIdx + 1}) · Middle-click to close · Drag items here`}
+                                  >
+                                    <div className="workspace-chip-icon">
+                                      <CoverArt
+                                        src={wsNode?.cover_url || null}
+                                        alt={wsNode?.name || ''}
+                                        size={14}
+                                        type="folder"
+                                        seed={wsNode?.name || ''}
+                                        rounded={2}
+                                      />
+                                    </div>
+                                    <span className="workspace-chip-title">{wsNode?.name || 'Workspace'}</span>
+                                    {flatCount > 0 && <span className="workspace-chip-badge">{flatCount}</span>}
+                                    {wsIdx < 9 && <kbd className="header-kbd" style={{ fontSize: '9px', padding: '1px 3px' }}>⌘{wsIdx + 1}</kbd>}
+                                    {workspaces.length > 1 && (
+                                      <button
+                                        type="button"
+                                        className="workspace-chip-close"
+                                        onClick={e => {
+                                          e.stopPropagation();
+                                          closeWorkspace(ws.id, e);
+                                        }}
+                                        title="Close workspace"
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* Add Workspace (+) Button & Popover */}
+                            <div className="workspace-add-container" ref={workspaceAddContainerRef}>
+                              <button
+                                type="button"
+                                className={`workspace-add-btn ${workspacePickerOpen ? 'active' : ''}`}
+                                onClick={() => setWorkspacePickerOpen(prev => !prev)}
+                                title="Open in New Workspace (⌘T)"
+                              >
+                                <Plus size={13} strokeWidth={2.4} />
+                              </button>
+
+                              {workspacePickerOpen && (
+                                <div className="workspace-picker-popover top-align" ref={workspacePickerRef} role="menu">
+                                  <div className="workspace-picker-header">
+                                    <div className="workspace-picker-header-title">
+                                      <Layers size={13} style={{ color: '#818cf8' }} />
+                                      <span>Workspaces</span>
+                                    </div>
+                                    <span className="workspace-picker-shortcut">⌘1..{Math.min(workspaces.length, 9)}</span>
+                                  </div>
+
+                                  <div className="workspace-picker-quick-actions">
+                                    {activeNode && (
+                                      <button
+                                        type="button"
+                                        className="workspace-picker-quick-btn"
+                                        onClick={() => {
+                                          const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+                                          setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
+                                          setActiveWorkspaceId(newWsId);
+                                          setWorkspacePickerOpen(false);
+                                          setWorkspacePickerSearch('');
+                                          showToast(`Duplicated workspace for "${activeNode.name}"`);
+                                        }}
+                                      >
+                                        <Copy size={12} style={{ color: '#a78bfa' }} />
+                                        <span>Duplicate View ("{activeNode.name}")</span>
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  <div className="header-ws-search-wrap" style={{ margin: '6px 0' }}>
+                                    <Search size={12} className="header-ws-search-icon" />
+                                    <input
+                                      type="search"
+                                      className="header-ws-search-input"
+                                      placeholder="Search and open crate..."
+                                      value={workspacePickerSearch}
+                                      onChange={e => setWorkspacePickerSearch(e.target.value)}
+                                      autoFocus
+                                    />
+                                  </div>
+
+                                  {workspacePickerSearch.trim() && (
+                                    <div className="header-ws-search-results">
+                                      {allContainers
+                                        .filter(c => c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
+                                        .slice(0, 8)
+                                        .map(c => (
+                                          <button
+                                            key={c.id}
+                                            type="button"
+                                            className="header-ws-search-item"
+                                            onClick={() => {
+                                              openInNewWorkspace(c);
+                                              setWorkspacePickerOpen(false);
+                                              setWorkspacePickerSearch('');
+                                            }}
+                                          >
+                                            <CoverArt
+                                              src={c.cover_url || null}
+                                              alt={c.name}
+                                              size={18}
+                                              type="folder"
+                                              seed={c.name}
+                                              rounded={3}
+                                            />
+                                            <span className="header-ws-search-item-title">{c.name}</span>
+                                            <span className="header-ws-search-item-badge">{c.type}</span>
+                                          </button>
+                                        ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        ) : null}
+
+                        {/* Collapse / Expand Toggle Button */}
+                        {workspacesCollapsed ? (
+                          <div
+                            className="workspace-collapsed-pill"
+                            onClick={() => setWorkspacesCollapsed(false)}
+                            title="Expand Workspace Drawer (⌘\)"
+                          >
+                            <div className="workspace-collapsed-icon">
+                              <Layers size={12} />
+                            </div>
+                            <span className="workspace-collapsed-text">
+                              {workspaces.length} {workspaces.length === 1 ? 'Workspace' : 'Workspaces'}
+                            </span>
+                            <ChevronDown size={11} style={{ transform: 'rotate(-90deg)', opacity: 0.7 }} />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            className="workspace-dock-collapse-btn"
+                            onClick={() => setWorkspacesCollapsed(true)}
+                            title="Collapse Workspace Drawer (⌘\)"
+                          >
+                            <ChevronDown size={11} style={{ transform: 'rotate(90deg)' }} />
+                          </button>
+                        )}
+
+                        {/* Hover Preview Card Tooltip */}
+                        {hoverPreviewNode && hoverPreviewPos && !workspacesCollapsed && (
+                          <div
+                            className="workspace-preview-popover top-align"
+                            style={{ left: hoverPreviewPos.left }}
+                          >
+                            <div className="workspace-preview-media">
+                              <CoverArt
+                                src={hoverPreviewNode.cover_url || null}
+                                alt={hoverPreviewNode.name}
+                                size={36}
+                                type={hoverPreviewNode.type === 'Artist' ? 'artist' : 'folder'}
+                                seed={hoverPreviewNode.name}
+                                rounded={hoverPreviewNode.type === 'Artist' ? 'full' : 4}
+                              />
+                            </div>
+                            <div className="workspace-preview-info">
+                              <h4 className="workspace-preview-title">{hoverPreviewNode.name}</h4>
+                              <div className="workspace-preview-meta">
+                                <span>{hoverPreviewNode.type}</span>
+                                <span>·</span>
+                                <span>{flattenTracks(hoverPreviewNode).length} tracks</span>
+                                {hoverPreviewNode.children && hoverPreviewNode.children.length > 0 && (
+                                  <>
+                                    <span>·</span>
+                                    <span>{hoverPreviewNode.children.length} subfolders</span>
+                                  </>
+                                )}
+                              </div>
+                              <div className="workspace-preview-hint">Click chip to switch · Drag items to move</div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -3210,194 +3595,8 @@ export const App: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Right side: Workspace dropdown, Filter box, and Add Music button across from title */}
+                    {/* Right side: Filter box and Add Music button across from title */}
                     <div className="hero-actions-right">
-                      {/* Workspace Dropdown */}
-                      {(() => {
-                        const currentWs = workspaces.find(w => w.id === activeWorkspaceId);
-                        const currentWsNode = currentWs ? findNodeById(tree, currentWs.nodeId) : activeNode;
-
-                        return (
-                          <div className="header-workspace-container" ref={workspaceDropdownRef}>
-                            <button
-                              type="button"
-                              className={`header-workspace-btn ${workspaceDropdownOpen ? 'active' : ''}`}
-                              onClick={() => setWorkspaceDropdownOpen(prev => !prev)}
-                              onDragOver={e => {
-                                e.preventDefault();
-                                if (!workspaceDropdownOpen) setWorkspaceDropdownOpen(true);
-                              }}
-                              title="Workspaces (⌘1..9, ⌘T)"
-                              aria-label="Workspaces"
-                            >
-                              <Layers size={13} className="header-workspace-icon" />
-                              <span className="header-workspace-name">
-                                {currentWsNode?.name || 'Workspace'}
-                              </span>
-                              {workspaces.length > 1 && (
-                                <span className="header-workspace-badge">{workspaces.length}</span>
-                              )}
-                              <ChevronDown size={12} className={`header-workspace-arrow ${workspaceDropdownOpen ? 'open' : ''}`} />
-                            </button>
-
-                            {workspaceDropdownOpen && (
-                              <div className="header-workspace-popover" role="menu">
-                                <div className="header-ws-popover-header">
-                                  <div className="header-ws-title-group">
-                                    <Layers size={13} style={{ color: '#818cf8' }} />
-                                    <span className="header-ws-title">Workspaces</span>
-                                    <span className="header-ws-count-badge">{workspaces.length}</span>
-                                  </div>
-                                  <div className="header-ws-header-actions">
-                                    <span className="header-ws-hint">⌘1..{Math.min(workspaces.length, 9)}</span>
-                                  </div>
-                                </div>
-
-                                <div className="header-ws-list">
-                                  {workspaces.map((ws, wsIdx) => {
-                                    const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
-                                    const isActive = ws.id === activeWorkspaceId;
-                                    const isTarget = isWorkspaceDropTarget === ws.id;
-                                    const flatCount = wsNode ? flattenTracks(wsNode).length : 0;
-                                    const subCount = wsNode?.children?.length || 0;
-
-                                    return (
-                                      <div
-                                        key={ws.id}
-                                        className={`header-ws-item ${isActive ? 'is-active' : ''} ${isTarget ? 'is-drop-target' : ''}`}
-                                        onClick={() => {
-                                          switchWorkspace(ws.id);
-                                          setWorkspaceDropdownOpen(false);
-                                        }}
-                                        onAuxClick={e => {
-                                          if (e.button === 1 && workspaces.length > 1) {
-                                            e.preventDefault();
-                                            closeWorkspace(ws.id);
-                                          }
-                                        }}
-                                        onDragEnter={e => handleWorkspaceChipDragEnter(e, ws.id)}
-                                        onDragOver={e => handleWorkspaceChipDragOver(e, ws.id)}
-                                        onDragLeave={handleWorkspaceChipDragLeave}
-                                        onDrop={e => {
-                                          handleWorkspaceChipDrop(e, ws.id);
-                                          setWorkspaceDropdownOpen(false);
-                                        }}
-                                        title={`Switch to "${wsNode?.name || 'Workspace'}" (⌘${wsIdx + 1}) · Drag here to move items into this workspace`}
-                                      >
-                                        <div className="header-ws-item-thumb">
-                                          <CoverArt
-                                            src={wsNode?.cover_url || null}
-                                            alt={wsNode?.name || ''}
-                                            size={22}
-                                            type="folder"
-                                            seed={wsNode?.name || ''}
-                                            rounded={4}
-                                          />
-                                        </div>
-
-                                        <div className="header-ws-item-info">
-                                          <div className="header-ws-item-name">{wsNode?.name || 'Untitled Crate'}</div>
-                                          <div className="header-ws-item-sub">
-                                            <span>{flatCount} {flatCount === 1 ? 'track' : 'tracks'}</span>
-                                            {subCount > 0 && <span> · {subCount} {subCount === 1 ? 'subfolder' : 'subfolders'}</span>}
-                                          </div>
-                                        </div>
-
-                                        <div className="header-ws-item-actions">
-                                          {wsIdx < 9 && (
-                                            <kbd className="header-kbd">⌘{wsIdx + 1}</kbd>
-                                          )}
-                                          {workspaces.length > 1 && (
-                                            <button
-                                              type="button"
-                                              className="header-ws-close-btn"
-                                              onClick={e => {
-                                                e.stopPropagation();
-                                                closeWorkspace(ws.id, e);
-                                              }}
-                                              title="Close Workspace (Middle-click or ×)"
-                                              aria-label="Close workspace"
-                                            >
-                                              ✕
-                                            </button>
-                                          )}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-
-                                <div className="header-ws-divider" />
-
-                                <div className="header-ws-open-section">
-                                  <div className="header-ws-quick-actions">
-                                    {activeNode && (
-                                      <button
-                                        type="button"
-                                        className="header-ws-quick-btn"
-                                        onClick={() => {
-                                          const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-                                          setWorkspaces(prev => [...prev, { id: newWsId, nodeId: activeNode.id, history: [activeNode.id], historyIndex: 0 }]);
-                                          setActiveWorkspaceId(newWsId);
-                                          setWorkspaceDropdownOpen(false);
-                                          setWorkspacePickerSearch('');
-                                          showToast(`Duplicated workspace for "${activeNode.name}"`);
-                                        }}
-                                      >
-                                        <Copy size={12} style={{ color: '#a78bfa' }} />
-                                        <span>Duplicate Active View</span>
-                                      </button>
-                                    )}
-                                  </div>
-
-                                  <div className="header-ws-search-wrap">
-                                    <Search size={12} className="header-ws-search-icon" />
-                                    <input
-                                      type="search"
-                                      className="header-ws-search-input"
-                                      placeholder="Open folder in new workspace..."
-                                      value={workspacePickerSearch}
-                                      onChange={e => setWorkspacePickerSearch(e.target.value)}
-                                    />
-                                  </div>
-
-                                  {workspacePickerSearch.trim() && (
-                                    <div className="header-ws-search-results">
-                                      {allContainers
-                                        .filter(c => c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
-                                        .slice(0, 8)
-                                        .map(c => (
-                                          <button
-                                            key={c.id}
-                                            type="button"
-                                            className="header-ws-search-item"
-                                            onClick={() => {
-                                              openInNewWorkspace(c);
-                                              setWorkspaceDropdownOpen(false);
-                                              setWorkspacePickerSearch('');
-                                            }}
-                                          >
-                                            <CoverArt
-                                              src={c.cover_url || null}
-                                              alt={c.name}
-                                              size={18}
-                                              type="folder"
-                                              seed={c.name}
-                                              rounded={3}
-                                            />
-                                            <span className="header-ws-search-item-title">{c.name}</span>
-                                            <span className="header-ws-search-item-badge">{c.type}</span>
-                                          </button>
-                                        ))}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-
                       {/* Filter Box */}
                       <div className="header-filter-box">
                         <Search size={13} className="header-filter-icon" />
@@ -4008,6 +4207,241 @@ export const App: React.FC = () => {
         <div className="fmsort-toast" role="status">
           <Check size={15} style={{ color: '#4ade80' }} />
           <span>{toastMessage}</span>
+        </div>
+      )}
+
+      {/* Floating Selection Actions Popup Bar */}
+      {(selectedTrackIds.size > 0 || selectedNodeIds.size > 0) && (
+        <div className="selection-popup-bar" role="region" aria-label="Selection actions">
+          {/* 1. Selection count & status */}
+          <div className="selection-popup-info">
+            <div className="selection-popup-badge">
+              <CheckSquare size={13} className="selection-badge-icon" />
+              <span className="selection-popup-count">
+                {selectedTrackIds.size > 0 && selectedNodeIds.size > 0
+                  ? `${selectedNodeIds.size} folders, ${selectedTrackIds.size} tracks`
+                  : selectedTrackIds.size > 0
+                    ? `${selectedTrackIds.size} ${selectedTrackIds.size === 1 ? 'track' : 'tracks'}`
+                    : `${selectedNodeIds.size} ${selectedNodeIds.size === 1 ? 'container' : 'containers'}`}
+              </span>
+            </div>
+            {selectedTrackIds.size > 0 && (
+              <span className="selection-popup-sub">
+                {fmtDuration(
+                  activeFlatTracks
+                    .filter(t => selectedTrackIds.has(t.id))
+                    .reduce((sum, t) => sum + (t.len || 0), 0)
+                )}
+              </span>
+            )}
+          </div>
+
+          <div className="selection-popup-divider" />
+
+          {/* 2. "Select Multiple" Mode Toggle */}
+          <button
+            type="button"
+            className={`selection-multi-toggle-btn ${selectMultipleMode ? 'is-active' : ''}`}
+            onClick={() => {
+              setSelectMultipleMode(prev => {
+                const next = !prev;
+                showToast(next ? 'Multi-select mode ON: Click items to toggle' : 'Multi-select mode OFF');
+                return next;
+              });
+            }}
+            title="Toggle click-to-select mode: click rows to add/remove without holding Shift or ⌘"
+          >
+            <CheckSquare size={13} />
+            <span>Select Multiple</span>
+            <span className="selection-multi-indicator">{selectMultipleMode ? 'ON' : 'OFF'}</span>
+          </button>
+
+          <div className="selection-popup-divider" />
+
+          {/* 3. Action Buttons */}
+          <div className="selection-popup-actions">
+            {/* Track-specific actions */}
+            {selectedTrackIds.size > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="selection-action-btn"
+                  onClick={() => {
+                    if (firstSelectedTrack) setActiveTrack(firstSelectedTrack);
+                  }}
+                  title="Edit metadata (E)"
+                >
+                  <Edit3 size={13} />
+                  <span>Edit</span>
+                  <kbd className="selection-kbd">E</kbd>
+                </button>
+
+                <button
+                  type="button"
+                  className="selection-action-btn"
+                  onClick={() => setMoveTracksOpen(true)}
+                  title="Move selected tracks (M)"
+                >
+                  <FolderInput size={13} />
+                  <span>Move</span>
+                  <kbd className="selection-kbd">M</kbd>
+                </button>
+
+                <button
+                  type="button"
+                  className="selection-action-btn"
+                  onClick={() => copySelectedItems(undefined, Array.from(selectedTrackIds), 'copy')}
+                  title="Copy tracks to clipboard (⌘C)"
+                >
+                  <Copy size={13} />
+                  <span>Copy</span>
+                  <kbd className="selection-kbd">⌘C</kbd>
+                </button>
+
+                <button
+                  type="button"
+                  className="selection-action-btn"
+                  onClick={() => {
+                    if (selectedTrackIds.size === 1 && firstSelectedTrack) {
+                      handleResolveIsrcAction(firstSelectedTrack);
+                    } else {
+                      handleBatchResolveIsrcAction();
+                    }
+                  }}
+                  title="Resolve ISRCs with Deezer/MusicBrainz (R)"
+                >
+                  <Sparkles size={13} />
+                  <span>ISRCs</span>
+                  <kbd className="selection-kbd">R</kbd>
+                </button>
+
+                <button
+                  type="button"
+                  className="selection-action-btn is-danger"
+                  onClick={() => {
+                    if (selectedTrackIds.size === 1 && firstSelectedTrack) {
+                      handleDeleteTrackAction(firstSelectedTrack);
+                    } else {
+                      handleBatchDeleteTracksAction();
+                    }
+                  }}
+                  title="Delete selected tracks (Backspace / ⌦)"
+                >
+                  <Trash2 size={13} />
+                  <span>Delete</span>
+                  <kbd className="selection-kbd">⌫</kbd>
+                </button>
+              </>
+            )}
+
+            {/* Container-specific actions */}
+            {selectedNodeIds.size > 0 && (
+              <>
+                {selectedNode && (
+                  <button
+                    type="button"
+                    className="selection-action-btn"
+                    onClick={() => selectNode(selectedNode)}
+                    title="Open container (Enter)"
+                  >
+                    <Folder size={13} />
+                    <span>Open</span>
+                    <kbd className="selection-kbd">↵</kbd>
+                  </button>
+                )}
+
+                {selectedNode && (
+                  <button
+                    type="button"
+                    className="selection-action-btn"
+                    onClick={() => openInNewWorkspace(selectedNode)}
+                    title="Open in new workspace tab (⌘↵)"
+                  >
+                    <Layers size={13} />
+                    <span>New Tab</span>
+                  </button>
+                )}
+
+                {selectedNode && selectedNode.type === 'Album' && statusEnabled && (
+                  <button
+                    type="button"
+                    className="selection-action-btn"
+                    onClick={() => {
+                      const artist = selectedNode.tracks?.[0]?.a || (activeNode?.type === 'Artist' ? activeNode.name : '');
+                      const completed = isAlbumCompleted(artist, selectedNode.name, completedAlbumKeys);
+                      handleToggleAlbumCompleted(artist, selectedNode.name, !completed);
+                    }}
+                    title="Toggle album completed status (C)"
+                  >
+                    <CheckCircle2 size={13} />
+                    <span>Status</span>
+                    <kbd className="selection-kbd">C</kbd>
+                  </button>
+                )}
+
+                {selectedNode && (
+                  <button
+                    type="button"
+                    className="selection-action-btn"
+                    onClick={() => {
+                      setNodeToEdit(selectedNode);
+                      setNodeEditOpen(true);
+                    }}
+                    title="Rename / Edit container (E)"
+                  >
+                    <Edit3 size={13} />
+                    <span>Rename</span>
+                    <kbd className="selection-kbd">E</kbd>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  className="selection-action-btn"
+                  onClick={() => copySelectedItems(Array.from(selectedNodeIds), undefined, 'copy')}
+                  title="Copy container (⌘C)"
+                >
+                  <Copy size={13} />
+                  <span>Copy</span>
+                  <kbd className="selection-kbd">⌘C</kbd>
+                </button>
+
+                <button
+                  type="button"
+                  className="selection-action-btn is-danger"
+                  onClick={() => {
+                    const nodesToDelete = allContainers.filter(n => selectedNodeIds.has(n.id));
+                    if (nodesToDelete.length === 1) {
+                      handleDeleteNodeAction(nodesToDelete[0]);
+                    } else {
+                      handleBatchDeleteNodesAction(nodesToDelete);
+                    }
+                  }}
+                  title="Delete container(s) (Backspace / ⌦)"
+                >
+                  <Trash2 size={13} />
+                  <span>Delete</span>
+                  <kbd className="selection-kbd">⌫</kbd>
+                </button>
+              </>
+            )}
+          </div>
+
+          <div className="selection-popup-divider" />
+
+          {/* 4. Dismiss / Clear Selection */}
+          <button
+            type="button"
+            className="selection-dismiss-btn"
+            onClick={() => {
+              setSelectedTrackIds(new Set());
+              setSelectedNodeIds(new Set());
+              setSelectMultipleMode(false);
+            }}
+            title="Deselect all (Esc)"
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
     </>
