@@ -52,6 +52,7 @@ interface Props {
   onBatchDeleteTracks?: (trackIds: number[]) => void;
   // Node actions
   onSelectNode?: (node: LibraryNode) => void;
+  onOpenInNewWorkspace?: (node: LibraryNode) => void;
   onImportArtistDiscography?: (nodes: LibraryNode[]) => void;
   onAddMusicToNode?: (node: LibraryNode) => void;
   onAddTrackToNode?: (node: LibraryNode) => void;
@@ -89,6 +90,7 @@ export const ContextMenu: React.FC<Props> = ({
   onDeleteTrack,
   onBatchDeleteTracks,
   onSelectNode,
+  onOpenInNewWorkspace,
   onImportArtistDiscography,
   onAddMusicToNode,
   onAddTrackToNode,
@@ -675,6 +677,25 @@ export const ContextMenu: React.FC<Props> = ({
           </div>
 
           <div className="ctx-divider" />
+
+          {/* Open in New Workspace (Option 3 Dock) */}
+          {onOpenInNewWorkspace && (
+            <>
+              <button
+                type="button"
+                className="ctx-item"
+                onClick={() => {
+                  onClose();
+                  onOpenInNewWorkspace(node);
+                }}
+              >
+                <ExternalLink size={14} style={{ color: '#38bdf8' }} />
+                <span className="ctx-item-label" style={{ fontWeight: 500 }}>Open in New Workspace</span>
+                <span className="ctx-item-shortcut">⌘+Click</span>
+              </button>
+              <div className="ctx-divider" />
+            </>
+          )}
 
           {/* Album Completion Status */}
           {statusEnabled && isAlbum && (

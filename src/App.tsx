@@ -43,14 +43,11 @@ import { MoveTracksModal } from './components/MoveTracksModal';
 import { NodeEditModal } from './components/NodeEditModal';
 import { BackupModal } from './components/BackupModal';
 import { SettingsModal } from './components/SettingsModal';
-import { SocialWidgets } from './components/SocialWidgets';
 import { CoverArt, getFunkyPalette } from './components/CoverArt';
 import { ContextMenu } from './components/ContextMenu';
 import type { ContextMenuState } from './components/ContextMenu';
 import { ArtistProjectsSuggestions } from './components/ArtistProjectsSuggestions';
 import { ArtistProfileHeader } from './components/ArtistProfileHeader';
-import { SocialFeedPage } from './components/SocialFeedPage';
-import { ProfilePage } from './components/ProfilePage';
 import {
   Search,
   FolderPlus,
@@ -69,13 +66,11 @@ import {
   Info,
   Radio,
   Library,
-  Rss,
   ChevronLeft,
   ChevronDown,
   ChevronUp,
   FileText,
   FolderInput,
-  User,
 } from 'lucide-react';
 
 const COLUMNS: ColumnDef[] = [
@@ -132,14 +127,26 @@ function flattenVisibleTree(nodes: LibraryNode[], openMap: Record<string, boolea
   return result;
 }
 
+export interface Workspace {
+  id: string;
+  nodeId: string;
+  history: string[];
+  historyIndex: number;
+}
+
 export const App: React.FC = () => {
-  const [currentPage, setCurrentPage] = useState<'library' | 'feed' | 'profile'>(() => {
-    if (typeof window !== 'undefined') {
-      if (window.location.pathname === '/profile') return 'profile';
-      if (window.location.pathname === '/feed') return 'feed';
-    }
-    return 'library';
-  });
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([
+    { id: 'ws-1', nodeId: '', history: [], historyIndex: 0 },
+  ]);
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string>('ws-1');
+  const [hoverPreviewNode, setHoverPreviewNode] = useState<LibraryNode | null>(null);
+  const [hoverPreviewPos, setHoverPreviewPos] = useState<{ left: number } | null>(null);
+  const hoverTimeoutRef = useRef<any>(null);
+  const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false);
+  const [workspacePickerSearch, setWorkspacePickerSearch] = useState('');
+  const workspacePickerRef = useRef<HTMLDivElement>(null);
+  const workspacesDockRef = useRef<HTMLDivElement>(null);
+  const [isWorkspaceDropTarget, setIsWorkspaceDropTarget] = useState<string | null>(null);
   const [tree, setTree] = useState<LibraryNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeNodeId, setActiveNodeId] = useState<string>('');
@@ -269,6 +276,18 @@ export const App: React.FC = () => {
     setTreeDropdownOpen(false);
     setCollapsedSections({});
 
+    setWorkspaces(prev => prev.map(ws => {
+      if (ws.id === activeWorkspaceId) {
+        if (!pushHistory) {
+          return { ...ws, nodeId: node.id };
+        }
+        const newHist = ws.history.slice(0, ws.historyIndex + 1);
+        newHist.push(node.id);
+        return { ...ws, nodeId: node.id, history: newHist, historyIndex: newHist.length - 1 };
+      }
+      return ws;
+    }));
+
     if (pushHistory) {
       window.history.pushState(
         { nodeId: node.id, time: Date.now() },
@@ -349,6 +368,139 @@ export const App: React.FC = () => {
     }
   };
 
+  const allContainers = useMemo(() => {
+    const list: LibraryNode[] = [];
+    const walk = (nodes: LibraryNode[]) => {
+      for (const n of nodes) {
+        list.push(n);
+        if (n.children && n.children.length > 0) {
+          walk(n.children);
+        }
+      }
+    };
+    walk(tree);
+    return list;
+  }, [tree]);
+
+  const openInNewWorkspace = (node: LibraryNode, switchTo: boolean = true) => {
+    const existing = workspaces.find(ws => ws.nodeId === node.id);
+    if (existing) {
+      switchWorkspace(existing.id);
+      showToast(`Switched to workspace "${node.name}"`);
+      return;
+    }
+
+    const newWsId = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const newWs: Workspace = {
+      id: newWsId,
+      nodeId: node.id,
+      history: [node.id],
+      historyIndex: 0,
+    };
+
+    setWorkspaces(prev => [...prev, newWs]);
+    if (switchTo) {
+      setActiveWorkspaceId(newWsId);
+      setActiveNodeId(node.id);
+    }
+    showToast(`Opened "${node.name}" in new workspace`);
+  };
+
+  const switchWorkspace = (wsId: string) => {
+    const ws = workspaces.find(w => w.id === wsId);
+    if (!ws) return;
+    setActiveWorkspaceId(ws.id);
+    setActiveNodeId(ws.nodeId);
+    setSelectedTrackIds(new Set());
+    setSelectedNodeId(null);
+  };
+
+  const closeWorkspace = (wsId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (workspaces.length <= 1) {
+      if (tree.length > 0 && activeNodeId !== tree[0].id) {
+        selectNode(tree[0]);
+        showToast('Reset workspace to library root');
+      }
+      return;
+    }
+
+    const idx = workspaces.findIndex(w => w.id === wsId);
+    const remaining = workspaces.filter(w => w.id !== wsId);
+    setWorkspaces(remaining);
+
+    if (activeWorkspaceId === wsId) {
+      const newIdx = Math.max(0, idx - 1);
+      const nextWs = remaining[newIdx];
+      setActiveWorkspaceId(nextWs.id);
+      setActiveNodeId(nextWs.nodeId);
+    }
+  };
+
+  const handleWorkspaceChipDragOver = (e: React.DragEvent, wsId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsWorkspaceDropTarget(wsId);
+  };
+
+  const handleWorkspaceChipDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsWorkspaceDropTarget(null);
+  };
+
+  const handleWorkspaceChipDrop = async (e: React.DragEvent, targetNode: LibraryNode | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsWorkspaceDropTarget(null);
+    if (!targetNode) return;
+
+    const trackIdsToMove = Array.from(selectedTrackIds);
+    if (trackIdsToMove.length === 0) return;
+
+    try {
+      showToast(`Moving ${trackIdsToMove.length} track(s) to "${targetNode.name}"...`);
+      await moveTracks(trackIdsToMove, targetNode.id);
+      await loadTree();
+      showToast(`Moved ${trackIdsToMove.length} track(s) to "${targetNode.name}"`);
+      setSelectedTrackIds(new Set());
+    } catch (err: any) {
+      console.error('Failed to move tracks to workspace:', err);
+      showToast(err.message || 'Failed to move tracks');
+    }
+  };
+
+  const handleWorkspaceChipMouseEnter = (node: LibraryNode | null, e: React.MouseEvent<HTMLDivElement>) => {
+    if (!node) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const wrapperRect = workspacesDockRef.current?.getBoundingClientRect();
+    const leftPos = rect.left - (wrapperRect?.left || 0);
+
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = setTimeout(() => {
+      setHoverPreviewNode(node);
+      setHoverPreviewPos({ left: Math.max(0, leftPos - 10) });
+    }, 220);
+  };
+
+  const handleWorkspaceChipMouseLeave = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    setHoverPreviewNode(null);
+    setHoverPreviewPos(null);
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (workspacePickerRef.current && !workspacePickerRef.current.contains(e.target as Node)) {
+        setWorkspacePickerOpen(false);
+      }
+    };
+    if (workspacePickerOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [workspacePickerOpen]);
+
   const loadTree = async (preferredNodeId?: string) => {
     try {
       const data = await fetchTree();
@@ -358,21 +510,28 @@ export const App: React.FC = () => {
       const historyNodeId = window.history.state?.nodeId;
       if (historyNodeId && findNodeById(data, historyNodeId)) {
         setActiveNodeId(historyNodeId);
+        setWorkspaces(prev => {
+          if (prev.length === 1 && !prev[0].nodeId) {
+            return [{ ...prev[0], nodeId: historyNodeId, history: [historyNodeId], historyIndex: 0 }];
+          }
+          return prev;
+        });
         return;
       }
 
-      if (preferredNodeId !== undefined) {
-        if (preferredNodeId === '' || preferredNodeId === 'root') {
-          const id = data.length > 0 ? data[0].id : '';
-          setActiveNodeId(id);
-          window.history.replaceState({ nodeId: id }, '', window.location.pathname);
-        } else if (findNodeById(data, preferredNodeId)) {
-          setActiveNodeId(preferredNodeId);
-          window.history.replaceState({ nodeId: preferredNodeId }, '', window.location.pathname);
-        }
-      } else if (!activeNodeId && data.length > 0) {
-        setActiveNodeId(data[0].id);
-        window.history.replaceState({ nodeId: data[0].id }, '', window.location.pathname);
+      const initialId = preferredNodeId && findNodeById(data, preferredNodeId)
+        ? preferredNodeId
+        : (data.length > 0 ? data[0].id : '');
+
+      if (initialId) {
+        setActiveNodeId(initialId);
+        setWorkspaces(prev => {
+          if (prev.length === 1 && !prev[0].nodeId) {
+            return [{ ...prev[0], nodeId: initialId, history: [initialId], historyIndex: 0 }];
+          }
+          return prev;
+        });
+        window.history.replaceState({ nodeId: initialId }, '', window.location.pathname);
       }
     } catch (err) {
       console.error('Failed to load library:', err);
@@ -384,15 +543,6 @@ export const App: React.FC = () => {
   // Browser Back/Forward navigation without URL slugs
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
-      if (window.location.pathname === '/profile') {
-        setCurrentPage('profile');
-        return;
-      }
-      if (window.location.pathname === '/feed') {
-        setCurrentPage('feed');
-        return;
-      }
-      setCurrentPage('library');
       const targetId = e.state?.nodeId;
       if (targetId) {
         const targetNode = findNodeById(tree, targetId);
@@ -457,15 +607,32 @@ export const App: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Keyboard shortcut for Command Palette and Back navigation
+  // Keyboard shortcuts for Command Palette, Back navigation, and Workspace Dock
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setCommandPaletteOpen(true);
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w') {
+        e.preventDefault();
+        closeWorkspace(activeWorkspaceId);
+      } else if (e.ctrlKey && e.key === 'Tab') {
+        e.preventDefault();
+        const currentIdx = workspaces.findIndex(w => w.id === activeWorkspaceId);
+        const nextIdx = e.shiftKey
+          ? (currentIdx - 1 + workspaces.length) % workspaces.length
+          : (currentIdx + 1) % workspaces.length;
+        if (workspaces[nextIdx]) switchWorkspace(workspaces[nextIdx].id);
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key >= '1' && e.key <= '9') {
+        const targetIdx = parseInt(e.key, 10) - 1;
+        if (targetIdx < workspaces.length) {
+          e.preventDefault();
+          switchWorkspace(workspaces[targetIdx].id);
+        }
       } else if (e.key === 'Escape') {
         setTreeDropdownOpen(false);
         setContextMenu(prev => ({ ...prev, isOpen: false }));
+        setWorkspacePickerOpen(false);
         setImportModalOpen(false);
         setTuneImportOpen(false);
         setCommandPaletteOpen(false);
@@ -482,14 +649,6 @@ export const App: React.FC = () => {
         (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowLeft') || e.key === '[') &&
         !['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)
       ) {
-        if (currentPage === 'profile' || currentPage === 'feed') {
-          e.preventDefault();
-          setCurrentPage('library');
-          if (window.location.pathname !== '/') {
-            window.history.pushState({}, '', '/');
-          }
-          return;
-        }
         if (activeNodeId) {
           e.preventDefault();
           handleGoBack();
@@ -498,7 +657,7 @@ export const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeNodeId, activePath, currentPage]);
+  }, [activeNodeId, activePath, workspaces, activeWorkspaceId]);
 
 
   const handleOpenTuneImport = (node?: LibraryNode | null) => {
@@ -522,35 +681,6 @@ export const App: React.FC = () => {
       console.error('Failed to import project:', err);
       showToast(err.message || 'Failed to import project');
       throw err;
-    }
-  };
-
-  const handleImportFeedRelease = async (title: string, artist: string, cover?: string) => {
-    try {
-      showToast(`Searching release "${title}"...`);
-      const res = await fetch(`/api/deezer/search?q=${encodeURIComponent(`${artist} ${title}`)}`);
-      const results = await res.json();
-      const targetParent = activeNode || tree[0];
-      const targetId = targetParent ? targetParent.id : 'root';
-
-      if (Array.isArray(results) && results.length > 0) {
-        const top = results[0];
-        await importUniversalRelease('deezer', top.id, targetId, true, cover || top.thumb);
-        showToast(`Imported "${title}" into your library!`);
-        await loadTree(targetId);
-      } else {
-        await createNode({
-          parent_id: targetId === 'root' ? null : targetId,
-          type: 'Album',
-          name: title,
-          cover_url: cover || '',
-        });
-        showToast(`Created "${title}" in your library!`);
-        await loadTree();
-      }
-    } catch (err: any) {
-      console.warn('Feed import error:', err);
-      showToast('Could not import release');
     }
   };
 
@@ -1679,6 +1809,12 @@ export const App: React.FC = () => {
             }
           }}
           onContextMenu={e => handleNodeContextMenu(e, n)}
+          onAuxClick={e => {
+            if (e.button === 1) {
+              e.preventDefault();
+              openInNewWorkspace(n);
+            }
+          }}
           draggable={true}
           onDragStart={e => handleNodeDragStart(e, n)}
           onDragEnd={handleDragEnd}
@@ -1841,6 +1977,12 @@ export const App: React.FC = () => {
             onClick={e => handleNodeClick(child, hasSubItems, isCollapsed, e)}
             onDoubleClick={() => selectNode(child)}
             onContextMenu={e => handleNodeContextMenu(e, child)}
+            onAuxClick={e => {
+              if (e.button === 1) {
+                e.preventDefault();
+                openInNewWorkspace(child);
+              }
+            }}
           >
             {activeCols.map((col, colIdx) => {
               const cellStyle = colIdx === 0 ? { paddingLeft: `${14 + depth * 18}px` } : undefined;
@@ -2005,38 +2147,7 @@ export const App: React.FC = () => {
             onDragLeave={handleUncategorizedDragLeave}
             onDrop={handleUncategorizedDrop}
           >
-        {currentPage === 'feed' ? (
-          <SocialFeedPage
-            tree={tree}
-            onSwitchToLibrary={() => {
-              setCurrentPage('library');
-              if (window.location.pathname !== '/') {
-                window.history.pushState({}, '', '/');
-              }
-            }}
-            onImportRelease={handleImportFeedRelease}
-            showToast={showToast}
-          />
-        ) : currentPage === 'profile' ? (
-          <ProfilePage
-            tree={tree}
-            completedAlbumKeys={completedAlbumKeys}
-            onSwitchToLibrary={() => {
-              setCurrentPage('library');
-              if (window.location.pathname !== '/') {
-                window.history.pushState({}, '', '/');
-              }
-            }}
-            onSelectNode={(node) => {
-              setActiveNodeId(node.id);
-              setCurrentPage('library');
-              if (window.location.pathname !== '/') {
-                window.history.pushState({}, '', '/');
-              }
-            }}
-            showToast={showToast}
-          />
-        ) : activeNode ? (
+        {activeNode ? (
           /* =========================================================================
              Container Detail View (Drilled Down View)
              ========================================================================= */
@@ -2506,40 +2617,6 @@ export const App: React.FC = () => {
                         className="crumb-menu-action-item"
                         onClick={() => {
                           setTreeDropdownOpen(false);
-                          setCurrentPage('profile');
-                          window.history.pushState({ page: 'profile' }, '', '/profile');
-                        }}
-                        title="View Public Profile & Activity Log (/profile)"
-                      >
-                        <div className="crumb-menu-action-left">
-                          <User size={14} style={{ color: '#38bdf8' }} />
-                          <span>Public Profile</span>
-                        </div>
-                        <span className="crumb-menu-action-badge">/profile</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className="crumb-menu-action-item"
-                        onClick={() => {
-                          setTreeDropdownOpen(false);
-                          setCurrentPage('feed');
-                          window.history.pushState({ page: 'feed' }, '', '/feed');
-                        }}
-                        title="View Discovery Feed (/feed)"
-                      >
-                        <div className="crumb-menu-action-left">
-                          <Rss size={14} style={{ color: '#f59e0b' }} />
-                          <span>Discovery Feed</span>
-                        </div>
-                        <span className="crumb-menu-action-badge">/feed</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className="crumb-menu-action-item"
-                        onClick={() => {
-                          setTreeDropdownOpen(false);
                           setSettingsOpen(true);
                         }}
                         title="Library & Application Settings"
@@ -2564,54 +2641,199 @@ export const App: React.FC = () => {
                 )}
               </div>
 
-              {/* Breadcrumb path (WITHOUT dropdown arrows/menus) */}
+              {/* Breadcrumb path */}
               <nav className="unified-crumbs" aria-label="Breadcrumb">
                 <span
                   className="crumb-link root-crumb"
-                  onClick={() => {
-                    if (currentPage !== 'library') {
-                      setCurrentPage('library');
-                      if (window.location.pathname !== '/') {
-                        window.history.pushState({}, '', '/');
-                      }
-                    } else {
-                      setTreeDropdownOpen(!treeDropdownOpen);
-                    }
-                  }}
+                  onClick={() => setTreeDropdownOpen(!treeDropdownOpen)}
                   title="Toggle Library Navigation Menu"
                 >
                   <Library size={13} style={{ marginRight: 4 }} />
                   <span>Library</span>
                 </span>
 
-                {currentPage === 'profile' ? (
-                  <>
-                    <span className="crumb-sep">/</span>
-                    <b className="crumb-current">Public Profile (@err)</b>
-                  </>
-                ) : currentPage === 'feed' ? (
-                  <>
-                    <span className="crumb-sep">/</span>
-                    <b className="crumb-current">Discovery Feed</b>
-                  </>
-                ) : (
-                  activePath.map((item, idx) => {
-                    const isLast = idx === activePath.length - 1;
-                    return (
-                      <React.Fragment key={item.id}>
-                        <span className="crumb-sep">/</span>
-                        {isLast ? (
-                          <b className="crumb-current">{item.name}</b>
-                        ) : (
-                          <span className="crumb-link" onClick={() => selectNode(item)}>
-                            {item.name}
-                          </span>
-                        )}
-                      </React.Fragment>
-                    );
-                  })
-                )}
+                {activePath.map((item, idx) => {
+                  const isLast = idx === activePath.length - 1;
+                  return (
+                    <React.Fragment key={item.id}>
+                      <span className="crumb-sep">/</span>
+                      {isLast ? (
+                        <b className="crumb-current">{item.name}</b>
+                      ) : (
+                        <span
+                          className="crumb-link"
+                          onClick={e => {
+                            if (e.metaKey || e.ctrlKey) {
+                              e.preventDefault();
+                              openInNewWorkspace(item);
+                              return;
+                            }
+                            selectNode(item);
+                          }}
+                          onAuxClick={e => {
+                            if (e.button === 1) {
+                              e.preventDefault();
+                              openInNewWorkspace(item);
+                            }
+                          }}
+                        >
+                          {item.name}
+                        </span>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </nav>
+            </div>
+
+            {/* Option 3: Running Workspaces Dock (macOS / Taskbar Style) */}
+            <div className="footer-dock-divider" />
+
+            <div className="footer-workspaces-dock-wrapper" ref={workspacesDockRef}>
+              <div className="footer-workspaces-dock">
+                {workspaces.map((ws, wsIdx) => {
+                  const wsNode = findNodeById(tree, ws.nodeId) || tree[0];
+                  const isActive = ws.id === activeWorkspaceId;
+                  const isTarget = isWorkspaceDropTarget === ws.id;
+
+                  return (
+                    <div
+                      key={ws.id}
+                      className={`workspace-chip ${isActive ? 'active' : ''} ${isTarget ? 'is-drop-target' : ''}`}
+                      onClick={() => switchWorkspace(ws.id)}
+                      onAuxClick={e => {
+                        if (e.button === 1) {
+                          e.preventDefault();
+                          closeWorkspace(ws.id);
+                        }
+                      }}
+                      onMouseEnter={e => handleWorkspaceChipMouseEnter(wsNode, e)}
+                      onMouseLeave={handleWorkspaceChipMouseLeave}
+                      onDragOver={e => handleWorkspaceChipDragOver(e, ws.id)}
+                      onDragLeave={handleWorkspaceChipDragLeave}
+                      onDrop={e => handleWorkspaceChipDrop(e, wsNode)}
+                      title={`Switch to "${wsNode?.name || 'Workspace'}" (⌘${wsIdx + 1})`}
+                    >
+                      <span className="workspace-chip-icon">
+                        <CoverArt
+                          src={wsNode?.type === 'Folder' ? null : (wsNode?.cover_url || wsNode?.tracks?.[0]?.cover_url || null)}
+                          alt={wsNode?.name || ''}
+                          size={14}
+                          type={wsNode?.type === 'Artist' ? 'artist' : wsNode?.type === 'Playlist' ? 'playlist' : wsNode?.type === 'Folder' ? 'folder' : 'album'}
+                          seed={wsNode?.name || ''}
+                          rounded={wsNode?.type === 'Artist' ? 'full' : 3}
+                        />
+                      </span>
+
+                      <span className="workspace-chip-title">
+                        {wsNode?.name || 'Untitled Crate'}
+                      </span>
+
+                      {workspaces.length > 1 && (
+                        <button
+                          type="button"
+                          className="workspace-chip-close"
+                          onClick={e => closeWorkspace(ws.id, e)}
+                          title="Close Workspace (Middle-click or ×)"
+                          aria-label="Close workspace"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* New Workspace (+) Button */}
+                <div style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    className="workspace-add-btn"
+                    onClick={() => setWorkspacePickerOpen(!workspacePickerOpen)}
+                    title="Open New Workspace (+)"
+                    aria-label="Open New Workspace"
+                  >
+                    <Plus size={13} />
+                  </button>
+
+                  {/* Upward Workspace Picker Popover */}
+                  {workspacePickerOpen && (
+                    <div className="workspace-picker-popover footer-popover" ref={workspacePickerRef}>
+                      <input
+                        type="search"
+                        className="workspace-picker-search"
+                        placeholder="Search crates/folders to open..."
+                        value={workspacePickerSearch}
+                        onChange={e => setWorkspacePickerSearch(e.target.value)}
+                        autoFocus
+                      />
+                      <div className="workspace-picker-list">
+                        {allContainers
+                          .filter(c => !workspacePickerSearch.trim() || c.name.toLowerCase().includes(workspacePickerSearch.toLowerCase()))
+                          .map(c => (
+                            <button
+                              key={c.id}
+                              type="button"
+                              className="workspace-picker-item"
+                              onClick={() => {
+                                openInNewWorkspace(c);
+                                setWorkspacePickerOpen(false);
+                                setWorkspacePickerSearch('');
+                              }}
+                            >
+                              <CoverArt
+                                src={c.type === 'Folder' ? null : (c.cover_url || c.tracks?.[0]?.cover_url || null)}
+                                alt={c.name}
+                                size={18}
+                                type={c.type === 'Artist' ? 'artist' : c.type === 'Playlist' ? 'playlist' : c.type === 'Folder' ? 'folder' : 'album'}
+                                seed={c.name}
+                                rounded={c.type === 'Artist' ? 'full' : 4}
+                              />
+                              <span className="workspace-picker-item-title">{c.name}</span>
+                              <span className="workspace-picker-item-count">{c.type}</span>
+                            </button>
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Hover Preview Card Tooltip */}
+              {hoverPreviewNode && hoverPreviewPos && (
+                <div
+                  className="workspace-preview-popover"
+                  style={{ left: hoverPreviewPos.left }}
+                >
+                  <div className="workspace-preview-media">
+                    <CoverArt
+                      src={hoverPreviewNode.type === 'Folder' ? null : (hoverPreviewNode.cover_url || hoverPreviewNode.tracks?.[0]?.cover_url || null)}
+                      alt={hoverPreviewNode.name}
+                      size={44}
+                      type={hoverPreviewNode.type === 'Artist' ? 'artist' : hoverPreviewNode.type === 'Playlist' ? 'playlist' : hoverPreviewNode.type === 'Folder' ? 'folder' : 'album'}
+                      seed={hoverPreviewNode.name}
+                      rounded={hoverPreviewNode.type === 'Artist' ? 'full' : 6}
+                    />
+                  </div>
+                  <div className="workspace-preview-info">
+                    <h4 className="workspace-preview-title">{hoverPreviewNode.name}</h4>
+                    <div className="workspace-preview-meta">
+                      <span className="active-hero-badge" style={{ fontSize: 9, padding: '1px 5px' }}>
+                        {hoverPreviewNode.type.toUpperCase()}
+                      </span>
+                      <span>·</span>
+                      <span>{flattenTracks(hoverPreviewNode).length} tracks</span>
+                      {hoverPreviewNode.children && hoverPreviewNode.children.length > 0 && (
+                        <>
+                          <span>·</span>
+                          <span>{hoverPreviewNode.children.length} subfolders</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="workspace-preview-hint">Click to switch · Middle-click to close</div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Right: Track Filter Input + Actions (Add Music) */}
@@ -2863,6 +3085,7 @@ export const App: React.FC = () => {
         onDeleteTrack={handleDeleteTrackAction}
         onBatchDeleteTracks={handleBatchDeleteTracksAction}
         onSelectNode={node => selectNode(node)}
+        onOpenInNewWorkspace={openInNewWorkspace}
         onImportArtistDiscography={handleImportArtistDiscographyAction}
         onAddMusicToNode={node => {
           setSelectedNodeId(node.id);
