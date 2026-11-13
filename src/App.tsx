@@ -474,6 +474,47 @@ export const App: React.FC = () => {
     return filterRec(tree);
   }, [tree, menuSearch]);
 
+  // Navigation menu nodes: Pinned folders appear atop all other folders in user's pinned order
+  const displayedNavNodes = useMemo(() => {
+    const baseNodes = menuSearch.trim() ? filteredMenuNodes : tree;
+    if (pinnedCrateIds.length === 0) return baseNodes;
+
+    const pinnedSet = new Set(pinnedCrateIds);
+    const pinnedList: LibraryNode[] = [];
+
+    // Collect all pinned folders in their pinned order
+    pinnedCrateIds.forEach(id => {
+      const found = findNodeById(baseNodes, id);
+      if (found) pinnedList.push(found);
+    });
+
+    // Unpinned root folders
+    const unpinnedList = baseNodes.filter(n => !pinnedSet.has(n.id));
+    return [...pinnedList, ...unpinnedList];
+  }, [tree, filteredMenuNodes, menuSearch, pinnedCrateIds]);
+
+  // Magic slug: "?sear=" URL query parameter opens the Music Search Modal with the specified query
+  useEffect(() => {
+    const checkSearSlug = () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (params.has('sear')) {
+          const queryText = params.get('sear') || '';
+          const targetId = activeNodeIdRef.current || activeWorkspaceIdRef.current || 'uncategorized';
+          setSearchInitialQuery(queryText);
+          setSearchInitialTargetNodeId(targetId);
+          setImportModalOpen(true);
+        }
+      } catch (err) {
+        console.warn('Could not read ?sear= slug parameter:', err);
+      }
+    };
+
+    checkSearSlug();
+    window.addEventListener('popstate', checkSearSlug);
+    return () => window.removeEventListener('popstate', checkSearSlug);
+  }, []);
+
   const handleGoBack = () => {
     if (activePath.length > 1) {
       const parent = activePath[activePath.length - 2];
@@ -2373,7 +2414,7 @@ export const App: React.FC = () => {
     activePath,
     activeTrack,
     clipboard,
-    workspaceDropdownOpen,
+    workspacePickerOpen,
   ]);
 
   // Helper to sort tracks
@@ -2606,16 +2647,21 @@ export const App: React.FC = () => {
             rounded={3}
           />
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{n.name}</span>
+          {isPinned && (
+            <span className="tree-pinned-indicator" title="Pinned folder (always at top)">
+              <Pin size={11} style={{ color: '#f59e0b', fill: '#f59e0b' }} />
+            </span>
+          )}
 
           {/* Quick pin & reorder buttons on hover */}
           <div className="tree-node-actions" onClick={e => e.stopPropagation()}>
             <button
               type="button"
               className={`tree-pin-btn ${isPinned ? 'pinned' : ''}`}
-              title={isPinned ? 'Unpin from submenu' : 'Pin to top of submenu'}
+              title={isPinned ? 'Unpin folder' : 'Pin folder to top'}
               onClick={e => togglePinCrate(n.id, e)}
             >
-              <Pin size={11} />
+              <Pin size={11} style={isPinned ? { color: '#f59e0b', fill: '#f59e0b' } : undefined} />
             </button>
             <button
               type="button"
@@ -3067,7 +3113,6 @@ export const App: React.FC = () => {
                                   placeholder="Search crates or jump to… (⌘K)"
                                   value={menuSearch}
                                   onChange={e => setMenuSearch(e.target.value)}
-                                  autoFocus
                                 />
                                 <button
                                   type="button"
@@ -3083,92 +3128,7 @@ export const App: React.FC = () => {
                               </div>
                             </div>
 
-                            {/* Pinned Folders Section */}
-                            {pinnedCrateIds.length > 0 && !menuSearch.trim() && (
-                              <div className="crumb-menu-pinned-section">
-                                <div className="crumb-menu-section-header">
-                                  <div className="crumb-menu-section-title">
-                                    <Pin size={12} style={{ color: '#f59e0b' }} />
-                                    <span>Pinned Folders</span>
-                                  </div>
-                                  <span className="crumb-menu-section-badge">{pinnedCrateIds.length}</span>
-                                </div>
-                                <div className="crumb-menu-pinned-list">
-                                  {pinnedCrateIds
-                                    .map(id => findNodeById(tree, id))
-                                    .filter((n): n is LibraryNode => Boolean(n))
-                                    .map((pn, pIdx) => (
-                                      <div
-                                        key={pn.id}
-                                        className={`crumb-menu-pinned-item ${activeNodeId === pn.id ? 'active' : ''}`}
-                                        onClick={() => {
-                                          selectNode(pn);
-                                          setTreeDropdownOpen(false);
-                                        }}
-                                        title={`Go to ${pn.name}`}
-                                      >
-                                        <CoverArt
-                                          src={pn.cover_url || null}
-                                          alt={pn.name}
-                                          size={16}
-                                          type="folder"
-                                          seed={pn.name}
-                                          rounded={3}
-                                        />
-                                        <span className="crumb-menu-pinned-name">{pn.name}</span>
-                                        <div className="crumb-menu-pinned-actions">
-                                          {pIdx > 0 && (
-                                            <button
-                                              type="button"
-                                              className="crumb-menu-reorder-btn"
-                                              title="Move Up"
-                                              onClick={e => {
-                                                e.stopPropagation();
-                                                movePinnedOrder(pIdx, pIdx - 1);
-                                              }}
-                                            >
-                                              ↑
-                                            </button>
-                                          )}
-                                          {pIdx < pinnedCrateIds.length - 1 && (
-                                            <button
-                                              type="button"
-                                              className="crumb-menu-reorder-btn"
-                                              title="Move Down"
-                                              onClick={e => {
-                                                e.stopPropagation();
-                                                movePinnedOrder(pIdx, pIdx + 1);
-                                              }}
-                                            >
-                                              ↓
-                                            </button>
-                                          )}
-                                          <button
-                                            type="button"
-                                            className="crumb-menu-unpin-btn"
-                                            title="Unpin folder"
-                                            onClick={e => togglePinCrate(pn.id, e)}
-                                          >
-                                            ✕
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ))}
-                                </div>
-                                <div className="ctx-divider" style={{ margin: '6px 0' }} />
-                              </div>
-                            )}
-
-                            {/* Menu Section Header */}
-                            <div className="crumb-menu-section-header">
-                              <div className="crumb-menu-section-title">
-                                <Library size={13} className="crumb-menu-section-icon" />
-                                <span>Crates &amp; Folders</span>
-                              </div>
-                              <span className="crumb-menu-section-badge">{tree.length}</span>
-                            </div>
-
-                            {/* Menu Directory List (Tree) */}
+                            {/* Menu Directory List (Tree - Pinned crates appear atop) */}
                             <div className="crumb-tree-list">
                               {loading ? (
                                 <div style={{ color: 'var(--mu)', padding: '16px 12px', fontSize: 12 }}>Loading library...</div>
@@ -3181,7 +3141,7 @@ export const App: React.FC = () => {
                                   </p>
                                 </div>
                               ) : (
-                                (menuSearch.trim() ? filteredMenuNodes : tree).map(n => renderTreeNode(n, 0))
+                                displayedNavNodes.map(n => renderTreeNode(n, 0))
                               )}
                             </div>
 
@@ -3511,9 +3471,6 @@ export const App: React.FC = () => {
                           )}
                           {activeNode.type === 'Album' && activeNode.tracks?.[0]?.f && (
                             <span className="active-hero-tag">{activeNode.tracks[0].f}</span>
-                          )}
-                          {activeNode.type === 'Folder' && (
-                            <span className="active-hero-tag">{activeNode.children?.length || 0} CONTAINERS</span>
                           )}
                         </div>
                         <h2 className="active-hero-title">{activeNode.name}</h2>
@@ -4021,6 +3978,13 @@ export const App: React.FC = () => {
             setImportModalOpen(false);
             setSearchInitialQuery('');
             setSearchInitialTargetNodeId('');
+            try {
+              const url = new URL(window.location.href);
+              if (url.searchParams.has('sear')) {
+                url.searchParams.delete('sear');
+                window.history.replaceState(window.history.state, '', url.pathname + (url.search || '') + url.hash);
+              }
+            } catch {}
           }}
           currentNode={selectedNode || activeNode}
           allTreeNodes={tree}
