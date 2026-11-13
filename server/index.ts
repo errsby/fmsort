@@ -34,6 +34,7 @@ import {
   lookupIsrc,
   getArtistSuggestedProjects,
 } from './deezer';
+import { getArtistProfile } from './artistProfile';
 
 initDb();
 
@@ -565,6 +566,14 @@ const server = Bun.serve({
         if (!name) return json({ artist: '', projects: [] });
         const projects = await getArtistSuggestedProjects(name);
         return json({ artist: name, projects });
+      }
+
+      // 12c. Artist Profile & Information: GET /api/artists/profile?name=...
+      if (path === '/api/artists/profile' && method === 'GET') {
+        const name = (url.searchParams.get('name') || '').trim();
+        if (!name) return json({ name: '', genres: [], socials: [] });
+        const profile = await getArtistProfile(name);
+        return json(profile);
       }
 
       // 13. Unified Universal Import: POST /api/releases/import

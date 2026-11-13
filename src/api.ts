@@ -274,6 +274,35 @@ export async function fetchArtistSuggestedProjects(artistName: string): Promise<
   return data.projects || [];
 }
 
+export interface ArtistSocialLink {
+  platform: 'deezer' | 'spotify' | 'apple' | 'youtube' | 'discogs' | 'bandcamp' | 'soundcloud' | 'wikipedia' | 'official' | 'instagram' | 'twitter' | 'web';
+  label: string;
+  url: string;
+}
+
+export interface ArtistProfileData {
+  name: string;
+  bio?: string;
+  description?: string;
+  picture?: string;
+  backdropUrl?: string;
+  genres: string[];
+  country?: string;
+  yearsActive?: string;
+  fanCount?: number;
+  albumCount?: number;
+  deezerId?: number;
+  deezerUrl?: string;
+  wikipediaUrl?: string;
+  socials: ArtistSocialLink[];
+}
+
+export async function fetchArtistProfile(artistName: string): Promise<ArtistProfileData | null> {
+  const res = await fetch(`${API_BASE}/artists/profile?name=${encodeURIComponent(artistName)}`);
+  if (!res.ok) return null;
+  return res.json().catch(() => null);
+}
+
 export async function fetchDiscogsStatus(): Promise<DiscogsStatus> {
   const res = await fetch(`${API_BASE}/discogs/status`);
   if (!res.ok) throw new Error('Failed to fetch Discogs status');

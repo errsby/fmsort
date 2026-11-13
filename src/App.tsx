@@ -13,7 +13,9 @@ import {
   fetchDiscogsArtwork,
   enrichAllIsrcs,
   importUniversalRelease,
+  fetchArtistProfile,
   type SuggestedProject,
+  type ArtistProfileData,
 } from './api';
 import {
   fmtDuration,
@@ -36,6 +38,7 @@ import { CoverArt, getFunkyPalette } from './components/CoverArt';
 import { ContextMenu } from './components/ContextMenu';
 import type { ContextMenuState } from './components/ContextMenu';
 import { ArtistProjectsSuggestions } from './components/ArtistProjectsSuggestions';
+import { ArtistProfileHeader } from './components/ArtistProfileHeader';
 import { SocialFeedPage } from './components/SocialFeedPage';
 import {
   Search,
@@ -142,6 +145,8 @@ export const App: React.FC = () => {
   const [addMusicMenuOpen, setAddMusicMenuOpen] = useState(false);
   const [heroBackdrop, setHeroBackdrop] = useState<string | null>(null);
   const [enrichingIsrc, setEnrichingIsrc] = useState(false);
+  const [artistProfile, setArtistProfile] = useState<ArtistProfileData | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
 
   // Custom Context Menu State
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -463,6 +468,36 @@ export const App: React.FC = () => {
     };
   }, [activeNode?.id, activeNode?.name, activeNode?.type, activeNode?.cover_url]);
 
+  // Fetch artist biography, social links, and Deezer metrics for Artist containers
+  useEffect(() => {
+    let isCancelled = false;
+    if (activeNode?.type === 'Artist') {
+      setLoadingProfile(true);
+      fetchArtistProfile(activeNode.name)
+        .then(profile => {
+          if (!isCancelled) {
+            setArtistProfile(profile);
+            setLoadingProfile(false);
+            if (profile?.backdropUrl && !activeNode.cover_url) {
+              setHeroBackdrop(profile.backdropUrl);
+            }
+          }
+        })
+        .catch(() => {
+          if (!isCancelled) {
+            setArtistProfile(null);
+            setLoadingProfile(false);
+          }
+        });
+    } else {
+      setArtistProfile(null);
+      setLoadingProfile(false);
+    }
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeNode?.id, activeNode?.name, activeNode?.type]);
+
   // Context Menu Trigger Handlers
   const handleTrackContextMenu = (e: React.MouseEvent, track: Track) => {
     if (e.shiftKey) return;
@@ -642,9 +677,7 @@ export const App: React.FC = () => {
     }
     // Subfolders within items (depth > 0) are closed by default
     if (depth > 0) return true;
-    // Subfolders inside the container (type === 'Folder') are closed by default
-    if (child.type === 'Folder') return true;
-    // All other container items (Albums, Artists, Playlists, etc.) at depth 0 are opened by default
+    // Immediate root items on the page (Folders, Albums, Artists, Playlists) are opened by default
     return false;
   };
 
@@ -1252,7 +1285,7 @@ export const App: React.FC = () => {
 
                 <div className="active-hero-content">
                   <CoverArt
-                    src={activeNode.cover_url || (activeNode.type !== 'Folder' ? (activeNode.tracks?.[0]?.cover_url || heroBackdrop) : null)}
+                    src={activeNode.cover_url || (activeNode.type !== 'Folder' ? (activeNode.tracks?.[0]?.cover_url || (activeNode.type === 'Artist' ? artistProfile?.picture : null) || heroBackdrop) : null)}
                     alt={activeNode.name}
                     size={92}
                     type={activeNode.type === 'Artist' ? 'artist' : activeNode.type === 'Playlist' ? 'playlist' : activeNode.type === 'Folder' ? 'folder' : 'album'}
@@ -1319,6 +1352,14 @@ export const App: React.FC = () => {
                         </>
                       )}
                     </div>
+
+                    {activeNode.type === 'Artist' && (
+                      <ArtistProfileHeader
+                        profile={artistProfile}
+                        loading={loadingProfile}
+                        artistName={activeNode.name}
+                      />
+                    )}
                   </div>
                 </div>
               </div>
