@@ -57,7 +57,6 @@ import {
   Library,
   Rss,
   ChevronLeft,
-  ChevronDown,
   ArrowLeft,
 } from 'lucide-react';
 
@@ -190,8 +189,6 @@ export const App: React.FC = () => {
 
   const addMusicRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableHeaderCellElement>(null);
-  const [openSiblingCrumbIndex, setOpenSiblingCrumbIndex] = useState<number | null>(null);
-  const siblingMenuRef = useRef<HTMLDivElement>(null);
 
   const selectNode = (node: LibraryNode) => {
     setActiveNodeId(node.id);
@@ -233,12 +230,6 @@ export const App: React.FC = () => {
     const q = filterText.toLowerCase();
     return tree.filter(n => n.name.toLowerCase().includes(q) || n.type.toLowerCase().includes(q));
   }, [tree, filterText]);
-
-  const getSiblingsForCrumbIndex = (idx: number): LibraryNode[] => {
-    if (idx <= 0) return tree;
-    const parent = activePath[idx - 1];
-    return parent && parent.children ? parent.children : [];
-  };
 
   const handleGoBack = () => {
     if (activePath.length > 1) {
@@ -292,9 +283,6 @@ export const App: React.FC = () => {
       if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
         setHistoryOpen(false);
       }
-      if (siblingMenuRef.current && !siblingMenuRef.current.contains(e.target as Node)) {
-        setOpenSiblingCrumbIndex(null);
-      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
@@ -307,7 +295,6 @@ export const App: React.FC = () => {
         e.preventDefault();
         setCommandPaletteOpen(true);
       } else if (e.key === 'Escape') {
-        setOpenSiblingCrumbIndex(null);
         setHistoryOpen(false);
         setContextMenu(prev => ({ ...prev, isOpen: false }));
         setImportModalOpen(false);
@@ -1084,334 +1071,64 @@ export const App: React.FC = () => {
 
   return (
     <>
-      {/* Main Single-Space Unified Workspace (Merged In-Page Navigation — No standalone header) */}
-      <main className="unified-canvas">
-        {/* In-Page Merged Navigation Strip */}
-        <div className="inpage-nav-strip">
-          {/* Left: Back Arrow + History (../) + Interactive Fluid Breadcrumbs */}
-          <div className="inpage-nav-left">
-            {activeNode && (
-              <button
-                type="button"
-                className="crumb-back-btn"
-                onClick={handleGoBack}
-                title={`Go back up to ${activePath.length > 1 ? activePath[activePath.length - 2]?.name : 'Library'}`}
-                aria-label="Go back up"
-              >
-                <ArrowLeft size={14} />
-              </button>
-            )}
-
-            {/* ../ History button & popover */}
+      <div className="app-shell">
+        {/* Left Sidebar (Spans full height on the left, does not share footer) */}
+        <aside
+          id="side"
+          className={sidebarOpenMobile ? 'on' : ''}
+          onContextMenu={handleSidebarContextMenu}
+        >
+          <div className="sidebar-header">
             <div
-              className="crumb-history-container"
-              ref={historyRef}
-              onMouseEnter={handleHistoryMouseEnter}
-              onMouseLeave={handleHistoryMouseLeave}
+              className="sidebar-brand"
+              onClick={() => {
+                setActiveNodeId('');
+                setSelectedTrackIds(new Set());
+              }}
+              title="Go to Library Overview"
             >
-              <button
-                type="button"
-                className={`crumb-history-btn ${historyOpen ? 'active' : ''}`}
-                onClick={handleHistoryClick}
-                title="Navigation history (hover or click)"
-                aria-label="Navigation history"
-              >
-                ../
-              </button>
-
-              {historyOpen && (
-                <div className="crumb-history-dropdown" role="menu">
-                  <div className="crumb-history-header">
-                    <div className="crumb-history-title">
-                      <History size={12} />
-                      <span>Navigation History</span>
-                    </div>
-                    {history.length > 0 && (
-                      <button
-                        type="button"
-                        className="crumb-history-clear-btn"
-                        onClick={handleClearHistory}
-                        title="Clear history"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="crumb-history-list">
-                    {history.length === 0 ? (
-                      <div className="crumb-history-empty">
-                        No pages visited yet
-                      </div>
-                    ) : (
-                      history.map(item => {
-                        if (!item || !item.id) return null;
-                        const isCurrent = activeNode?.id === item.id;
-                        const itemName = item.name || 'Untitled';
-                        const itemType = item.type || 'Folder';
-                        return (
-                          <button
-                            key={`${item.id}-${item.timestamp || 0}`}
-                            type="button"
-                            className={`crumb-history-item ${isCurrent ? 'is-current' : ''}`}
-                            onClick={() => handleSelectHistoryItem(item)}
-                          >
-                            <CoverArt
-                              src={item.cover_url}
-                              alt={itemName}
-                              size={22}
-                              type={itemType === 'Artist' ? 'artist' : itemType === 'Folder' ? 'folder' : 'album'}
-                              seed={itemName}
-                              rounded={itemType === 'Artist' ? 'full' : 4}
-                            />
-                            <div className="crumb-history-item-meta">
-                              <span className="crumb-history-item-name">{itemName}</span>
-                              <div className="crumb-history-item-sub">
-                                <span>{itemType}</span>
-                                <span>·</span>
-                                <span>{fmtTimeAgo(item.timestamp)}</span>
-                                {isCurrent && (
-                                  <>
-                                    <span>·</span>
-                                    <span style={{ color: '#4ade80', fontWeight: 600 }}>Active</span>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              )}
+              <Library size={15} className="sidebar-brand-icon" />
+              <span className="sidebar-title">Library</span>
             </div>
-
-            {/* Fluid Interactive Breadcrumbs */}
-            <nav className="unified-crumbs" aria-label="Breadcrumb">
-              {/* Root Library Crumb */}
-              <div className="crumb-item-wrap">
-                <span
-                  className={`crumb-link root-crumb ${!activeNode ? 'is-active' : ''}`}
-                  onClick={() => {
-                    setActiveNodeId('');
-                    setSelectedTrackIds(new Set());
-                  }}
-                  title="Library Overview"
-                >
-                  <Library size={13} style={{ marginRight: 4 }} />
-                  <span>Library</span>
-                </span>
-
-                {/* Sibling dropdown trigger for Library */}
-                <button
-                  type="button"
-                  className={`crumb-sibling-btn ${openSiblingCrumbIndex === -1 ? 'active' : ''}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setOpenSiblingCrumbIndex(openSiblingCrumbIndex === -1 ? null : -1);
-                  }}
-                  title="Browse top-level crates"
-                >
-                  <ChevronDown size={11} />
-                </button>
-
-                {openSiblingCrumbIndex === -1 && (
-                  <div className="crumb-sibling-dropdown" ref={siblingMenuRef}>
-                    <div className="sibling-dropdown-header">Top-Level Crates &amp; Folders</div>
-                    <div className="sibling-dropdown-list">
-                      {tree.map(n => (
-                        <button
-                          key={n.id}
-                          type="button"
-                          className={`sibling-dropdown-item ${activeNode?.id === n.id ? 'is-active' : ''}`}
-                          onClick={() => {
-                            selectNode(n);
-                            setOpenSiblingCrumbIndex(null);
-                          }}
-                        >
-                          <CoverArt
-                            src={n.cover_url}
-                            alt={n.name}
-                            size={18}
-                            type={n.type === 'Artist' ? 'artist' : n.type === 'Folder' ? 'folder' : 'album'}
-                            seed={n.name}
-                            rounded={n.type === 'Artist' ? 'full' : 3}
-                          />
-                          <span className="sibling-item-name">{n.name}</span>
-                          <span className="sibling-item-badge">{n.type}</span>
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        className="sibling-dropdown-item new-btn"
-                        onClick={() => {
-                          setOpenSiblingCrumbIndex(null);
-                          setNewContainerOpen(true);
-                        }}
-                      >
-                        <Plus size={13} />
-                        <span>Create New Container…</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Path Segments */}
-              {activePath.map((item, idx) => {
-                const isLast = idx === activePath.length - 1;
-                const siblings = getSiblingsForCrumbIndex(idx);
-
-                return (
-                  <React.Fragment key={item.id}>
-                    <span className="crumb-sep">/</span>
-                    <div className="crumb-item-wrap">
-                      {isLast ? (
-                        <b className="crumb-current">{item.name}</b>
-                      ) : (
-                        <span className="crumb-link" onClick={() => selectNode(item)}>
-                          {item.name}
-                        </span>
-                      )}
-
-                      {siblings.length > 1 && (
-                        <button
-                          type="button"
-                          className={`crumb-sibling-btn ${openSiblingCrumbIndex === idx ? 'active' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenSiblingCrumbIndex(openSiblingCrumbIndex === idx ? null : idx);
-                          }}
-                          title={`Switch sibling (inside ${idx === 0 ? 'Library' : activePath[idx - 1]?.name})`}
-                        >
-                          <ChevronDown size={11} />
-                        </button>
-                      )}
-
-                      {openSiblingCrumbIndex === idx && (
-                        <div className="crumb-sibling-dropdown" ref={siblingMenuRef}>
-                          <div className="sibling-dropdown-header">
-                            Siblings in {idx === 0 ? 'Library' : activePath[idx - 1]?.name}
-                          </div>
-                          <div className="sibling-dropdown-list">
-                            {siblings.map(sib => (
-                              <button
-                                key={sib.id}
-                                type="button"
-                                className={`sibling-dropdown-item ${sib.id === item.id ? 'is-active' : ''}`}
-                                onClick={() => {
-                                  selectNode(sib);
-                                  setOpenSiblingCrumbIndex(null);
-                                }}
-                              >
-                                <CoverArt
-                                  src={sib.cover_url}
-                                  alt={sib.name}
-                                  size={18}
-                                  type={sib.type === 'Artist' ? 'artist' : sib.type === 'Folder' ? 'folder' : 'album'}
-                                  seed={sib.name}
-                                  rounded={sib.type === 'Artist' ? 'full' : 3}
-                                />
-                                <span className="sibling-item-name">{sib.name}</span>
-                                <span className="sibling-item-badge">{sib.type}</span>
-                                {sib.id === item.id && <span className="sibling-active-dot" />}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </React.Fragment>
-                );
-              })}
-            </nav>
-          </div>
-
-          {/* Center: Search Command Bar in the middle */}
-          <div className="inpage-nav-center">
-            <button className="cmd inpage-search-cmd" onClick={() => setCommandPaletteOpen(true)}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                <Search size={14} style={{ color: 'var(--mu)' }} />
-                <span>Search or jump to…</span>
-              </span>
-              <span className="mono">⌘K</span>
-            </button>
-          </div>
-
-          {/* Right: Actions (Container, Add Music, Backup) */}
-          <div className="inpage-nav-right">
             <button
               type="button"
-              className="inpage-action-btn"
+              className="sidebar-new-btn"
               onClick={() => setNewContainerOpen(true)}
               title="Create New Container"
+              aria-label="Create New Container"
             >
               <FolderPlus size={13} />
-              <span>Container</span>
-            </button>
-
-            <div style={{ position: 'relative' }} ref={addMusicRef}>
-              <button
-                type="button"
-                className="p inpage-action-btn"
-                onClick={() => setAddMusicMenuOpen(!addMusicMenuOpen)}
-                title="Add Music"
-              >
-                <Plus size={13} />
-                <span>Add Music</span>
-              </button>
-
-              {addMusicMenuOpen && (
-                <div className="add-music-dropdown" style={{ right: 0, left: 'auto', top: 'calc(100% + 6px)' }}>
-                  <button
-                    type="button"
-                    className="add-music-option"
-                    onClick={() => {
-                      setAddMusicMenuOpen(false);
-                      setImportModalOpen(true);
-                    }}
-                  >
-                    <div style={{ padding: 6, borderRadius: 6, background: '#1e3a5f', color: '#60a5fa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Sparkles size={16} />
-                    </div>
-                    <div>
-                      <div className="add-music-title">Search &amp; Import Releases</div>
-                      <div className="add-music-desc">Search artists &amp; albums from Discogs 17.5M+ and Deezer</div>
-                    </div>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="add-music-option"
-                    onClick={() => {
-                      setAddMusicMenuOpen(false);
-                      setNewTrackOpen(true);
-                    }}
-                  >
-                    <div style={{ padding: 6, borderRadius: 6, background: '#143825', color: '#34d399', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Plus size={16} />
-                    </div>
-                    <div>
-                      <div className="add-music-title">Add Track Manually</div>
-                      <div className="add-music-desc">Enter custom track metadata, duration &amp; catalog tags</div>
-                    </div>
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <button
-              type="button"
-              className="btn-icon"
-              onClick={() => setBackupOpen(true)}
-              title="Backup &amp; Restore Library"
-              style={{ width: 30, height: 30 }}
-            >
-              <Layers size={14} />
             </button>
           </div>
-        </div>
+
+          <div className="tree-list">
+            {loading ? (
+              <div style={{ color: 'var(--mu)', padding: 12 }}>Loading library...</div>
+            ) : tree.length === 0 ? (
+              <div className="empty-sidebar-box">
+                <FolderPlus size={22} style={{ color: 'var(--mu)', marginBottom: 8 }} />
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4, color: '#f4f4f5' }}>Blank Library</div>
+                <p style={{ fontSize: 11, color: 'var(--mu)', margin: '0 0 12px', lineHeight: 1.4 }}>
+                  Create your first container or import music to organize your library.
+                </p>
+                <button
+                  className="p"
+                  style={{ fontSize: 11, width: '100%', justifyContent: 'center' }}
+                  onClick={() => setNewContainerOpen(true)}
+                >
+                  <Plus size={13} />
+                  <span>New Container</span>
+                </button>
+              </div>
+            ) : (
+              tree.map(n => renderTreeNode(n, 0))
+            )}
+          </div>
+        </aside>
+
+        {/* Main Viewport: Scrollable Content + Docked Integrated Footer */}
+        <div className="main-viewport">
+          <main className="main-content-scroll">
         {currentPage === 'feed' ? (
           <SocialFeedPage
             tree={tree}
@@ -1840,7 +1557,237 @@ export const App: React.FC = () => {
             )}
           </div>
         )}
-      </main>
+          </main>
+
+          {/* Integrated UI Footer — Docked at bottom of main viewport (does NOT extend into sidebar) */}
+          <footer className="integrated-footer">
+            {/* Left: Mobile Toggle + Back Button + History (../) + Breadcrumbs (without dropdown arrows) */}
+            <div className="footer-nav-left">
+              <button
+                type="button"
+                className="crumb-back-btn mobile-side-toggle"
+                onClick={() => setSidebarOpenMobile(!sidebarOpenMobile)}
+                title="Toggle Sidebar"
+                aria-label="Toggle Sidebar"
+              >
+                <PanelLeft size={14} />
+              </button>
+
+              {activeNode && (
+                <button
+                  type="button"
+                  className="crumb-back-btn"
+                  onClick={handleGoBack}
+                  title={`Go back up to ${activePath.length > 1 ? activePath[activePath.length - 2]?.name : 'Library'}`}
+                  aria-label="Go back up"
+                >
+                  <ArrowLeft size={14} />
+                </button>
+              )}
+
+              {/* ../ History button & popover */}
+              <div
+                className="crumb-history-container"
+                ref={historyRef}
+                onMouseEnter={handleHistoryMouseEnter}
+                onMouseLeave={handleHistoryMouseLeave}
+              >
+                <button
+                  type="button"
+                  className={`crumb-history-btn ${historyOpen ? 'active' : ''}`}
+                  onClick={handleHistoryClick}
+                  title="Navigation history (hover or click)"
+                  aria-label="Navigation history"
+                >
+                  ../
+                </button>
+
+                {historyOpen && (
+                  <div className="crumb-history-dropdown footer-popover" role="menu">
+                    <div className="crumb-history-header">
+                      <div className="crumb-history-title">
+                        <History size={12} />
+                        <span>Navigation History</span>
+                      </div>
+                      {history.length > 0 && (
+                        <button
+                          type="button"
+                          className="crumb-history-clear-btn"
+                          onClick={handleClearHistory}
+                          title="Clear history"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="crumb-history-list">
+                      {history.length === 0 ? (
+                        <div className="crumb-history-empty">
+                          No pages visited yet
+                        </div>
+                      ) : (
+                        history.map(item => {
+                          if (!item || !item.id) return null;
+                          const isCurrent = activeNode?.id === item.id;
+                          const itemName = item.name || 'Untitled';
+                          const itemType = item.type || 'Folder';
+                          return (
+                            <button
+                              key={`${item.id}-${item.timestamp || 0}`}
+                              type="button"
+                              className={`crumb-history-item ${isCurrent ? 'is-current' : ''}`}
+                              onClick={() => handleSelectHistoryItem(item)}
+                            >
+                              <CoverArt
+                                src={item.cover_url}
+                                alt={itemName}
+                                size={22}
+                                type={itemType === 'Artist' ? 'artist' : itemType === 'Folder' ? 'folder' : 'album'}
+                                seed={itemName}
+                                rounded={itemType === 'Artist' ? 'full' : 4}
+                              />
+                              <div className="crumb-history-item-meta">
+                                <span className="crumb-history-item-name">{itemName}</span>
+                                <div className="crumb-history-item-sub">
+                                  <span>{itemType}</span>
+                                  <span>·</span>
+                                  <span>{fmtTimeAgo(item.timestamp)}</span>
+                                  {isCurrent && (
+                                    <>
+                                      <span>·</span>
+                                      <span style={{ color: '#4ade80', fontWeight: 600 }}>Active</span>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Breadcrumb path (WITHOUT dropdown arrows/menus) */}
+              <nav className="unified-crumbs" aria-label="Breadcrumb">
+                <span
+                  className={`crumb-link root-crumb ${!activeNode ? 'is-active' : ''}`}
+                  onClick={() => {
+                    setActiveNodeId('');
+                    setSelectedTrackIds(new Set());
+                  }}
+                  title="Library Overview"
+                >
+                  <Library size={13} style={{ marginRight: 4 }} />
+                  <span>Library</span>
+                </span>
+
+                {activePath.map((item, idx) => {
+                  const isLast = idx === activePath.length - 1;
+                  return (
+                    <React.Fragment key={item.id}>
+                      <span className="crumb-sep">/</span>
+                      {isLast ? (
+                        <b className="crumb-current">{item.name}</b>
+                      ) : (
+                        <span className="crumb-link" onClick={() => selectNode(item)}>
+                          {item.name}
+                        </span>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </nav>
+            </div>
+
+            {/* Center: Search Command Bar */}
+            <div className="footer-nav-center">
+              <button className="cmd footer-search-cmd" onClick={() => setCommandPaletteOpen(true)}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                  <Search size={14} style={{ color: 'var(--mu)' }} />
+                  <span>Search or jump to…</span>
+                </span>
+                <span className="mono">⌘K</span>
+              </button>
+            </div>
+
+            {/* Right: Actions (Container, Add Music, Backup) */}
+            <div className="footer-nav-right">
+              <button
+                type="button"
+                className="footer-action-btn"
+                onClick={() => setNewContainerOpen(true)}
+                title="Create New Container"
+              >
+                <FolderPlus size={13} />
+                <span>Container</span>
+              </button>
+
+              <div style={{ position: 'relative' }} ref={addMusicRef}>
+                <button
+                  type="button"
+                  className="p footer-action-btn"
+                  onClick={() => setAddMusicMenuOpen(!addMusicMenuOpen)}
+                  title="Add Music"
+                >
+                  <Plus size={13} />
+                  <span>Add Music</span>
+                </button>
+
+                {addMusicMenuOpen && (
+                  <div className="add-music-dropdown footer-popover" style={{ right: 0, left: 'auto', bottom: 'calc(100% + 8px)', top: 'auto' }}>
+                    <button
+                      type="button"
+                      className="add-music-option"
+                      onClick={() => {
+                        setAddMusicMenuOpen(false);
+                        setImportModalOpen(true);
+                      }}
+                    >
+                      <div style={{ padding: 6, borderRadius: 6, background: '#1e3a5f', color: '#60a5fa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Sparkles size={16} />
+                      </div>
+                      <div>
+                        <div className="add-music-title">Search &amp; Import Releases</div>
+                        <div className="add-music-desc">Search artists &amp; albums from Discogs 17.5M+ and Deezer</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="add-music-option"
+                      onClick={() => {
+                        setAddMusicMenuOpen(false);
+                        setNewTrackOpen(true);
+                      }}
+                    >
+                      <div style={{ padding: 6, borderRadius: 6, background: '#143825', color: '#34d399', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Plus size={16} />
+                      </div>
+                      <div>
+                        <div className="add-music-title">Add Track Manually</div>
+                        <div className="add-music-desc">Enter custom track metadata, duration &amp; catalog tags</div>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                className="btn-icon"
+                onClick={() => setBackupOpen(true)}
+                title="Backup &amp; Restore Library"
+                style={{ width: 30, height: 30 }}
+              >
+                <Layers size={14} />
+              </button>
+            </div>
+          </footer>
+        </div>
+      </div>
 
       {/* Metadata Edit Drawer */}
       <TrackEditDrawer
