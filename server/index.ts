@@ -17,6 +17,11 @@ import {
   getTrackById,
 } from './db';
 import {
+  executeFastSearch,
+  executeEnrichedSearch,
+  executeHybridSearch,
+} from './search';
+import {
   searchMusicBrainzReleases,
   getMusicBrainzReleaseDetails,
 } from './musicbrainz';
@@ -259,47 +264,19 @@ const server = Bun.serve({
               } catch {}
             };
 
-            // Tier 1: Fast Phase (Deezer releases & artists in ~60-80ms)
-            let deezerReleases: any[] = [];
-            let deezerArtists: any[] = [];
-
+            // Tier 1: Fast Phase (Deezer releases & artists in ~50ms, grouped into canonical albums)
+            let fastRes: any = null;
             try {
-              const [dReleases, dArtists] = await Promise.all([
-                searchDeezerReleases(query).catch(() => []),
-                searchDeezerArtists(query).catch(() => []),
-              ]);
-
-              deezerReleases = dReleases.map(d => ({
-                source: 'deezer' as const,
-                id: d.id,
-                title: d.title,
-                artist: d.artist,
-                year: d.year,
-                format: d.format,
-                catalog_no: d.catalog_no,
-                barcode: d.barcode,
-                country: d.country,
-                label: d.label,
-                thumb: d.thumb,
-                track_count: d.track_count,
-              }));
-
-              deezerArtists = dArtists.map(a => ({
-                source: 'deezer' as const,
-                id: a.id,
-                name: a.name,
-                thumb: a.thumb,
-                nb_album: a.nb_album,
-              }));
-
-              // Send immediate fast results
+              fastRes = await executeFastSearch(query);
               sendEvent('fast', {
-                artists: deezerArtists,
-                releases: deezerReleases,
+                artists: fastRes.artists,
+                albums: fastRes.albums,
                 counts: {
-                  artists: deezerArtists.length,
-                  deezerReleases: deezerReleases.length,
-                  discogsReleases: 0,
+                  artists: fastRes.artists.length,
+                  albums: fastRes.albums.length,
+                  totalVersions: fastRes.albums.reduce((acc: number, a: any) => acc + a.versions.length, 0),
+                  deezerCount: fastRes.deezerCount,
+                  discogsCount: 0,
                 },
                 discogsLoading: discogsEnabled,
                 discogsConfigured: discogsEnabled,
@@ -315,63 +292,20 @@ const server = Bun.serve({
               return;
             }
 
-            // Tier 2: Discogs Deep Phase (Physical pressings & vinyl in background)
+            // Tier 2: Discogs & MusicBrainz Phase (merges pressings and variants into canonical album versions)
             try {
-              const [discReleases, discArtists] = await Promise.all([
-                searchDiscogsReleases(query).catch(() => []),
-                searchDiscogsArtists(query).catch(() => []),
-              ]);
+              const fullRes = await executeEnrichedSearch(
+                query,
+                fastRes?.rawDeezerList || [],
+                fastRes?.artists || []
+              );
 
               if (isAborted) return;
 
-              const mappedDiscogsReleases = discReleases.map(d => ({
-                source: 'discogs' as const,
-                id: d.id,
-                title: d.title,
-                artist: d.artist,
-                year: d.year,
-                format: d.format,
-                catalog_no: d.catalog_no,
-                barcode: d.barcode,
-                country: d.country,
-                label: d.label,
-                thumb: d.thumb,
-                track_count: 0,
-              }));
-
-              const mappedDiscogsArtists = discArtists.map(a => ({
-                source: 'discogs' as const,
-                id: a.id,
-                name: a.name,
-                thumb: a.thumb,
-                nb_album: 0,
-              }));
-
-              // Merge and deduplicate artists
-              const artistMap = new Map<string, any>();
-              for (const a of [...mappedDiscogsArtists, ...deezerArtists]) {
-                const cleanName = a.name.replace(/\s\(\d+\)$/, '').trim();
-                const normKey = cleanName.toLowerCase();
-                if (!artistMap.has(normKey)) {
-                  artistMap.set(normKey, { ...a, name: cleanName });
-                } else {
-                  const existing = artistMap.get(normKey);
-                  if (!existing.thumb && a.thumb) existing.thumb = a.thumb;
-                  if (a.nb_album) existing.nb_album = a.nb_album;
-                }
-              }
-
-              const combinedArtists = Array.from(artistMap.values());
-              const combinedReleases = [...mappedDiscogsReleases, ...deezerReleases];
-
               sendEvent('discogs', {
-                artists: combinedArtists,
-                releases: combinedReleases,
-                counts: {
-                  artists: combinedArtists.length,
-                  deezerReleases: deezerReleases.length,
-                  discogsReleases: mappedDiscogsReleases.length,
-                },
+                artists: fullRes.artists,
+                albums: fullRes.albums,
+                counts: fullRes.counts,
                 discogsLoading: false,
                 discogsConfigured: true,
                 phase: 'discogs',
@@ -400,129 +334,16 @@ const server = Bun.serve({
         const discogsEnabled = isDiscogsConfigured();
 
         if (!query) {
-          return json({ artists: [], releases: [], discogsConfigured: discogsEnabled });
+          return json({ artists: [], albums: [], releases: [], discogsConfigured: discogsEnabled });
         }
 
-        // 1. Parallel search: Deezer releases & artists + Discogs releases & artists
-        const promises: Promise<any>[] = [
-          // [0] Deezer releases
-          searchDeezerReleases(query)
-            .then(items =>
-              items.map(d => ({
-                source: 'deezer' as const,
-                id: d.id,
-                title: d.title,
-                artist: d.artist,
-                year: d.year,
-                format: d.format,
-                catalog_no: d.catalog_no,
-                barcode: d.barcode,
-                country: d.country,
-                label: d.label,
-                thumb: d.thumb,
-                track_count: d.track_count,
-              }))
-            )
-            .catch(err => {
-              console.warn('[Hybrid] Deezer releases error:', err.message);
-              return [];
-            }),
-          // [1] Deezer artists
-          searchDeezerArtists(query)
-            .then(items =>
-              items.map(a => ({
-                source: 'deezer' as const,
-                id: a.id,
-                name: a.name,
-                thumb: a.thumb,
-                nb_album: a.nb_album,
-              }))
-            )
-            .catch(err => {
-              console.warn('[Hybrid] Deezer artists error:', err.message);
-              return [];
-            }),
-        ];
-
-        if (discogsEnabled) {
-          // [2] Discogs releases
-          promises.push(
-            searchDiscogsReleases(query)
-              .then(items =>
-                items.map(d => ({
-                  source: 'discogs' as const,
-                  id: d.id,
-                  title: d.title,
-                  artist: d.artist,
-                  year: d.year,
-                  format: d.format,
-                  catalog_no: d.catalog_no,
-                  barcode: d.barcode,
-                  country: d.country,
-                  label: d.label,
-                  thumb: d.thumb,
-                  track_count: 0,
-                }))
-              )
-              .catch(err => {
-                console.warn('[Hybrid] Discogs releases error:', err.message);
-                return [];
-              })
-          );
-          // [3] Discogs artists
-          promises.push(
-            searchDiscogsArtists(query)
-              .then(items =>
-                items.map(a => ({
-                  source: 'discogs' as const,
-                  id: a.id,
-                  name: a.name,
-                  thumb: a.thumb,
-                  nb_album: 0,
-                }))
-              )
-              .catch(err => {
-                console.warn('[Hybrid] Discogs artists error:', err.message);
-                return [];
-              })
-          );
-        }
-
-        const settled = await Promise.all(promises);
-        const deezerReleases = settled[0] || [];
-        const deezerArtists = settled[1] || [];
-        const discogsReleases = discogsEnabled ? (settled[2] || []) : [];
-        const discogsArtists = discogsEnabled ? (settled[3] || []) : [];
-
-        // Deduplicate artists by normalized name while preserving sources
-        const artistMap = new Map<string, any>();
-        for (const a of [...discogsArtists, ...deezerArtists]) {
-          // Clean "(2)", "(3)" suffix from Discogs titles if present
-          const cleanName = a.name.replace(/\s\(\d+\)$/, '').trim();
-          const normKey = cleanName.toLowerCase();
-          if (!artistMap.has(normKey)) {
-            artistMap.set(normKey, { ...a, name: cleanName });
-          } else {
-            // If existing doesn't have thumb, take this one
-            const existing = artistMap.get(normKey);
-            if (!existing.thumb && a.thumb) existing.thumb = a.thumb;
-            if (a.nb_album) existing.nb_album = a.nb_album;
-          }
-        }
-        const combinedArtists = Array.from(artistMap.values());
-
-        // Combine: Discogs physical pressings + Deezer digital releases
-        const combinedReleases = [...discogsReleases, ...deezerReleases];
-
+        const result = await executeHybridSearch(query);
         return json({
-          artists: combinedArtists,
-          releases: combinedReleases,
-          discogsConfigured: discogsEnabled,
-          counts: {
-            artists: combinedArtists.length,
-            discogsReleases: discogsReleases.length,
-            deezerReleases: deezerReleases.length,
-          },
+          artists: result.artists,
+          albums: result.albums,
+          releases: result.albums.map(a => a.versions[0]).filter(Boolean),
+          counts: result.counts,
+          discogsConfigured: result.discogsConfigured,
         });
       }
 

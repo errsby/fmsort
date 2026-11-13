@@ -1,4 +1,4 @@
-import type { LibraryNode, Track } from './types';
+import type { LibraryNode, Track, GroupedAlbum, ReleaseVersion, UnifiedReleaseSummary } from './types';
 
 export const fmtDuration = (s: number): string => {
   if (!s || isNaN(s)) return '0:00';
@@ -68,3 +68,115 @@ export const findNodePath = (
   }
   return null;
 };
+
+export function normalizeArtistName(artist: string): string {
+  if (!artist) return '';
+  return artist
+    .replace(/\s\(\d+\)$/, '')
+    .trim()
+    .toLowerCase()
+    .replace(/^the\s+/, '')
+    .replace(/[^\w\s]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+export function normalizeAlbumName(title: string): string {
+  if (!title) return '';
+  let clean = title
+    .replace(
+      /\s*[\(\[\{](?:(?:deluxe|remaster(?:ed)?|expanded|anniversary|special|collector'?s?|bonus(?:\s+tracks?)?|standard|explicit|clean|international|japan|us|uk|eu|vinyl|cd|2lp|lp|digital|limited|mono|stereo|reissue|edition|ver\.?|version|audiophile|box\s*set).*?)[\)\]\}]/gi,
+      ''
+    )
+    .replace(/\s*[\(\[]\d{4}(?:-\d{4})?[\)\]]/g, '')
+    .replace(/\s*-\s*(?:single|ep|lp)\s*$/i, '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^\w\s]/g, '')
+    .replace(/\s+/g, ' ');
+
+  return clean || title.trim().toLowerCase();
+}
+
+export function groupRawReleases(releases: UnifiedReleaseSummary[]): GroupedAlbum[] {
+  const map = new Map<string, GroupedAlbum>();
+
+  for (const item of releases) {
+    if (!item.title) continue;
+
+    const normArt = normalizeArtistName(item.artist);
+    const normTit = normalizeAlbumName(item.title);
+    const key = `${normArt}:::${normTit}`;
+
+    const srcName = item.source.toUpperCase();
+    const parts = [srcName];
+    if (item.format) {
+      parts.push(item.format.replace(/,\s*Album/i, '').replace(/,\s*Stereo/i, '').trim());
+    } else if (item.source === 'deezer') {
+      parts.push('Digital');
+    }
+    if (item.country && item.country !== '—') parts.push(item.country);
+    if (item.year && item.year > 0) parts.push(item.year.toString());
+    if (item.track_count && item.track_count > 0) parts.push(`${item.track_count} tracks`);
+
+    const version: ReleaseVersion = {
+      source: item.source,
+      id: item.id,
+      title: item.title,
+      artist: item.artist.replace(/\s\(\d+\)$/, '').trim(),
+      year: item.year || 0,
+      format: item.format || (item.source === 'deezer' ? 'Digital Album' : 'Release'),
+      catalog_no: item.catalog_no || '—',
+      barcode: item.barcode || '—',
+      country: item.country || '—',
+      label: item.label || '—',
+      thumb: item.thumb || '',
+      track_count: item.track_count || 0,
+      badgeLabel: parts.join(' · '),
+    };
+
+    if (!map.has(key)) {
+      const displayTitle = item.title
+        .replace(
+          /\s*[\(\[\{](?:(?:deluxe|remaster(?:ed)?|expanded|anniversary|special|collector'?s?|bonus(?:\s+tracks?)?|standard|explicit|clean|international|japan|us|uk|eu|vinyl|cd|2lp|lp|digital|limited|mono|stereo|reissue|edition|ver\.?|version).*?)[\)\]\}]/gi,
+          ''
+        )
+        .replace(/\s*[\(\[]\d{4}(?:-\d{4})?[\)\]]/g, '')
+        .trim() || item.title;
+
+      const displayArtist = item.artist.replace(/\s\(\d+\)$/, '').trim();
+
+      map.set(key, {
+        id: `album-${key.replace(/[^\w-]/g, '_')}`,
+        title: displayTitle,
+        artist: displayArtist,
+        thumb: item.thumb || '',
+        originalYear: item.year || 0,
+        primaryFormat: item.format || (item.source === 'deezer' ? 'Digital Album' : 'Album'),
+        sources: [item.source],
+        versions: [version],
+      });
+    } else {
+      const album = map.get(key)!;
+      if (!album.sources.includes(item.source)) album.sources.push(item.source);
+      if (!album.thumb && item.thumb) album.thumb = item.thumb;
+      if (item.year && item.year > 0 && (!album.originalYear || item.year < album.originalYear)) {
+        album.originalYear = item.year;
+      }
+      const exists = album.versions.some(
+        v => v.source === item.source && v.id.toString() === item.id.toString()
+      );
+      if (!exists) album.versions.push(version);
+    }
+  }
+
+  const result = Array.from(map.values());
+  for (const album of result) {
+    album.versions.sort((a, b) => {
+      if (a.source === 'deezer' && b.source !== 'deezer') return -1;
+      if (b.source === 'deezer' && a.source !== 'deezer') return 1;
+      if (a.year && b.year && a.year !== b.year) return a.year - b.year;
+      return 0;
+    });
+  }
+  return result;
+}

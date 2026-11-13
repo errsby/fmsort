@@ -105,15 +105,47 @@ export interface UnifiedReleaseSummary {
   track_count?: number;
 }
 
+export interface ReleaseVersion {
+  source: 'discogs' | 'deezer' | 'musicbrainz';
+  id: string | number;
+  title: string;
+  artist: string;
+  year: number;
+  format: string;
+  catalog_no: string;
+  barcode: string;
+  country: string;
+  label: string;
+  thumb: string;
+  track_count?: number;
+  badgeLabel: string;
+}
+
+export interface GroupedAlbum {
+  id: string;
+  title: string;
+  artist: string;
+  thumb: string;
+  originalYear: number;
+  primaryFormat: string;
+  sources: ('discogs' | 'deezer' | 'musicbrainz')[];
+  versions: ReleaseVersion[];
+}
+
 export interface HybridSearchResponse {
   artists: UnifiedArtistSummary[];
+  albums?: GroupedAlbum[];
   releases: UnifiedReleaseSummary[];
   discogsConfigured: boolean;
   discogsLoading?: boolean;
   phase?: 'fast' | 'discogs' | 'done';
   counts?: {
     artists: number;
-    discogsReleases: number;
-    deezerReleases: number;
+    albums?: number;
+    totalVersions?: number;
+    deezerCount?: number;
+    discogsCount?: number;
+    discogsReleases?: number;
+    deezerReleases?: number;
   };
 }
